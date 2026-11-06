@@ -1,0 +1,22 @@
+@* ClassRow: a compact class row — a date block, the title, "time · teacher", and the status badge or Join (only while
+   joinable now). The row opens the class. Used by a subject's Classes/Syllabus tabs and the teacher dialog on Home. *@
+@{
+    var s = Session;
+    var local = Time.ToLocal(s.StartUtc, Tz);
+    var joinable = JoinRules.JoinableNow(s, DateTime.UtcNow);
+}
+<div class="class-row @(s.Status == SessionStatus.Cancelled ? "cancelled" : "")">
+    <span class="date-block" aria-hidden="true"><span class="m">@local.ToString("MMM", System.Globalization.CultureInfo.InvariantCulture).ToUpperInvariant()</span><span class="d">@local.Day</span></span>
+    <div class="grow">
+        <a class="class-row-title stretched truncate" href="/sessions/@s.Id"><span class="sr-only">@local.ToString("dddd d MMMM", System.Globalization.CultureInfo.InvariantCulture), </span>@s.Title</a>
+        <div class="caption truncate">@Time.Clock(s.StartUtc, Tz)@(ShowTeacher ? $" · {People.ShortName(s.TeacherName)}" : "")</div>
+    </div>
+    @if (joinable) { <JoinButton SessionId="s.Id" Live="@(s.Status == SessionStatus.Live)" Title="@s.Title" Small="true" /> }
+    else { <Badge Style="StatusStyles.For(s.Status)" /> }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SessionListItemDto Session { get; set; } = default!;
+    [Parameter, EditorRequired] public string Tz { get; set; } = "UTC";
+    [Parameter] public bool ShowTeacher { get; set; } = true;
+}

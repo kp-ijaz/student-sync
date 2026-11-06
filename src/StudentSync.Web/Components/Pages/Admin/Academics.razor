@@ -1,0 +1,230 @@
+@page "/admin/academics"
+@attribute [Authorize(Roles = "InstitutionAdmin")]
+@inherits AppPage
+
+<PageHeader Title="Academic structure" Subtitle="Syllabi, academic years, classes, courses, subjects and chapters for your institution." />
+<div class="tabs" role="tablist">
+    @foreach (var (k, l) in new[] { ("courses", "Courses & subjects"), ("curricula", "Syllabi"), ("years", "Academic years"), ("grades", "Grades") })
+    { <button role="tab" aria-selected="@(Aria.Bool(_tab == k))" @onclick="() => _tab = k">@l</button> }
+</div>
+<DataView Loading="_courses is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_tab == "courses")
+    {
+        <div class="row-between" style="margin-bottom:16px"><p class="muted" style="margin:0">Courses contain subjects; subjects contain chapters and topics.</p>
+            <div class="btn-group"><button class="btn btn-secondary" @onclick="NewSubject">Add subject</button><button class="btn btn-primary" @onclick="NewCourse"><Icon Name="plus" /> Add course</button></div></div>
+        <div class="stack">
+            @foreach (var c in _courses ?? [])
+            {
+                <div class="card">
+                    <div class="card-head"><div><h2>@c.Name <span class="caption">@c.Code</span></h2><div class="caption">@(c.GradeLevelName ?? "No grade") · @c.StudentCount enrolled · @c.Status</div></div>
+                        <div class="btn-group"><button class="btn btn-secondary btn-sm" @onclick="() => EditCourse(c)">Edit</button><button class="btn btn-secondary btn-sm" @onclick="() => OpenEnrol(c)">Enrolments</button></div></div>
+                    @foreach (var s in _subjects.Where(s => s.CourseId == c.Id))
+                    {
+                        <div style="border-top:1px solid var(--ss-border);padding-top:12px;margin-top:12px">
+                            <div class="row-between"><div><strong>@s.Name</strong> <span class="caption">@s.Code</span> @if (s.Kind != SubjectKind.Core) { <span class="badge @(s.Kind == SubjectKind.LanguageOption ? "violet" : "orange")">@KindLabel(s)</span> }
+                                <div class="pill-list" style="margin-top:4px">@foreach (var t in s.Teachers) { <span class="badge removable blue"><span>@t.Name</span><button type="button" class="chip-remove" aria-label="Unassign @t.Name" title="Unassign" @onclick="() => Unassign(s, t.Id)"><Icon Name="x" /></button></span> }</div></div>
+                                <div class="btn-group"><button class="btn btn-ghost btn-sm" @onclick="() => EditSubject(s)">Edit</button><button class="btn btn-ghost btn-sm" @onclick="() => OpenAssign(s)">Assign teacher</button><button class="btn btn-ghost btn-sm" @onclick="() => OpenChapter(s)">Add chapter</button></div></div>
+                            <ul class="small" style="margin:8px 0 0">@foreach (var ch in s.Chapters) { <li>@ch.Title @if (ch.Topics.Count > 0) { <span class="caption">— @string.Join(", ", ch.Topics.Select(t => t.Title))</span> } <button class="btn btn-ghost btn-sm" @onclick="() => OpenTopic(ch)">+ topic</button></li> }</ul>
+                        </div>
+                    }
+                </div>
+            }
+            @if (_courses?.Count == 0) { <div class="card state"><Icon Name="book" /><h3>No courses yet</h3><p>Add your first course to start organising subjects.</p></div> }
+        </div>
+    }
+    @if (_tab == "curricula")
+    {
+        <div class="row-between" style="margin-bottom:16px"><p class="muted" style="margin:0">The boards or syllabi your students follow, for example NCERT or Kerala State. Each student's profile records theirs.</p>
+            <button class="btn btn-primary" @onclick="NewCurriculum"><Icon Name="plus" /> Add syllabus</button></div>
+        <div class="card">
+            @if (_curricula.Count == 0) { <InlineEmpty Icon="book" Text="No syllabi yet. Add NCERT, Kerala State or any other board you teach." /> }
+            else
+            {
+                <ul class="list">@foreach (var c in _curricula)
+                {
+                    <li class="row-between"><div><strong>@c.Name</strong> <span class="caption">@c.Code · @c.StudentCount student@(c.StudentCount == 1 ? "" : "s")</span> @if (c.Status != CatalogStatus.Active) { <span class="badge slate">@c.Status</span> }</div>
+                        <button class="btn btn-ghost btn-sm" @onclick="() => EditCurriculum(c)">Edit</button></li>
+                }</ul>
+            }
+        </div>
+    }
+    @if (_tab == "years")
+    {
+        <div class="row-between" style="margin-bottom:16px"><span></span><button class="btn btn-primary" @onclick="() => { _yearName = string.Empty; _yearOpen = true; }"><Icon Name="plus" /> Add academic year</button></div>
+        <div class="stack">@foreach (var y in _years) { <div class="card"><div class="row-between"><div><h2>@y.Name @if (y.IsCurrent) { <span class="badge green">Current</span> }</h2><div class="caption">@y.StartDate.ToString("d MMM yyyy") – @y.EndDate.ToString("d MMM yyyy")</div></div><button class="btn btn-secondary btn-sm" @onclick="() => OpenTerm(y)">Add term</button></div>
+            <ul>@foreach (var t in y.Terms) { <li>@t.Name: @t.StartDate.ToString("d MMM") – @t.EndDate.ToString("d MMM yyyy")</li> }</ul></div> }</div>
+    }
+    @if (_tab == "grades")
+    {
+        <div class="card"><div class="row" style="margin-bottom:12px"><input class="input" style="max-width:240px" placeholder="Grade name" aria-label="Grade name" @bind="_gradeName" /><input type="number" class="input" style="max-width:100px" aria-label="Order" @bind="_gradeOrder" /><button class="btn btn-primary" @onclick="AddGrade" disabled="@Busy">Add grade</button></div>
+            <ul class="list">@foreach (var g in _grades) { <li>@g.Name <span class="caption">order @g.SortOrder</span></li> }</ul></div>
+    }
+</DataView>
+
+<Modal @bind-Open="_curriculumOpen" Title="@(_curriculumId is null ? "Add syllabus" : "Edit syllabus")">
+    <div class="form-grid">
+        <div class="field"><label for="cuc">Code *</label><input id="cuc" class="input" maxlength="30" placeholder="e.g. NCERT" @bind="_cuCode" /></div>
+        <div class="field"><label for="cun">Name *</label><input id="cun" class="input" maxlength="100" placeholder="e.g. Kerala State (SCERT)" @bind="_cuName" /></div>
+        <div class="field"><label for="cus">Status</label><select id="cus" class="select" @bind="_cuStatus">@foreach (var s in Enum.GetValues<CatalogStatus>()) { <option value="@s">@s</option> }</select></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _curriculumOpen = false">Cancel</button><button class="btn btn-primary" @onclick="SaveCurriculum" disabled="@Busy">Save</button></div>
+</Modal>
+<Modal @bind-Open="_courseOpen" Title="@(_courseId is null ? "Add course" : "Edit course")">
+    <div class="form-grid">
+        <div class="field"><label for="cc">Code *</label><input id="cc" class="input" @bind="_cCode" /></div>
+        <div class="field"><label for="cn">Name *</label><input id="cn" class="input" @bind="_cName" /></div>
+        <div class="field"><label for="cg">Grade</label><select id="cg" class="select" @bind="_cGrade"><option value="">—</option>@foreach (var g in _grades) { <option value="@g.Id">@g.Name</option> }</select></div>
+        <div class="field"><label for="cy">Academic year</label><select id="cy" class="select" @bind="_cYear"><option value="">—</option>@foreach (var y in _years) { <option value="@y.Id">@y.Name</option> }</select></div>
+        <div class="field"><label for="cs">Status</label><select id="cs" class="select" @bind="_cStatus">@foreach (var s in Enum.GetValues<CatalogStatus>()) { <option value="@s">@s</option> }</select></div>
+        <div class="field full"><label for="cd">Description</label><textarea id="cd" class="textarea" @bind="_cDesc"></textarea></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _courseOpen = false">Cancel</button><button class="btn btn-primary" @onclick="SaveCourse" disabled="@Busy">Save</button></div>
+</Modal>
+<Modal @bind-Open="_subjectOpen" Title="@(_subjectId is null ? "Add subject" : "Edit subject")">
+    <div class="form-grid">
+        <div class="field"><label for="sc2">Course *</label><select id="sc2" class="select" @bind="_sCourse"><option value="">Choose…</option>@foreach (var c in _courses ?? []) { <option value="@c.Id">@c.Name</option> }</select></div>
+        <div class="field"><label for="sco">Code *</label><input id="sco" class="input" @bind="_sCode" /></div>
+        <div class="field full"><label for="sna">Name *</label><input id="sna" class="input" @bind="_sName" /></div>
+        <div class="field"><label for="skd">Kind</label>
+            <select id="skd" class="select" @bind="_sKind">
+                <option value="@SubjectKind.Core">Core</option>
+                <option value="@SubjectKind.LanguageOption">Language option</option>
+                <option value="@SubjectKind.Additional">Additional</option>
+            </select>
+            <span class="help">@(_sKind switch { SubjectKind.Core => "Every student enrolled in the course takes it.", SubjectKind.LanguageOption => "Each student takes the option chosen for them in its group.", _ => "Only students it is assigned to on their profile." })</span></div>
+        <div class="field"><label for="scg">Choice group@(_sKind == SubjectKind.LanguageOption ? " *" : "")</label>
+            <input id="scg" class="input" list="choice-groups" placeholder="@(_sKind == SubjectKind.LanguageOption ? "e.g. Second language" : "Optional label, e.g. Elective")" disabled="@(_sKind == SubjectKind.Core)" @bind="_sGroup" />
+            <datalist id="choice-groups">@foreach (var g in _subjects.Where(x => x.ChoiceGroup is not null).Select(x => x.ChoiceGroup!).Distinct().Order()) { <option value="@g"></option> }</datalist>
+            <span class="help">@(_sKind switch { SubjectKind.Core => "Core subjects have no choice group.", SubjectKind.LanguageOption => "For example \"Second language\" or \"Third language\".", _ => "Optional label, for example \"Elective\"." })</span></div>
+        @if (_subjectId is not null) { <div class="field"><label for="sst2">Status</label><select id="sst2" class="select" @bind="_sStatus">@foreach (var st in Enum.GetValues<CatalogStatus>()) { <option value="@st">@st</option> }</select></div> }
+    </div>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _subjectOpen = false">Cancel</button><button class="btn btn-primary" @onclick="SaveSubject" disabled="@Busy">Save</button></div>
+</Modal>
+<Modal Open="_chapterFor is not null" OpenChanged="_ => _chapterFor = null" Title="@($"Add chapter to {_chapterFor?.Name}")">
+    <div class="stack"><div class="field"><label for="cht">Title</label><input id="cht" class="input" @bind="_text" /></div>
+        <div class="form-actions"><button class="btn btn-primary" @onclick="SaveChapter" disabled="@Busy">Add</button></div></div>
+</Modal>
+<Modal Open="_topicFor is not null" OpenChanged="_ => _topicFor = null" Title="@($"Add topic to {_topicFor?.Title}")">
+    <div class="stack"><div class="field"><label for="tpt">Title</label><input id="tpt" class="input" @bind="_text" /></div>
+        <div class="form-actions"><button class="btn btn-primary" @onclick="SaveTopic" disabled="@Busy">Add</button></div></div>
+</Modal>
+<Modal Open="_assignFor is not null" OpenChanged="_ => _assignFor = null" Title="@($"Assign a teacher to {_assignFor?.Name}")">
+    <div class="stack"><div class="field"><label for="at">Teacher</label><select id="at" class="select" @bind="_teacherId"><option value="">Choose…</option>@foreach (var t in _teachers) { <option value="@t.Id">@t.FullName</option> }</select></div>
+        <div class="form-actions"><button class="btn btn-primary" @onclick="Assign" disabled="@(Busy || _teacherId is null)">Assign</button></div></div>
+</Modal>
+<Modal Open="_enrolFor is not null" OpenChanged="_ => _enrolFor = null" Title="@($"Enrolments — {_enrolFor?.Name}")" Wide="true">
+    <div class="stack">
+        <div class="row"><select class="select grow" @bind="_enrolStudent" aria-label="Student to enrol"><option value="">Enrol a student…</option>@foreach (var s in _lookup.Where(l => _enrolments.All(e => e.StudentId != l.Id || e.Status != EnrolmentStatus.Active))) { <option value="@s.Id">@s.Name (@s.Detail)</option> }</select>
+            <button class="btn btn-primary" @onclick="Enrol" disabled="@(Busy || _enrolStudent is null)">Enrol</button></div>
+        <div class="table-wrap"><table class="table stack-mobile"><thead><tr><th>Student</th><th>Status</th><th>Since</th><th></th></tr></thead>
+            <tbody>@foreach (var e in _enrolments) { <tr><td data-label="Student">@e.StudentName</td><td data-label="Status">@e.Status</td><td data-label="Since" class="small">@Time.Date(e.EnrolledAtUtc, Tz)</td><td>@if (e.Status == EnrolmentStatus.Active) { <button class="btn btn-ghost btn-sm" @onclick="() => Withdraw(e)">Withdraw</button> }</td></tr> }</tbody></table></div>
+    </div>
+</Modal>
+<Modal @bind-Open="_yearOpen" Title="Add academic year">
+    <div class="form-grid">
+        <div class="field full"><label for="yn">Name</label><input id="yn" class="input" placeholder="2026–27" @bind="_yearName" /></div>
+        <div class="field"><label for="ys">Starts</label><input id="ys" type="date" class="input" @bind="_yStart" /></div>
+        <div class="field"><label for="ye">Ends</label><input id="ye" type="date" class="input" @bind="_yEnd" /></div>
+        <div class="field full"><label class="check"><input type="checkbox" @bind="_yCurrent" /> Current year</label></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-primary" @onclick="SaveYear" disabled="@Busy">Save</button></div>
+</Modal>
+<Modal Open="_termFor is not null" OpenChanged="_ => _termFor = null" Title="@($"Add term to {_termFor?.Name}")">
+    <div class="form-grid">
+        <div class="field full"><label for="tn2">Name</label><input id="tn2" class="input" @bind="_text" /></div>
+        <div class="field"><label for="ts2">Starts</label><input id="ts2" type="date" class="input" @bind="_yStart" /></div>
+        <div class="field"><label for="te2">Ends</label><input id="te2" type="date" class="input" @bind="_yEnd" /></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-primary" @onclick="SaveTerm" disabled="@Busy">Add term</button></div>
+</Modal>
+
+@code {
+    private string _tab = "courses";
+    private List<CourseDto>? _courses;
+    private ApiException? _error;
+    private List<SubjectDto> _subjects = [];
+    private List<GradeLevelDto> _grades = [];
+    private List<CurriculumDto> _curricula = [];
+    private List<AcademicYearDto> _years = [];
+    private List<TeacherDto> _teachers = [];
+    private List<LookupItem> _lookup = [];
+    private List<CourseEnrolmentDto> _enrolments = [];
+    private bool _courseOpen, _subjectOpen, _yearOpen, _yCurrent, _curriculumOpen;
+    private Guid? _curriculumId;
+    private string _cuCode = "", _cuName = "";
+    private CatalogStatus _cuStatus = CatalogStatus.Active;
+    private Guid? _courseId, _cGrade, _cYear, _sCourse, _teacherId, _enrolStudent, _subjectId;
+    private SubjectKind _sKind = SubjectKind.Core;
+    private CatalogStatus _sStatus = CatalogStatus.Active;
+    private string? _sGroup, _sDesc;
+    private string _cCode = "", _cName = "", _sCode = "", _sName = "", _text = "", _gradeName = "", _yearName = "";
+    private string? _cDesc;
+    private int _gradeOrder = 1;
+    private CatalogStatus _cStatus = CatalogStatus.Active;
+    private SubjectDto? _chapterFor, _assignFor;
+    private ChapterDto? _topicFor;
+    private CourseDto? _enrolFor;
+    private AcademicYearDto? _termFor;
+    private DateOnly _yStart = DateOnly.FromDateTime(DateTime.Today), _yEnd = DateOnly.FromDateTime(DateTime.Today.AddMonths(10));
+
+    protected override async Task LoadAsync()
+    {
+        try
+        {
+            _courses = await Api.GetAsync<List<CourseDto>>("academics/courses");
+            _subjects = await Api.GetAsync<List<SubjectDto>>("academics/subjects");
+            _grades = await Api.GetAsync<List<GradeLevelDto>>("academics/grades");
+            _curricula = await Api.GetAsync<List<CurriculumDto>>("academics/curricula");
+            _years = await Api.GetAsync<List<AcademicYearDto>>("academics/years");
+        }
+        catch (ApiException ex) { _error = ex; }
+    }
+
+    private void NewCurriculum() { (_curriculumId, _cuCode, _cuName, _cuStatus) = (null, "", "", CatalogStatus.Active); _curriculumOpen = true; }
+    private void EditCurriculum(CurriculumDto c) { (_curriculumId, _cuCode, _cuName, _cuStatus) = (c.Id, c.Code, c.Name, c.Status); _curriculumOpen = true; }
+    private async Task SaveCurriculum()
+    {
+        var req = new SaveCurriculumRequest(_cuCode, _cuName, _cuStatus);
+        if (await Run(() => _curriculumId is null ? Api.PostAsync("academics/curricula", req) : Api.PutAsync($"academics/curricula/{_curriculumId}", req), "Syllabus saved.")) { _curriculumOpen = false; await LoadAsync(); }
+    }
+    private void NewCourse() { (_courseId, _cCode, _cName, _cGrade, _cYear, _cDesc, _cStatus) = (null, "", "", null, null, null, CatalogStatus.Active); _courseOpen = true; }
+    private void EditCourse(CourseDto c) { (_courseId, _cCode, _cName, _cGrade, _cDesc, _cStatus) = (c.Id, c.Code, c.Name, c.GradeLevelId, c.Description, c.Status); _courseOpen = true; }
+    private async Task SaveCourse()
+    {
+        var req = new SaveCourseRequest(_cCode, _cName, _cDesc, _cGrade, _cYear, _cStatus);
+        if (await Run(() => _courseId is null ? Api.PostAsync("academics/courses", req) : Api.PutAsync($"academics/courses/{_courseId}", req), "Course saved.")) { _courseOpen = false; await LoadAsync(); }
+    }
+    private void NewSubject() { (_subjectId, _sCourse, _sCode, _sName, _sDesc, _sStatus, _sKind, _sGroup) = (null, _courses?.FirstOrDefault()?.Id, "", "", null, CatalogStatus.Active, SubjectKind.Core, null); _subjectOpen = true; }
+    private void EditSubject(SubjectDto s) { (_subjectId, _sCourse, _sCode, _sName, _sDesc, _sStatus, _sKind, _sGroup) = (s.Id, s.CourseId, s.Code, s.Name, s.Description, s.Status, s.Kind, s.ChoiceGroup); _subjectOpen = true; }
+    private static string KindLabel(SubjectDto s) => s.Kind switch
+    {
+        SubjectKind.LanguageOption => $"Language · {s.ChoiceGroup}",
+        _ => s.ChoiceGroup is null ? "Additional" : $"Additional · {s.ChoiceGroup}",
+    };
+    private async Task SaveSubject()
+    {
+        if (_sCourse is not { } c) { Toasts.Show("Choose a course.", ToastKind.Error); return; }
+        if (_sKind == SubjectKind.LanguageOption && string.IsNullOrWhiteSpace(_sGroup)) { Toasts.Show("A language option needs a choice group, for example \"Second language\".", ToastKind.Error); return; }
+        var req = new SaveSubjectRequest(c, _sCode, _sName, _sDesc, _sStatus, _sKind, _sKind == SubjectKind.Core ? null : _sGroup);
+        if (await Run(() => _subjectId is null ? Api.PostAsync("academics/subjects", req) : Api.PutAsync($"academics/subjects/{_subjectId}", req), _subjectId is null ? "Subject added." : "Subject saved.")) { _subjectOpen = false; await LoadAsync(); }
+    }
+    private void OpenChapter(SubjectDto s) { _chapterFor = s; _text = ""; }
+    private async Task SaveChapter() { if (await Run(() => Api.PostAsync($"academics/subjects/{_chapterFor!.Id}/chapters", new SaveChapterRequest(_text, _chapterFor.Chapters.Count + 1)), "Chapter added.")) { _chapterFor = null; await LoadAsync(); } }
+    private void OpenTopic(ChapterDto c) { _topicFor = c; _text = ""; }
+    private async Task SaveTopic() { if (await Run(() => Api.PostAsync($"academics/chapters/{_topicFor!.Id}/topics", new SaveTopicRequest(_text, _topicFor.Topics.Count + 1)), "Topic added.")) { _topicFor = null; await LoadAsync(); } }
+    private async Task OpenAssign(SubjectDto s) { _assignFor = s; _teacherId = null; _teachers = (await Fetch(() => Api.GetAsync<PagedResult<TeacherDto>>("teachers?pageSize=100&status=Active"))).Value?.Items.ToList() ?? []; }
+    private async Task Assign() { if (await Run(() => Api.PostAsync($"academics/subjects/{_assignFor!.Id}/teachers", new AssignTeacherRequest(_teacherId!.Value)), "Teacher assigned.")) { _assignFor = null; await LoadAsync(); } }
+    private async Task Unassign(SubjectDto s, Guid t) { if (await Run(() => Api.DeleteAsync($"academics/subjects/{s.Id}/teachers/{t}"), "Teacher unassigned.")) await LoadAsync(); }
+    private async Task OpenEnrol(CourseDto c)
+    {
+        _enrolFor = c; _enrolStudent = null;
+        _enrolments = (await Fetch(() => Api.GetAsync<List<CourseEnrolmentDto>>($"academics/courses/{c.Id}/enrolments"))).Value ?? [];
+        _lookup = (await Fetch(() => Api.GetAsync<List<LookupItem>>("students/lookup"))).Value ?? [];
+    }
+    private async Task Enrol() { if (await Run(() => Api.PostAsync($"academics/courses/{_enrolFor!.Id}/enrolments", new EnrolStudentRequest(_enrolStudent!.Value)), "Student enrolled.")) await OpenEnrol(_enrolFor!); }
+    private async Task Withdraw(CourseEnrolmentDto e) { if (await Run(() => Api.DeleteAsync($"academics/courses/{e.CourseId}/enrolments/{e.StudentId}"), "Enrolment withdrawn.")) await OpenEnrol(_enrolFor!); }
+    private async Task AddGrade() { if (await Run(() => Api.PostAsync("academics/grades", new SaveGradeLevelRequest(_gradeName, _gradeOrder)), "Grade added.")) { _gradeName = ""; await LoadAsync(); } }
+    private async Task SaveYear() { if (await Run(() => Api.PostAsync("academics/years", new SaveAcademicYearRequest(_yearName, _yStart, _yEnd, _yCurrent)), "Academic year added.")) { _yearOpen = false; await LoadAsync(); } }
+    private void OpenTerm(AcademicYearDto y) { _termFor = y; _text = ""; (_yStart, _yEnd) = (y.StartDate, y.EndDate); }
+    private async Task SaveTerm() { if (await Run(() => Api.PostAsync($"academics/years/{_termFor!.Id}/terms", new SaveTermRequest(_text, _yStart, _yEnd)), "Term added.")) { _termFor = null; await LoadAsync(); } }
+}

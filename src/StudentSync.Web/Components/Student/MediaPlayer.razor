@@ -1,0 +1,69 @@
+@inject ApiClient Api
+@inject IJSRuntime JS
+@inject IConfiguration Config
+@inject ToastService Toasts
+@* MediaPlayer: plays an unlocked pre-recorded video or a class recording in a dialog. The file is fetched through a
+   short-lived, user-bound link (GET files/{id}/link); locked videos never reach this (the API returns no FileId for them).
+   For a student's recording, the position is saved on pause/end so playback can resume (never used for ranking). *@
+<Modal Open="Item is not null" OpenChanged="OnOpenChanged" Title="@(Item?.Title ?? "")" Wide="true">
+    @if (_src is not null)
+    {
+        <video @ref="_video" src="@_src" controls controlslist="nodownload" preload="metadata" class="video-player" autoplay
+               @onpause="() => SaveProgress(false)" @onended="() => SaveProgress(true)"></video>
+        <p class="caption" style="margin:8px 0 0">Playback links expire after 30 minutes.@(Item?.RecordingId is not null ? " Your position is saved so you can resume later." : "")</p>
+    }
+    else if (_error is not null)
+    {
+        <StateView Compact="true" Icon="alert" Tone="red" Title="We couldn't open this video" Message="@_error" Role="alert" />
+    }
+    else
+    {
+        <LoadingView Label="Opening video" />
+    }
+</Modal>
+
+@code {
+    /// <summary>What to play: a title, the file and — for a recording — its id and resume position.</summary>
+    public sealed record Playable(string Title, Guid FileId, Guid? RecordingId = null, int? ResumeSeconds = null);
+
+    [Parameter] public Playable? Item { get; set; }
+    [Parameter] public EventCallback<Playable?> ItemChanged { get; set; }
+    /// <summary>True for students: their recording position is saved.</summary>
+    [Parameter] public bool SaveRecordingProgress { get; set; }
+
+    private string? _src, _error;
+    private Guid? _loadedFile;
+    private ElementReference _video;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Item is null) { _src = null; _error = null; _loadedFile = null; return; }
+        if (_loadedFile == Item.FileId) return;
+        _loadedFile = Item.FileId;
+        _src = null; _error = null;
+        try
+        {
+            var link = await Api.GetAsync<FileLinkDto>($"files/{Item.FileId}/link");
+            _src = Config["Api:PublicBaseUrl"]!.TrimEnd('/') + link.Url + (Item.ResumeSeconds is > 0 ? $"#t={Item.ResumeSeconds}" : "");
+        }
+        catch (ApiException ex) { _error = ex.Describe(); }
+    }
+
+    private async Task OnOpenChanged(bool open)
+    {
+        if (open) return;
+        await SaveProgress(false);
+        await ItemChanged.InvokeAsync(null);
+    }
+
+    private async Task SaveProgress(bool completed)
+    {
+        if (!SaveRecordingProgress || Item?.RecordingId is not { } id || _src is null) return;
+        try
+        {
+            var position = await JS.InvokeAsync<double>("ss.currentTime", _video);
+            await Api.PostAsync($"recordings/{id}/progress", new RecordingProgressRequest((int)position, completed));
+        }
+        catch (Exception ex) when (ex is ApiException or JSException or InvalidOperationException) { /* best effort: resume is a convenience */ }
+    }
+}

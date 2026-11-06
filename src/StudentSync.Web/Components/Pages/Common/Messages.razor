@@ -1,0 +1,91 @@
+@page "/messages"
+@page "/messages/{Id:guid}"
+@attribute [Authorize]
+@inherits AppPage
+@implements IDisposable
+@inject RealtimeService Realtime
+
+<PageHeader Title="Messages" Subtitle="Private conversations with the people you learn and teach with.">
+    <Actions><button class="btn btn-primary" @onclick="OpenNew"><Icon Name="plus" /> New message</button></Actions>
+</PageHeader>
+<div class="grid" style="grid-template-columns:minmax(0,1fr) minmax(0,2fr)">
+    <div class="card tight" style="@(Id is not null ? "" : "")">
+        <DataView Loading="_convos is null && _error is null" Error="_error" OnRetry="LoadAsync" IsEmpty="_convos?.Count == 0" EmptyTitle="No conversations yet" EmptyIcon="message">
+            <ul class="list">@foreach (var c in _convos ?? []) { <li><a href="/messages/@c.Id" style="display:block;@(c.Id == Id ? "font-weight:700" : "")"><div class="row-between"><span class="truncate">@c.Title</span>@if (c.UnreadCount > 0) { <span class="badge blue">@c.UnreadCount</span> }</div>
+                <div class="caption truncate">@c.LastMessagePreview</div></a></li> }</ul>
+        </DataView>
+    </div>
+    <div class="card">
+        @if (Id is null) { <div class="state"><Icon Name="message" /><h3>Select a conversation</h3><p>Or start a new one with a teacher, student or parent you're connected to.</p></div> }
+        else
+        {
+            <div class="chat" style="max-height:480px;overflow-y:auto" @ref="_scroll">
+                @foreach (var m in _messages ?? []) { <div class="bubble @(m.IsMine ? "mine" : "")"><div class="meta">@m.SenderName · <LocalTime Utc="m.CreatedAtUtc" Tz="@Tz" /></div>@m.Body</div> }
+                @if (_messages?.Count == 0) { <p class="muted">No messages yet.</p> }
+            </div>
+            <div class="row" style="margin-top:16px"><textarea class="textarea grow" style="min-height:64px" placeholder="Write a message" aria-label="Message" @bind="_body"></textarea>
+                <button class="btn btn-primary" @onclick="Send" disabled="@(Busy || string.IsNullOrWhiteSpace(_body))"><Icon Name="send" /> Send</button></div>
+        }
+    </div>
+</div>
+<style>@@media (max-width: 899px) { .grid[style*="2fr"] { grid-template-columns: 1fr !important; } }</style>
+
+<Modal @bind-Open="_newOpen" Title="New message">
+    <div class="stack">
+        <div class="field"><label for="to">To</label><select id="to" class="select" @bind="_to"><option value="">Choose…</option>@foreach (var c in _contacts) { <option value="@c.UserId">@c.FullName (@c.Role)</option> }</select>
+            <span class="help">You can message people your institution allows you to contact.</span></div>
+        <div class="field"><label for="nb">Message</label><textarea id="nb" class="textarea" @bind="_newBody"></textarea></div>
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _newOpen = false">Cancel</button><button class="btn btn-primary" @onclick="Start" disabled="@(Busy || _to is null || string.IsNullOrWhiteSpace(_newBody))">Send</button></div>
+    </div>
+</Modal>
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+    private List<ConversationDto>? _convos;
+    private List<MessageDto>? _messages;
+    private ApiException? _error;
+    private string _body = "", _newBody = "";
+    private bool _newOpen;
+    private Guid? _to;
+    private List<ContactDto> _contacts = [];
+    private ElementReference _scroll;
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+
+    protected override async Task LoadAsync()
+    {
+        Realtime.MessageReceived += OnMessage;
+        await Reload();
+    }
+
+    protected override async Task OnParametersSetAsync() { if (Me is not null) await Reload(); }
+
+    private async Task Reload()
+    {
+        (_convos, _error) = await Fetch(() => Api.GetAsync<List<ConversationDto>>("conversations"));
+        if (Id is { } id) _messages = (await Fetch(() => Api.GetAsync<List<MessageDto>>($"conversations/{id}/messages"))).Value;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool first) { if (Id is not null) await JS.InvokeVoidAsync("ss.scrollToBottom", _scroll); }
+
+    private void OnMessage() => InvokeAsync(async () => { await Reload(); StateHasChanged(); });
+
+    private async Task Send()
+    {
+        if (await Run(() => Api.PostAsync($"conversations/{Id}/messages", new SendMessageRequest(_body, null)))) { _body = ""; await Reload(); }
+    }
+
+    private async Task OpenNew()
+    {
+        _newOpen = true;
+        _contacts = (await Fetch(() => Api.GetAsync<List<ContactDto>>("contacts"))).Value ?? [];
+    }
+
+    private async Task Start()
+    {
+        Guid id = default;
+        if (await Run(async () => id = (await Api.PostAsync<IdResponse>("conversations", new StartConversationRequest(_to!.Value, _newBody))).Id, "Message sent."))
+        { _newOpen = false; _newBody = ""; Nav.NavigateTo($"/messages/{id}"); }
+    }
+
+    public void Dispose() => Realtime.MessageReceived -= OnMessage;
+}

@@ -1,0 +1,57 @@
+@* Every data region renders exactly one of: loading (BrandSpinner), error (illustration + Retry), forbidden
+   (access_denied), not found, empty (illustration chosen from EmptyIllustration, or from EmptyIcon for older
+   callers), or content. Compact="true" swaps illustrations for the icon on two soft discs (tight spaces). *@
+@if (Loading)
+{
+    <LoadingView Label="@LoadingLabel" />
+}
+else if (Error is not null)
+{
+    var forbidden = Error.Status == 403;
+    var title = forbidden ? "You don't have access to this" : Error.Status == 404 ? "Not found" : Illustrations.ForError(Error) == Illustrations.Offline ? "You're offline" : "We couldn't load this";
+    var message = forbidden ? "Ask your institute's administrator if you think you should." : Error.Status == 404 ? "It may have been removed, or you no longer have access." : Error.Describe();
+    <StateView Title="@title" Message="@message" Illustration="@Illustrations.ForError(Error)" Compact="Compact" Icon="@(forbidden ? "shield" : "alert")" Tone="@(forbidden ? "slate" : "red")" Role="alert">
+        @if (OnRetry.HasDelegate && Error.Status is not (403 or 404))
+        {
+            <button class="btn btn-secondary btn-pill" @onclick="OnRetry"><Icon Name="refresh" /> Retry</button>
+        }
+    </StateView>
+}
+else if (IsEmpty)
+{
+    <StateView Title="@EmptyTitle" Message="@EmptyText" Illustration="@(EmptyIllustration ?? FromIcon(EmptyIcon))" Compact="Compact" Icon="@EmptyIcon">
+        @EmptyAction
+    </StateView>
+}
+else
+{
+    @ChildContent
+}
+
+@code {
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public string LoadingLabel { get; set; } = "Loading";
+    [Parameter] public ApiException? Error { get; set; }
+    [Parameter] public bool IsEmpty { get; set; }
+    [Parameter] public string EmptyTitle { get; set; } = "Nothing here yet";
+    [Parameter] public string? EmptyText { get; set; }
+    /// <summary>Icon for the compact empty state; also picks the illustration when EmptyIllustration is not set.</summary>
+    [Parameter] public string EmptyIcon { get; set; } = "inbox";
+    /// <summary>One of <see cref="Illustrations"/> (e.g. Illustrations.AllDone for "nothing left to do").</summary>
+    [Parameter] public string? EmptyIllustration { get; set; }
+    [Parameter] public RenderFragment? EmptyAction { get; set; }
+    [Parameter] public EventCallback OnRetry { get; set; }
+    /// <summary>Kept for older callers; loading now shows the brand spinner.</summary>
+    [Parameter] public int SkeletonLines { get; set; } = 4;
+    [Parameter] public bool Compact { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private static string FromIcon(string icon) => icon switch
+    {
+        "search" => Illustrations.Search,
+        "message" or "megaphone" or "bell" or "mail" => Illustrations.Mailbox,
+        "help" => Illustrations.Questions,
+        "check" => Illustrations.AllDone,
+        _ => Illustrations.Empty,
+    };
+}

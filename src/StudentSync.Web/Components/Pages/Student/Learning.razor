@@ -1,0 +1,39 @@
+@page "/learning"
+@attribute [Authorize(Roles = "Student")]
+@inherits AppPage
+
+@* Learning — mirrors the mobile Learning tab: pill tabs Assignments · Exams · Videos (?tab=assignments|exams|videos).
+   Each tab reuses the same panel as /assignments, /exams and /videos, which keep working. *@
+<PageHeader Title="Learning" Subtitle="Homework, exams and pre-recorded videos from your classes." />
+
+@if (Me is not null)
+{
+    <PillTabs TKey="string" Tabs="Tabs" Active="_tab" ActiveChanged="Switch" Label="Learning" Class="st-learning-tabs">
+        @switch (_tab)
+        {
+            case "exams": <ExamsPanel Me="Me" />; break;
+            case "videos":
+                <p class="small muted st-tab-intro">Videos for your classes. Locked videos open automatically before or after the live class.</p>
+                <VideoList Me="Me" CanUpload="false" />
+                break;
+            default: <AssignmentsPanel Me="Me" />; break;
+        }
+    </PillTabs>
+}
+
+@code {
+    private static readonly IReadOnlyList<PillTabs<string>.Tab> Tabs =
+        [new("assignments", "Assignments", Icon: "clipboard"), new("exams", "Exams", Icon: "check-square"), new("videos", "Videos", Icon: "play-circle")];
+
+    [SupplyParameterFromQuery(Name = "tab")] public string? TabParam { get; set; }
+    private string _tab = "assignments";
+
+    protected override void OnParametersSet() => _tab = TabParam is "exams" or "videos" ? TabParam : "assignments";
+
+    // Keeps the address in step with the tab so links, refresh and Back return to it.
+    private void Switch(string tab)
+    {
+        _tab = tab;
+        Nav.NavigateTo(tab == "assignments" ? "/learning" : $"/learning?tab={tab}", replace: true);
+    }
+}

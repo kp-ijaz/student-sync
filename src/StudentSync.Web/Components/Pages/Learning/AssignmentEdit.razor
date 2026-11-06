@@ -1,0 +1,88 @@
+@page "/assignments/new"
+@page "/assignments/{Id:guid}/edit"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher")]
+@inherits AppPage
+
+<PageHeader Title="@(Id is null ? "New assignment" : "Edit assignment")" Subtitle="Assign to a session's participants, a batch, or selected students — a batch is never required.">
+    <Breadcrumb><a href="/assignments">Assignments</a> /</Breadcrumb>
+</PageHeader>
+<DataView Loading="_loading" Error="_error">
+<div class="card">
+    <div class="form-grid">
+        <div class="field full"><label for="t">Title *</label><input id="t" class="input" @bind="_title" /></div>
+        <div class="field full"><label for="i">Instructions * (Markdown)</label><textarea id="i" class="textarea" style="min-height:160px" @bind="_instructions"></textarea></div>
+        <div class="field"><label for="due">Due (your time, @Tz) *</label><input id="due" type="datetime-local" class="input" @bind="_due" /></div>
+        <div class="field"><label for="max">Maximum marks *</label><input id="max" type="number" min="1" class="input" @bind="_max" disabled="@_published" /></div>
+        <div class="field"><label for="ses">Linked session</label>
+            <select id="ses" class="select" @bind="_sessionId" disabled="@_published"><option value="">None</option>@foreach (var s in _sessions) { <option value="@s.Id">@s.Title — @Time.Short(s.StartUtc, Tz)</option> }</select>
+            <span class="help">If you don't pick students, the session's participants receive it.</span></div>
+        <div class="field"><label for="bat">Batch</label>
+            <select id="bat" class="select" @bind="_batchId" disabled="@_published"><option value="">None</option>@foreach (var b in _batches) { <option value="@b.Id">@b.Name</option> }</select></div>
+        <div class="field"><label for="sub">Subject</label>
+            <select id="sub" class="select" @bind="_subjectId"><option value="">None</option>@foreach (var s in _subjects) { <option value="@s.Id">@s.Name</option> }</select></div>
+        <div class="field">
+            <label class="check"><input type="checkbox" @bind="_late" /> Accept late submissions</label>
+            <label class="check"><input type="checkbox" @bind="_resubmit" /> Allow resubmission</label>
+        </div>
+        @if (!_published)
+        {
+            <div class="field full"><span class="label">Specific students (optional)</span>
+                <div style="max-height:200px;overflow-y:auto;border:1px solid var(--ss-border);border-radius:10px;padding:8px">
+                    @foreach (var s in _students) { <label class="check" style="display:flex;padding:4px"><input type="checkbox" checked="@_selected.Contains(s.Id)" @onchange="e => { if (e.Value is true) _selected.Add(s.Id); else _selected.Remove(s.Id); }" /> @s.Name</label> }
+                    @if (_students.Count == 0) { <p class="muted small">No students yet. Students appear once you teach them.</p> }
+                </div></div>
+        }
+    </div>
+    <div class="form-actions">
+        <a class="btn btn-secondary" href="/assignments">Cancel</a>
+        <button class="btn btn-primary" @onclick="Save" disabled="@Busy">@(Id is null ? "Save as draft" : "Save changes")</button>
+    </div>
+</div>
+</DataView>
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+    [SupplyParameterFromQuery(Name = "sessionId")] public Guid? SessionParam { get; set; }
+    private bool _loading = true, _published, _late, _resubmit;
+    private ApiException? _error;
+    private string _title = "", _instructions = "", _rowVersion = "";
+    private DateTime _due = DateTime.Now.Date.AddDays(7).AddHours(18);
+    private decimal _max = 10;
+    private Guid? _sessionId, _batchId, _subjectId;
+    private List<SessionListItemDto> _sessions = [];
+    private List<BatchDto> _batches = [];
+    private List<SubjectDto> _subjects = [];
+    private List<LookupItem> _students = [];
+    private readonly HashSet<Guid> _selected = [];
+
+    protected override async Task LoadAsync()
+    {
+        try
+        {
+            _sessions = await Api.GetAsync<List<SessionListItemDto>>($"sessions?fromUtc={DateTime.UtcNow.AddDays(-30):O}&toUtc={DateTime.UtcNow.AddDays(60):O}&limit=200");
+            _batches = await Api.GetAsync<List<BatchDto>>("academics/batches");
+            _subjects = await Api.GetAsync<List<SubjectDto>>("academics/subjects");
+            _students = (await Api.GetAsync<PagedResult<StudentDto>>("students?pageSize=100")).Items.Select(s => new LookupItem(s.Id, s.FullName, s.StudentCode)).ToList();
+            _sessionId = SessionParam;
+            if (Id is { } id)
+            {
+                var a = await Api.GetAsync<AssignmentDetailDto>($"assignments/{id}");
+                (_title, _instructions, _max, _late, _resubmit, _sessionId, _batchId, _subjectId, _rowVersion) = (a.Title, a.InstructionsMarkdown, a.MaxMarks, a.AllowLateSubmission, a.AllowResubmission, a.SessionId, a.BatchId, a.SubjectId, a.RowVersion);
+                _due = Time.ToLocal(a.DueAtUtc, Tz);
+                _published = a.Status != AssignmentStatus.Draft;
+                foreach (var r in a.Recipients) _selected.Add(r.Id);
+            }
+        }
+        catch (ApiException ex) { _error = ex; }
+        _loading = false;
+    }
+
+    private async Task Save()
+    {
+        var dueUtc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(_due, DateTimeKind.Unspecified), TimeZoneInfo.FindSystemTimeZoneById(Tz));
+        var req = new SaveAssignmentRequest(_title, _instructions, dueUtc, _max, _late, _resubmit, _sessionId, _batchId, _subjectId, _selected.Count > 0 ? _selected.ToList() : null, Id is null ? null : _rowVersion);
+        Guid id = Id ?? Guid.Empty;
+        if (await Run(async () => { if (Id is null) id = (await Api.PostAsync<IdResponse>("assignments", req)).Id; else await Api.PutAsync($"assignments/{Id}", req); }, "Assignment saved."))
+            Nav.NavigateTo($"/assignments/{id}");
+    }
+}

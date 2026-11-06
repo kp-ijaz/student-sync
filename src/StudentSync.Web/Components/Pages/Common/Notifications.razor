@@ -1,0 +1,26 @@
+@page "/notifications"
+@attribute [Authorize]
+@inherits AppPage
+
+<PageHeader Title="Notifications"><Actions><button class="btn btn-secondary" @onclick="ReadAll" disabled="@Busy">Mark all as read</button></Actions></PageHeader>
+<div class="card">
+    <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0" EmptyTitle="You're all caught up" EmptyIcon="bell">
+        <ul class="list">
+            @foreach (var n in _page?.Items ?? [])
+            {
+                <li class="row-between"><div class="grow"><a href="@(n.Link ?? "#")" @onclick="() => Read(n)" style="@(n.IsRead ? "color:var(--ss-text)" : "font-weight:600")">@n.Title</a><div class="caption">@n.Body · <LocalTime Utc="n.CreatedAtUtc" Tz="@Tz" Format="relative" /></div></div>
+                    @if (!n.IsRead) { <span class="badge blue">New</span> }</li>
+            }
+        </ul>
+        @if (_page is not null) { <Pager Page="_page.Page" TotalPages="_page.TotalPages" Total="_page.TotalCount" OnPage="Load" /> }
+    </DataView>
+</div>
+
+@code {
+    private PagedResult<NotificationDto>? _page;
+    private ApiException? _error;
+    protected override Task LoadAsync() => Load(1);
+    private async Task Load(int p) => (_page, _error) = await Fetch(() => Api.GetAsync<PagedResult<NotificationDto>>($"notifications?page={p}&pageSize=25"));
+    private async Task Read(NotificationDto n) { if (!n.IsRead) try { await Api.PostAsync($"notifications/{n.Id}/read"); } catch (ApiException) { } }
+    private async Task ReadAll() { if (await Run(() => Api.PostAsync("notifications/read"), "All notifications marked as read.")) await Load(1); }
+}

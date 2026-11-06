@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brand tokens from DESIGN.md. The launcher icon is the book mark on white; launch screens use the light logo background. -->
+<resources>
+    <color name="ic_launcher_background">#FFFFFF</color>
+    <color name="ss_navy">#0B2854</color>
+    <color name="ss_splash">#F6F7FE</color>
+</resources>

@@ -1,0 +1,49 @@
+@inject IConfiguration Config
+@* TeacherPhotoCard: a portrait card for a teacher — their photo (or initials on the brand gradient) filling the card,
+   name and subject over a dark fade, and an arrow tile when it links somewhere (Href). Lay out in a grid. *@
+@if (Href is not null)
+{
+    <a class="teacher-card @Class" href="@Href" aria-label="@AccessibleName">@Inner</a>
+}
+else
+{
+    <div class="teacher-card @Class" role="@(Arrow ? null : "group")" aria-label="@(Arrow ? null : AccessibleName)">@Inner</div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+    /// <summary>API-relative photo URL (photoUrl / teacherPhotoUrl) or null.</summary>
+    [Parameter] public string? PhotoUrl { get; set; }
+    [Parameter] public string? Subtitle { get; set; }
+    [Parameter] public string? Href { get; set; }
+    /// <summary>Shows the arrow tile without a link (when a parent button opens something, e.g. a dialog).</summary>
+    [Parameter] public bool Arrow { get; set; }
+    [Parameter] public string? Class { get; set; }
+
+    private bool _failed;
+    private string? _lastUrl;
+    private string? Src => ApiClient.PublicUrl(PhotoUrl, Config["Api:PublicBaseUrl"]);
+    private string AccessibleName => string.Join(", ", new[] { People.ShortName(Name), Subtitle }.Where(s => !string.IsNullOrWhiteSpace(s)));
+
+    protected override void OnParametersSet()
+    {
+        if (PhotoUrl != _lastUrl) { _failed = false; _lastUrl = PhotoUrl; }
+    }
+
+    private RenderFragment Inner => __builder =>
+    {
+        @if (Src is { } src && !_failed)
+        {
+            <img src="@src" alt="" loading="lazy" referrerpolicy="no-referrer" @onerror="() => _failed = true" />
+        }
+        else
+        {
+            <span class="tc-initials" aria-hidden="true">@People.Initials(Name)</span>
+        }
+        <span class="tc-text" aria-hidden="true">
+            <span class="tc-name">@People.ShortName(Name)</span>
+            @if (!string.IsNullOrEmpty(Subtitle)) { <span class="tc-sub">@Subtitle</span> }
+        </span>
+        @if (Href is not null || Arrow) { <span class="tc-go" aria-hidden="true"><Icon Name="arrow-up-right" /></span> }
+    };
+}

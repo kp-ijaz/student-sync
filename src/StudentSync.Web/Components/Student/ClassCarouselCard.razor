@@ -1,0 +1,26 @@
+@* ClassCarouselCard: a "Coming up" class — cover photo with the day (and any unusual status) in glass pills and the
+   title over it, then the teacher and time. The whole card is one link. Port of session_card.dart ClassCarouselCard. *@
+@{
+    var s = Session;
+}
+<a class="card st-carousel-card" href="/sessions/@s.Id">
+    <ClassCover Subject="@s.SubjectName" Title="@s.Title" Height="132px">
+        <div class="row" style="gap:6px;flex-wrap:nowrap">
+            <GlassPill Icon="calendar" Label="@ClassTimes.DayLabel(s.StartUtc, Tz)" />
+            @if (s.Status != SessionStatus.Scheduled) { <GlassPill Label="@StatusStyles.For(s.Status).Label" /> }
+        </div>
+        <span class="cover-title st-carousel-title">@s.Title</span>
+    </ClassCover>
+    <span class="st-carousel-foot">
+        <Avatar Name="@s.TeacherName" PhotoUrl="@s.TeacherPhotoUrl" Size="sm" />
+        <span class="grow">
+            <span class="st-carousel-teacher truncate">@s.TeacherName</span>
+            <span class="caption truncate" style="display:block">@ClassTimes.Range(s.StartUtc, s.EndUtc, Tz)</span>
+        </span>
+    </span>
+</a>
+
+@code {
+    [Parameter, EditorRequired] public SessionListItemDto Session { get; set; } = default!;
+    [Parameter, EditorRequired] public string Tz { get; set; } = "UTC";
+}

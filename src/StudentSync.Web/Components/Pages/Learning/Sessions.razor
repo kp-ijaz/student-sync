@@ -1,0 +1,127 @@
+@page "/sessions"
+@attribute [Authorize]
+@inherits AppPage
+
+<PageHeader Title="@(IsStudent ? "My classes" : IsParent ? "Calendar" : "Classes")" Subtitle="@($"Times shown in your time zone ({Tz}).")">
+    <Actions>
+        <button class="btn btn-secondary" @onclick="ExportIcs"><Icon Name="download" /> Export calendar (.ics)</button>
+        @if (IsStaff) { <a class="btn btn-primary" href="/sessions/new"><Icon Name="plus" /> New session</a> }
+    </Actions>
+</PageHeader>
+
+<div class="card" style="margin-bottom:16px">
+    <div class="row">
+        <div class="segmented" role="group" aria-label="View">
+            <button aria-pressed="@(Aria.Bool(_view == "list"))" @onclick='() => SetView("list")'><Icon Name="list" /> List</button>
+            <button aria-pressed="@(Aria.Bool(_view == "month"))" @onclick='() => SetView("month")'><Icon Name="calendar" /> Month</button>
+        </div>
+        <div class="field" style="min-width:180px">
+            <label for="mode" class="sr-only">Teaching mode</label>
+            <select id="mode" class="select" @bind="_type" @bind:after="Reload">
+                <option value="">All teaching modes</option>
+                @foreach (var t in Enum.GetValues<SessionType>()) { <option value="@t">@StatusStyles.For(t).Label</option> }
+            </select>
+        </div>
+        <div class="field" style="min-width:160px">
+            <label for="status" class="sr-only">Status</label>
+            <select id="status" class="select" @bind="_status" @bind:after="Reload">
+                <option value="">Any status</option>
+                @foreach (var s in Enum.GetValues<SessionStatus>()) { <option value="@s">@StatusStyles.For(s).Label</option> }
+            </select>
+        </div>
+        @if (IsAdmin && _teachers is not null)
+        {
+            <div class="field" style="min-width:200px">
+                <label for="teacher" class="sr-only">Teacher</label>
+                <select id="teacher" class="select" @bind="_teacher" @bind:after="Reload">
+                    <option value="">All teachers</option>
+                    @foreach (var t in _teachers) { <option value="@t.Id">@t.FullName</option> }
+                </select>
+            </div>
+        }
+        <div class="grow"></div>
+        <div class="btn-group" role="group" aria-label="Period">
+            <button class="btn btn-secondary btn-sm" @onclick="() => Shift(-1)" aria-label="Previous period"><Icon Name="chevron-left" /></button>
+            <span class="small" style="align-self:center;min-width:140px;text-align:center"><strong>@PeriodLabel</strong></span>
+            <button class="btn btn-secondary btn-sm" @onclick="() => Shift(1)" aria-label="Next period"><Icon Name="chevron-right" /></button>
+            <button class="btn btn-ghost btn-sm" @onclick="Today">Today</button>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <DataView Loading="_items is null && _error is null" Error="_error" OnRetry="Reload" IsEmpty='@(_items?.Count == 0 && _view == "list")'
+              EmptyTitle="No sessions in this period" EmptyText="Try another period or filter." EmptyIcon="calendar">
+        @if (_items is not null)
+        {
+            @if (_view == "month")
+            {
+                <MonthGrid Items="_items" Anchor="_anchor" Tz="@Tz" Selected="_selected" SelectedChanged="d => _selected = d" />
+            }
+            <div class="@(_view == "month" ? "month-list" : "")">
+                @if (_view == "month" && _selected is { } sel)
+                {
+                    <div class="row-between" style="margin-top:16px">
+                        <span class="small muted">Showing @sel.ToString("dddd d MMMM")</span>
+                        <button class="btn btn-ghost btn-sm" @onclick="() => _selected = null">Show whole month</button>
+                    </div>
+                    @if (!_items.Any(s => DateOnly.FromDateTime(Time.ToLocal(s.StartUtc, Tz)) == sel)) { <p class="muted" style="margin-top:8px">No classes on this day.</p> }
+                }
+                @foreach (var group in _items.GroupBy(s => DateOnly.FromDateTime(Time.ToLocal(s.StartUtc, Tz))).Where(g => _view != "month" || _selected is null || g.Key == _selected))
+                {
+                    <h3 style="margin:16px 0 8px">@group.Key.ToString("dddd d MMMM")</h3>
+                    <ul class="list">@foreach (var s in group) { <li><SessionItem Session="s" Tz="@Tz" ShowCount="IsStaff" /></li> }</ul>
+                }
+            </div>
+        }
+    </DataView>
+</div>
+
+@code {
+    private List<SessionListItemDto>? _items;
+    private ApiException? _error;
+    private List<TeacherDto>? _teachers;
+    [SupplyParameterFromQuery(Name = "view")] public string? ViewParam { get; set; }
+    private string _view = "list";
+    private DateOnly? _selected;
+    private string _type = "", _status = "", _teacher = "";
+    private DateOnly _anchor;
+    private DateOnly LocalToday => DateOnly.FromDateTime(Time.ToLocal(DateTime.UtcNow, Tz));
+    private string PeriodLabel => _view == "month" ? _anchor.ToString("MMMM yyyy") : $"{_anchor:d MMM} – {_anchor.AddDays(13):d MMM}";
+
+    protected override async Task LoadAsync()
+    {
+        _anchor = LocalToday;
+        // Students see their timetable as a calendar by default.
+        _view = ViewParam is "list" or "month" ? ViewParam : IsStudent ? "month" : "list";
+        if (IsAdmin) _teachers = (await Fetch(() => Api.GetAsync<PagedResult<TeacherDto>>("teachers?pageSize=100"))).Value?.Items.ToList();
+        await Reload();
+    }
+
+    private (DateTime From, DateTime To) Range()
+    {
+        var (start, end) = _view == "month"
+            ? (CalendarMath.MonthDays(_anchor).First(), CalendarMath.MonthDays(_anchor).Last().AddDays(1))
+            : (_anchor, _anchor.AddDays(14));
+        return (CalendarMath.DayStartUtc(start, Tz), CalendarMath.DayStartUtc(end, Tz));
+    }
+
+    private async Task Reload()
+    {
+        _items = null; _error = null;
+        var (from, to) = Range();
+        var q = $"sessions?fromUtc={from:O}&toUtc={to:O}&limit=500";
+        if (_type != "") q += $"&sessionType={_type}";
+        if (_status != "") q += $"&status={_status}";
+        if (_teacher != "") q += $"&teacherId={_teacher}";
+        (var items, _error) = await Fetch(() => Api.GetAsync<List<SessionListItemDto>>(q));
+        _items = items;
+    }
+
+    private Task SetView(string v) { _view = v; _selected = null; return Reload(); }
+    private Task Shift(int dir) { _anchor = _view == "month" ? _anchor.AddMonths(dir) : _anchor.AddDays(14 * dir); _selected = null; return Reload(); }
+    private Task Today() { _anchor = LocalToday; _selected = null; return Reload(); }
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+    private async Task ExportIcs() => await Run(async () => await JS.InvokeVoidAsync("ss.download", "student-sync.ics", await Api.GetStringAsync("calendar.ics"), "text/calendar"), "Calendar exported.");
+}

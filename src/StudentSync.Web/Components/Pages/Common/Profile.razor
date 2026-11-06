@@ -1,0 +1,157 @@
+@page "/profile"
+@attribute [Authorize]
+@inherits AppPage
+@inject IJSRuntime JS
+
+<PageHeader Title="Profile" />
+<div class="grid grid-2" style="align-items:start">
+    <div class="stack">
+        @* Gradient header with the photo editor, as on the mobile Profile screen. *@
+        <HeroCard AriaLabel="Your profile">
+            <div class="profile-hero">
+                @if (Me?.TenantId is not null)
+                {
+                    <PhotoEditor Name="@Me.FullName" PhotoUrl="@Me.PhotoUrl" Upload="UploadPhoto" Remove="RemovePhoto" OnChanged="PhotoChanged" ShowSuccessToast="false" Info="@Who" />
+                }
+                else
+                {
+                    <Avatar Name="@Me?.FullName" PhotoUrl="@Me?.PhotoUrl" Size="xl" Decorative="false" />
+                    @Who
+                }
+            </div>
+            @if (IsStudent) { <p class="help" style="margin:16px 0 0">Only you, your teachers and the institute's administrators can see your photo.</p> }
+        </HeroCard>
+
+        @if (IsStudent)
+        {
+            <div>
+                <SectionHeader Title="Learning" />
+                <ListGroup>
+                    <ListRow Icon="target" Tone="orange" Title="My learning plan" Subtitle="Your syllabus, the subjects you find hard and your goals" Href="/learning-plan" />
+                    <ListRow Icon="chart-line" Tone="green" Title="My progress" Subtitle="Attendance, assignments, exams and more" Href="/progress" />
+                </ListGroup>
+            </div>
+        }
+
+        <div>
+            <SectionHeader Title="Account" />
+            <ListGroup>
+                @if (Me?.TenantName is { } tenant) { <ListRow Icon="building" Tone="navy" Title="Institution" Subtitle="@tenant" /> }
+                <ListRow Icon="globe" Title="Time zone" Subtitle="@TimeZoneLabel" Href="/profile#ptz" />
+                <ListRow Icon="bell" Tone="orange" Title="Notifications" Subtitle="Messages about classes, work and doubts" Href="/notifications" />
+                <ListRow Icon="key" Tone="violet" Title="Change password" Href="/change-password" />
+            </ListGroup>
+        </div>
+        <form method="post" action="/account/logout" data-enhance="false">
+            <AntiforgeryToken />
+            <button type="submit" class="btn btn-danger-outline btn-block"><Icon Name="logout" /> Sign out</button>
+        </form>
+    </div>
+
+    <div class="stack">
+        <div class="card" id="details">
+            <div class="card-head"><h2>Your details</h2></div>
+            <div class="stack">
+                <div class="field"><label for="pn">Full name</label><input id="pn" class="input" @bind="_name" /></div>
+                <div class="field"><label for="ptz">Time zone</label><TimeZoneSelect Id="ptz" @bind-Value="_tz" /><span class="help">All times are shown in this zone.</span></div>
+                <div class="field"><label for="pl">Language</label><select id="pl" class="select" @bind="_lang"><option value="en">English</option><option value="ar">العربية (Arabic)</option><option value="ml">മലയാളം (Malayalam)</option></select>
+                    <span class="help">Navigation is translated; most page content is currently English.</span></div>
+                <div class="form-actions" style="margin-top:8px"><button class="btn btn-primary" @onclick="SaveProfile" disabled="@Busy">Save details</button></div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-head"><h2>Notification preferences</h2></div>
+            <DataView Loading="_prefs is null && _prefsError is null" Error="_prefsError" OnRetry="LoadPrefs" Compact="true">
+                @if (_prefs is not null)
+                {
+                    <div class="stack">
+                        <p class="small muted" style="margin:0">In-app notifications are always on. External delivery:</p>
+                        <label class="check"><input type="checkbox" @bind="_email" /> Email @if (!_prefs.EmailProviderConfigured) { <span class="badge slate">Not configured by your institution</span> }</label>
+                        <label class="check"><input type="checkbox" @bind="_push" /> Push notifications @if (!_prefs.PushProviderConfigured) { <span class="badge slate">Not available yet</span> }</label>
+                        <div class="form-grid">
+                            <div class="field"><label for="qs">Quiet hours from</label><input id="qs" type="time" class="input" @bind="_quietStart" /></div>
+                            <div class="field"><label for="qe">until</label><input id="qe" type="time" class="input" @bind="_quietEnd" /></div>
+                        </div>
+                        <span class="help">External notifications are held until quiet hours end (in your time zone).</span>
+                        <div class="field"><span class="label">Mute for email and push</span>
+                            <div class="pill-list">@foreach (var nt in Enum.GetValues<NotificationType>()) { <label class="check small"><input type="checkbox" checked="@_muted.Contains(nt)" @onchange="e => { if (e.Value is true) _muted.Add(nt); else _muted.Remove(nt); }" /> @nt</label> }</div></div>
+                        <div class="form-actions" style="margin-top:8px"><button class="btn btn-primary" @onclick="SavePrefs" disabled="@Busy">Save preferences</button></div>
+                    </div>
+                }
+            </DataView>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _name = "", _tz = "UTC", _lang = "en";
+    private NotificationPreferencesDto? _prefs;
+    private bool _email, _push;
+    private TimeOnly? _quietStart, _quietEnd;
+    private HashSet<NotificationType> _muted = [];
+
+    protected override async Task LoadAsync()
+    {
+        (_name, _tz, _lang) = (Me!.FullName, Me.TimeZoneId, Me.PreferredLanguage);
+        if (PhotoResult is "updated" or "removed") Toasts.Show(PhotoResult == "updated" ? "Photo updated." : "Photo removed.");
+        await LoadPrefs();
+    }
+
+    private async Task LoadPrefs()
+    {
+        _prefsError = null;
+        (_prefs, _prefsError) = await Fetch(() => Api.GetAsync<NotificationPreferencesDto>("notifications/preferences"));
+        if (_prefs is not null) (_email, _push, _quietStart, _quietEnd, _muted) = (_prefs.EmailEnabled, _prefs.PushEnabled, _prefs.QuietHoursStart, _prefs.QuietHoursEnd, _prefs.MutedTypes.ToHashSet());
+    }
+
+    private ApiException? _prefsError;
+
+    private RenderFragment Who => __builder =>
+    {
+        <div class="who">
+            <h2>@Me?.FullName</h2>
+            <div class="email">@Me?.Email</div>
+            @if (Me is not null) { <span class="on-hero-pill" style="margin-top:8px">@StatusStyles.RoleLabel(Me.Role)</span> }
+        </div>
+    };
+
+    // "Asia/Dubai (UTC+04:00)", from the saved profile (not the unsaved form value).
+    private string TimeZoneLabel
+    {
+        get
+        {
+            var tz = Me?.TimeZoneId ?? "UTC";
+            try
+            {
+                var offset = TimeZoneInfo.FindSystemTimeZoneById(tz).GetUtcOffset(DateTime.UtcNow);
+                return $"{tz} (UTC{(offset < TimeSpan.Zero ? "-" : "+")}{offset.Duration():hh\\:mm})";
+            }
+            catch (TimeZoneNotFoundException) { return tz; }
+        }
+    }
+
+    private async Task SaveProfile()
+    {
+        CurrentUserDto? updated = null;
+        if (await Run(async () => updated = await Api.PutAsync<CurrentUserDto>("me/profile", new UpdateProfileRequest(_name, _tz, _lang)), "Profile saved."))
+        {
+            await Api.UpdateCachedUserAsync(updated!);
+            await JS.InvokeVoidAsync("ss.setLang", _lang);
+            Nav.NavigateTo("/profile", forceLoad: true);
+        }
+    }
+
+    private CurrentUserDto? _updated;
+    private async Task UploadPhoto(MultipartFormDataContent form) => _updated = await Api.PutFormAsync<CurrentUserDto>("me/photo", form);
+    private async Task RemovePhoto() => _updated = await Api.DeleteAsync<CurrentUserDto>("me/photo");
+    // Reload so the top-bar avatar picks up the change too.
+    private async Task PhotoChanged(bool hasPhoto)
+    {
+        if (_updated is not null) await Api.UpdateCachedUserAsync(_updated);
+        Nav.NavigateTo(hasPhoto ? "/profile?photo=updated" : "/profile?photo=removed", forceLoad: true);
+    }
+
+    [SupplyParameterFromQuery(Name = "photo")] public string? PhotoResult { get; set; }
+
+    private Task SavePrefs() => Run(() => Api.PutAsync("notifications/preferences", new UpdateNotificationPreferencesRequest(_email, _push, _quietStart, _quietEnd, _muted.ToList())), "Preferences saved.");
+}

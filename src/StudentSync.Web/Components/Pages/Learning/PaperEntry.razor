@@ -1,0 +1,117 @@
+@page "/exams/{Id:guid}/paper-entry"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher")]
+@inherits AppPage
+
+@* Staff enter a student's paper (OMR-style) answers against the key (addendum C). The attempt is created already submitted
+   and marked by the same rules as an online attempt; written answers wait for the teacher as usual. *@
+<DataView Loading="_e is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_e is not null)
+    {
+        <PageHeader Title="Enter paper answers" Subtitle="@($"{_e.Title} · {_e.Questions.Count} questions · {_e.TotalMarks} marks")">
+            <Breadcrumb><a href="/exams">Exams</a> / <a href="/exams/@Id">@_e.Title</a> /</Breadcrumb>
+        </PageHeader>
+        @if (_e.Status == ExamStatus.Draft)
+        {
+            <StateView Title="Publish the assessment first" Message="Answers can be entered once the assessment is published to its students." Icon="check-square">
+                <a class="btn btn-primary" href="/exams/@Id">Back to the assessment</a>
+            </StateView>
+        }
+        else
+        {
+            <div class="card" style="margin-bottom:16px">
+                <div class="form-grid">
+                    <div class="field"><label for="pe-student">Student *</label>
+                        <select id="pe-student" class="select" @bind="_studentId">
+                            <option value="">Choose…</option>
+                            @if (_e.Recipients.Count > 0) { <optgroup label="Assigned to this assessment">@foreach (var r in _e.Recipients) { <option value="@r.Id">@r.Name</option> }</optgroup> }
+                            @if (_others.Count > 0) { <optgroup label="Other students">@foreach (var s in _others) { <option value="@s.Id">@s.Name (@s.Detail)</option> }</optgroup> }
+                        </select>
+                        <span class="help">Tick exactly what the student marked on the sheet. Unmarked questions stay unanswered and score 0.</span></div>
+                </div>
+            </div>
+            <div class="stack">
+                @for (var i = 0; i < _e.Questions.Count; i++)
+                {
+                    var q = _e.Questions[i];
+                    var n = i + 1;
+                    var r = _answers[q.ExamQuestionId];
+                    <fieldset class="card" style="border:1px solid var(--ss-border)">
+                        <legend class="sr-only">Question @n</legend>
+                        <div class="row-between" style="margin-bottom:8px"><strong>Question @n</strong><span class="caption">@q.SubjectName@(q.ChapterTitle is null ? "" : $" · {q.ChapterTitle}") · @q.Marks mark(s)</span></div>
+                        <p style="white-space:pre-wrap">@q.Stem</p>
+                        <QuestionImage FileId="q.ImageFileId" />
+                        @switch (q.Type)
+                        {
+                            case QuestionType.SingleChoice or QuestionType.TrueFalse:
+                                @foreach (var o in q.Options ?? []) { <label class="check" style="display:flex;padding:6px 0"><input type="radio" name="pq@(n)" checked="@(r.OptionIds?.Contains(o.Id) == true)" @onchange="() => Set(q, r with { OptionIds = [o.Id] })" /> @o.Text</label> }
+                                break;
+                            case QuestionType.MultipleChoice:
+                                @foreach (var o in q.Options ?? []) { <label class="check" style="display:flex;padding:6px 0"><input type="checkbox" checked="@(r.OptionIds?.Contains(o.Id) == true)" @onchange="e => Toggle(q, o.Id, e.Value is true)" /> @o.Text</label> }
+                                break;
+                            case QuestionType.Numerical:
+                                <input type="number" step="any" class="input" style="max-width:240px" aria-label="Answer to question @n" value="@r.Number" @onchange="e => Set(q, r with { Number = decimal.TryParse(e.Value as string, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : null })" />
+                                break;
+                            case QuestionType.Matching:
+                                @foreach (var o in q.Options ?? [])
+                                {
+                                    <div class="row" style="margin-bottom:6px"><span class="grow">@o.Text</span>
+                                        <select class="select" style="max-width:260px" aria-label="Match for @o.Text" value="@(r.Matches?.GetValueOrDefault(o.Id) ?? "")" @onchange="e => SetMatch(q, o.Id, e.Value as string)"><option value="">—</option>@foreach (var m in q.MatchChoices ?? []) { <option value="@m">@m</option> }</select></div>
+                                }
+                                break;
+                            default:
+                                <textarea class="textarea" rows="2" aria-label="Answer to question @n" value="@r.Text" @onchange="e => Set(q, r with { Text = e.Value as string })"></textarea>
+                                break;
+                        }
+                    </fieldset>
+                }
+            </div>
+            <div class="form-actions" style="margin-top:16px">
+                <a class="btn btn-secondary" href="/exams/@Id">Cancel</a>
+                <button class="btn btn-primary" @onclick="Submit" disabled="@(Busy || _studentId is null)"><Icon Name="check" /> Save answers and mark</button>
+            </div>
+        }
+    }
+</DataView>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private ExamDetailDto? _e;
+    private ApiException? _error;
+    private Guid? _studentId;
+    private List<LookupItem> _others = [];
+    private readonly Dictionary<Guid, ExamResponse> _answers = [];
+
+    protected override async Task LoadAsync()
+    {
+        (_e, _error) = await Fetch(() => Api.GetAsync<ExamDetailDto>($"exams/{Id}"));
+        if (_e is null) return;
+        foreach (var q in _e.Questions) _answers[q.ExamQuestionId] = new ExamResponse();
+        var recipients = _e.Recipients.Select(r => r.Id).ToHashSet();
+        _others = ((await Fetch(() => Api.GetAsync<List<LookupItem>>("students/lookup"))).Value ?? []).Where(s => !recipients.Contains(s.Id)).ToList();
+        _studentId = _e.Recipients.Count == 1 ? _e.Recipients[0].Id : null;
+    }
+
+    private void Set(ExamQuestionItemDto q, ExamResponse r) => _answers[q.ExamQuestionId] = r;
+    private void Toggle(ExamQuestionItemDto q, Guid option, bool on)
+    {
+        var ids = (_answers[q.ExamQuestionId].OptionIds ?? []).Where(x => x != option).ToList();
+        if (on) ids.Add(option);
+        _answers[q.ExamQuestionId] = _answers[q.ExamQuestionId] with { OptionIds = ids };
+    }
+    private void SetMatch(ExamQuestionItemDto q, Guid option, string? value)
+    {
+        var m = new Dictionary<Guid, string>(_answers[q.ExamQuestionId].Matches ?? []);
+        if (string.IsNullOrEmpty(value)) m.Remove(option); else m[option] = value;
+        _answers[q.ExamQuestionId] = _answers[q.ExamQuestionId] with { Matches = m };
+    }
+
+    private async Task Submit()
+    {
+        if (_studentId is not { } student) return;
+        AttemptResultDto? result = null;
+        var answers = _answers.Where(a => a.Value.OptionIds is { Count: > 0 } || a.Value.Number is not null || !string.IsNullOrWhiteSpace(a.Value.Text) || a.Value.Matches is { Count: > 0 })
+            .Select(a => new SaveAnswerRequest(a.Key, a.Value)).ToList();
+        if (await Run(async () => result = await Api.PostAsync<AttemptResultDto>($"exams/{Id}/paper-attempts", new PaperAttemptRequest(student, answers)), "Answers saved and marked."))
+            Nav.NavigateTo($"/attempts/{result!.AttemptId}/result");
+    }
+}

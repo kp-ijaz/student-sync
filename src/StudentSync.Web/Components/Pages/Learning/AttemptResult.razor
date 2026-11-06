@@ -1,0 +1,124 @@
+@page "/attempts/{Id:guid}/result"
+@attribute [Authorize]
+@inherits AppPage
+
+<DataView Loading="_r is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_r is not null)
+    {
+        <PageHeader Title="@_r.ExamTitle" Subtitle="@($"{_r.StudentName} · {(_r.EntryMode == AttemptEntryMode.PaperEntered ? "paper answers entered" : "submitted")} {(_r.SubmittedAtUtc is { } s ? Time.Short(s, Tz) : "—")}")"><Breadcrumb><a href="/exams">Exams</a> /@if (IsStaff && _r.ExamId is { } ex) { <text> <a href="/exams/@ex">@_r.ExamTitle</a> /</text> }</Breadcrumb></PageHeader>
+        <div class="card accent-card" style="margin-bottom:16px">
+            @if (_r.Score is { } score) { <div class="stat"><span class="label">Score</span><span class="value">@score / @_r.TotalMarks</span></div> }
+            else if (!IsStaff && !_r.ResultsReleased) { <p style="margin:0">Your exam has been submitted. Your teacher will release results when grading is complete.</p> }
+            else { <p style="margin:0">Written answers are awaiting grading.</p> }
+        </div>
+        @if (_b is not null)
+        {
+            <section class="card" style="margin-bottom:16px" aria-labelledby="bd-h">
+                <div class="card-head"><div><h2 id="bd-h">Result by subject and chapter</h2><div class="caption">Below @_b.ThresholdPercent% is flagged as needing attention. These are recommendations for the learning plan, not a label.</div></div></div>
+                <div class="table-wrap"><table class="table stack-mobile">
+                    <thead><tr><th>Subject · chapter</th><th>Questions</th><th>Correct</th><th>Marks</th><th>Result</th>@if (_b.CanRecordNeeds) { <th>Record</th> }</tr></thead>
+                    <tbody>
+                        @foreach (var row in _b.ByChapter)
+                        {
+                            var key = (row.SubjectId, row.ChapterId);
+                            <tr>
+                                <td data-label="Subject"><strong>@row.SubjectName</strong>@if (row.ChapterTitle is not null) { <span class="caption"> · @row.ChapterTitle</span> } else if (_b.ByChapter.Count(x => x.SubjectId == row.SubjectId) > 1) { <span class="caption"> · no chapter</span> }</td>
+                                <td data-label="Questions">@row.Answered / @row.Questions answered</td>
+                                <td data-label="Correct">@row.Correct</td>
+                                <td data-label="Marks" class="num">@row.Awarded / @row.Marks</td>
+                                <td data-label="Result">
+                                    @if (row.Pending) { <span class="badge amber">Awaiting marking</span> }
+                                    else if (row.AlreadyRecorded) { <span class="badge slate">@row.Percent% · already a weak subject</span> }
+                                    else if (row.NeedsAttention) { <span class="badge red">@row.Percent% · needs attention</span> }
+                                    else { <span class="badge green">@row.Percent%</span> }
+                                </td>
+                                @if (_b.CanRecordNeeds) { <td data-label="Record">@if (!row.Pending && !row.AlreadyRecorded) { <label class="check small"><input type="checkbox" checked="@_toRecord.Contains(key)" @onchange="e => { if (e.Value is true) _toRecord.Add(key); else _toRecord.Remove(key); }" /> Weak area</label> }</td> }
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+                @if (_b.CanRecordNeeds)
+                {
+                    <div class="row" style="margin-top:12px;flex-wrap:wrap">
+                        <input class="input grow" maxlength="1000" placeholder="Note for the learning plan (optional)" aria-label="Note for the learning plan" @bind="_recordNote" />
+                        <button class="btn btn-primary" @onclick="RecordNeeds" disabled="@(Busy || _toRecord.Count == 0)"><Icon Name="target" /> Record @_toRecord.Count as weak @(_toRecord.Count == 1 ? "area" : "areas")</button>
+                    </div>
+                    <p class="help" style="margin:8px 0 0">Recorded areas appear on the student's profile and learning plan with the source "Diagnostic test". <a href="/students/@_r.StudentId">Open the student's profile</a>.</p>
+                }
+            </section>
+        }
+        <div class="stack">
+            @foreach (var a in _r.Answers)
+            {
+                <div class="card">
+                    <div class="row-between"><strong>@a.Stem</strong><span class="badge @(a.IsCorrect == true ? "green" : a.AwardedMarks is null ? "amber" : "red")">@(a.AwardedMarks?.ToString() ?? "?") / @a.Marks</span></div>
+                    <QuestionImage FileId="a.ImageFileId" />
+                    <p class="small" style="margin-top:8px"><strong>Answer:</strong> @(a.AnswerText ?? Describe(a))</p>
+                    @if (a.CorrectAnswer is not null) { <p class="small"><strong>Correct answer:</strong> @a.CorrectAnswer</p> }
+                    @if (a.Explanation is not null) { <p class="small muted">@a.Explanation</p> }
+                    @if (a.Feedback is not null) { <p class="small"><strong>Feedback:</strong> @a.Feedback</p> }
+                    @if (IsStaff && a.Type is QuestionType.LongAnswer or QuestionType.ShortAnswer or QuestionType.FillBlank)
+                    {
+                        <div class="row" style="margin-top:8px">
+                            <input type="number" class="input" style="max-width:120px" min="0" max="@a.Marks" step="0.5" aria-label="Marks" @bind="_marks[a.ExamQuestionId]" />
+                            <input class="input grow" placeholder="Feedback" aria-label="Feedback" @bind="_feedback[a.ExamQuestionId]" />
+                            <button class="btn btn-secondary btn-sm" @onclick="() => Grade(a)" disabled="@Busy">Save</button>
+                        </div>
+                    }
+                </div>
+            }
+            @if (_r.Answers.Count == 0 && !IsStaff) { <p class="muted">Detailed answers appear when your teacher releases results.</p> }
+        </div>
+    }
+</DataView>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private AttemptResultDto? _r;
+    private AttemptBreakdownDto? _b;
+    private ApiException? _error;
+    private readonly HashSet<(Guid, Guid?)> _toRecord = [];
+    private string? _recordNote;
+    private Dictionary<Guid, decimal> _marks = [];
+    private Dictionary<Guid, string?> _feedback = [];
+
+    protected override async Task LoadAsync()
+    {
+        (_r, _error) = await Fetch(() => Api.GetAsync<AttemptResultDto>($"attempts/{Id}/result"));
+        if (_r is not null) { _marks = _r.Answers.ToDictionary(a => a.ExamQuestionId, a => a.AwardedMarks ?? 0); _feedback = _r.Answers.ToDictionary(a => a.ExamQuestionId, a => a.Feedback); }
+        // The breakdown is shown for diagnostics (staff always; students once results are released).
+        if (_r is not null && _r.Purpose == ExamPurpose.Diagnostic && (IsStaff || _r.ResultsReleased))
+        {
+            _b = (await Fetch(() => Api.GetAsync<AttemptBreakdownDto>($"attempts/{Id}/breakdown"))).Value;
+            _toRecord.Clear();
+            foreach (var row in _b?.ByChapter ?? []) if (row.NeedsAttention && !row.AlreadyRecorded) _toRecord.Add((row.SubjectId, row.ChapterId));
+        }
+    }
+
+    private async Task RecordNeeds()
+    {
+        ApplyDiagnosticResultDto? result = null;
+        var items = _toRecord.Select(k => new DiagnosticNeedSelection(k.Item1, k.Item2)).ToList();
+        if (await Run(async () => result = await Api.PostAsync<ApplyDiagnosticResultDto>($"attempts/{Id}/learning-needs", new ApplyDiagnosticRequest(items, _recordNote))))
+        {
+            Toasts.Show(result!.Created == 0 ? "Those areas were already recorded." : $"{result.Created} weak {(result.Created == 1 ? "area" : "areas")} recorded on the learning plan.");
+            _recordNote = null;
+            await LoadAsync();
+        }
+    }
+
+    private static string Describe(AnswerResultDto a) => a.Response switch
+    {
+        null => "—",
+        { Text: { Length: > 0 } t } => t,
+        { Number: { } n } => n.ToString(),
+        { OptionIds.Count: > 0 } => $"{a.Response.OptionIds!.Count} option(s) selected",
+        { Matches.Count: > 0 } m => string.Join("; ", m.Matches!.Values),
+        _ => "No answer",
+    };
+
+    private async Task Grade(AnswerResultDto a)
+    {
+        if (await Run(() => Api.PostAsync($"attempts/{Id}/grade", new GradeAnswerRequest(a.ExamQuestionId, _marks[a.ExamQuestionId], _feedback[a.ExamQuestionId])), "Marks saved.")) await LoadAsync();
+    }
+}

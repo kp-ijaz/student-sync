@@ -1,0 +1,53 @@
+@page "/sessions/{Id:guid}/prepare"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher")]
+@inherits AppPage
+
+<DataView Loading="_p is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_p is not null)
+    {
+        <PageHeader Title="Class preparation" Subtitle="@($"{_p.Session.Title} · {Time.Short(_p.Session.StartUtc, Tz)}")">
+            <Breadcrumb><a href="/sessions/@Id">Back to session</a> /</Breadcrumb>
+        </PageHeader>
+        <div class="grid grid-main">
+            <div class="stack">
+                <div class="card">
+                    <div class="card-head"><h2>Draft agenda</h2></div>
+                    <DataView IsEmpty="_p.Agenda.Count == 0" EmptyTitle="Agenda is empty" EmptyText="Unresolved doubts are added here automatically before the class." EmptyIcon="list">
+                        <ul class="list">
+                            @foreach (var a in _p.Agenda)
+                            {
+                                <li class="row-between"><div><strong style="@(a.IsDiscussed ? "text-decoration:line-through;color:var(--ss-slate)" : "")">@a.Title</strong>
+                                    @if (a.StudentName is not null) { <div class="caption">Raised by @a.StudentName</div> }</div>
+                                    @if (!a.IsDiscussed) { <button class="btn btn-secondary btn-sm" @onclick="() => Discussed(a)">Mark discussed</button> } else { <span class="badge green">Discussed</span> }</li>
+                            }
+                        </ul>
+                    </DataView>
+                    <div class="row" style="margin-top:12px"><input class="input grow" placeholder="Add a topic to the agenda" @bind="_newItem" aria-label="New agenda item" />
+                        <button class="btn btn-secondary" @onclick="AddItem" disabled="@(string.IsNullOrWhiteSpace(_newItem) || Busy)">Add</button></div>
+                    <p class="caption">Marking a doubt as discussed asks the student to confirm whether it's resolved.</p>
+                </div>
+                <div class="card">
+                    <div class="card-head"><h2>Open doubts from these students</h2></div>
+                    <DataView IsEmpty="_p.OpenDoubts.Count == 0" EmptyTitle="No open doubts" EmptyIcon="help">
+                        <ul class="list">@foreach (var d in _p.OpenDoubts) { <li><a href="/doubts/@d.Id">@d.Title</a><div class="caption">@d.StudentName · <Badge Style="StatusStyles.For(d.Status)" /></div></li> }</ul>
+                    </DataView>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-head"><h2>Students</h2></div>
+                <div class="table-wrap"><table class="table stack-mobile"><thead><tr><th>Student</th><th>Missed (30 d)</th><th>Pending work</th><th>Open doubts</th></tr></thead>
+                    <tbody>@foreach (var s in _p.Students) { <tr><td data-label="Student">@s.StudentName</td><td data-label="Missed (30 d)" class="num">@s.MissedRecentSessions</td><td data-label="Pending work" class="num">@s.PendingAssignments</td><td data-label="Open doubts" class="num">@s.OpenDoubts</td></tr> }</tbody></table></div>
+            </div>
+        </div>
+    }
+</DataView>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private ClassPreparationDto? _p;
+    private ApiException? _error;
+    private string _newItem = "";
+    protected override async Task LoadAsync() => (_p, _error) = await Fetch(() => Api.GetAsync<ClassPreparationDto>($"sessions/{Id}/preparation"));
+    private async Task Discussed(AgendaItemDto a) { if (await Run(() => Api.PostAsync($"sessions/{Id}/agenda/{a.Id}/discussed"), "Marked as discussed.")) await LoadAsync(); }
+    private async Task AddItem() { if (await Run(() => Api.PostAsync($"sessions/{Id}/agenda", new AddAgendaItemRequest(_newItem)), "Added to agenda.")) { _newItem = ""; await LoadAsync(); } }
+}

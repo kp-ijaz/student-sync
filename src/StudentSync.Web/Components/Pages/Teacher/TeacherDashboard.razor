@@ -1,0 +1,215 @@
+@page "/teacher"
+@attribute [Authorize(Roles = "Teacher")]
+@inherits AppPage
+
+@* Teacher home, aligned with the mobile TeacherDashboardScreen: greeting → next-class hero → stats → four shortcuts →
+   today's classes → attendance to mark → submissions to grade → doubts to answer → AI drafts → coming up. *@
+<PageTitle>Dashboard · Student Sync</PageTitle>
+<header class="page-header t-greeting">
+    <Avatar Name="@Me?.FullName" PhotoUrl="@Me?.PhotoUrl" Size="lg" Ring="true" />
+    <div class="grow">
+        <div class="t-greeting-line">@TeachingRules.Greeting(Time.ToLocal(DateTime.UtcNow, Tz).Hour)</div>
+        <h1 tabindex="-1">@FirstName</h1>
+    </div>
+    <div class="btn-group">
+        <a class="btn btn-secondary" href="/sessions/new?type=OneToOne"><Icon Name="user" /> Schedule one-to-one</a>
+        <a class="btn btn-primary" href="/sessions/new?type=Group"><Icon Name="plus" /> Create group session</a>
+    </div>
+</header>
+
+<DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_d is not null)
+    {
+        <div class="t-top">
+            @* Next class: cover photo with the title over it, then the teaching mode, time and the Join action (only from
+               15 minutes before the start until the end, as on mobile). *@
+            @if (_d.NextSession is { } next)
+            {
+                var live = next.Status == SessionStatus.Live;
+                <section class="card t-next" aria-labelledby="t-next-title">
+                    <ClassCover Subject="@next.SubjectName" Title="@next.Title" Height="220px" Href="@($"/sessions/{next.Id}")" Class="t-next-cover">
+                        <div class="t-next-pills">
+                            <GlassPill Live="true" Label="@(live ? "LIVE" : "NEXT CLASS")" Class="t-eyebrow" />
+                            <GlassPill Icon="calendar" Label="@(live ? "Happening now" : TeachingRules.DayLabel(next.StartUtc, DateTime.UtcNow, Tz))" />
+                        </div>
+                        <h2 id="t-next-title" class="cover-title t-next-title">@next.Title</h2>
+                        @if (next.SubjectName is not null) { <span class="t-next-subject">@next.SubjectName</span> }
+                    </ClassCover>
+                    <div class="t-next-facts">
+                        <span class="t-next-type">@StatusStyles.For(next.SessionType).Label · @next.ParticipantCount @(next.ParticipantCount == 1 ? "student" : "students")</span>
+                        <span class="t-next-when">
+                            <span class="t-next-clock"><Icon Name="clock" /><span class="num">@Time.Clock(next.StartUtc, Tz)–@Time.Clock(next.EndUtc, Tz)</span></span>
+                            <span class="caption">@TeachingRules.DeliveryModeLabel(next.DeliveryMode)</span>
+                        </span>
+                    </div>
+                    @if (next.TimeZoneId != Tz) { <p class="caption t-next-org">Organiser time: @Time.Range(next.StartUtc, next.EndUtc, next.TimeZoneId) @Time.Abbrev(next.TimeZoneId)</p> }
+                    <div class="t-next-actions">
+                        @if (_joinUrl is not null)
+                        {
+                            <a class="btn btn-primary" href="@_joinUrl" target="_blank" rel="noopener noreferrer"><Icon Name="video" /> @(live ? "Join live class" : "Join class")<span class="sr-only"> (opens in a new tab)</span></a>
+                        }
+                        else
+                        {
+                            <a class="btn btn-primary" href="/sessions/@next.Id">Open class</a>
+                        }
+                        <a class="btn btn-secondary" href="/sessions/@next.Id/prepare">Prepare class</a>
+                    </div>
+                </section>
+            }
+            else
+            {
+                <HeroCard Class="t-next-empty" AriaLabel="Next class">
+                    <div class="row" style="flex-wrap:nowrap">
+                        <span class="icon-tile lg t-on-hero" aria-hidden="true"><Icon Name="calendar-clock" /></span>
+                        <div>
+                            <h2>No classes scheduled</h2>
+                            <p class="muted" style="margin:2px 0 0">New classes will appear here.</p>
+                        </div>
+                    </div>
+                </HeroCard>
+            }
+            <div class="t-side">
+                @if (_d.Stats.Count > 0)
+                {
+                    <div class="t-stats">@foreach (var s in _d.Stats) { var ic = StatIcons.For(s.Key); <StatCard Label="@s.Label" Value="@s.Value" Hint="@s.Hint" Icon="@ic?.Icon" Tone="@(ic?.Tone ?? "blue")" /> }</div>
+                }
+                <ShortcutGrid Items="Shortcuts" AriaLabel="Teaching shortcuts" />
+            </div>
+        </div>
+
+        @if (_d.TodaySessions.Count > 0)
+        {
+            <SectionHeader Title="Today" Icon="calendar" Count="_d.TodaySessions.Count" LinkHref="/sessions" LinkLabel="Timetable" />
+            <div class="t-today-grid">
+                @foreach (var s in _d.TodaySessions)
+                {
+                    <a class="card t-today" href="/sessions/@s.Id">
+                        <ClassCover Subject="@s.SubjectName" Title="@s.Title" Height="128px">
+                            <div class="row" style="gap:8px;flex-wrap:nowrap">
+                                <GlassPill Icon="calendar" Label="@TeachingRules.DayLabel(s.StartUtc, DateTime.UtcNow, Tz)" />
+                                @if (s.Status != SessionStatus.Scheduled) { <GlassPill Label="@StatusStyles.For(s.Status).Label" /> }
+                            </div>
+                            <span class="cover-title t-today-title">@s.Title</span>
+                        </ClassCover>
+                        <span class="t-today-meta">
+                            <strong>@(s.SubjectName ?? StatusStyles.For(s.SessionType).Label)</strong>
+                            <span class="caption">@Time.Range(s.StartUtc, s.EndUtc, Tz)</span>
+                        </span>
+                    </a>
+                }
+            </div>
+        }
+
+        <div class="t-columns">
+            <div class="t-col">
+                @if (_d.PendingAttendance.Count > 0)
+                {
+                    <SectionHeader Title="Attendance to mark" Icon="list-checks" Tone="amber" Count="_d.PendingAttendance.Count" />
+                    <div class="stack-sm t-cards">
+                        @foreach (var s in _d.PendingAttendance)
+                        {
+                            <TeacherClassCard Session="s" Tz="@Tz" Href="@AttendanceHref(s)">
+                                <Action><a class="btn t-btn-tonal btn-block" href="@AttendanceHref(s)"><Icon Name="list-checks" /> Mark attendance<span class="sr-only"> for @s.Title</span></a></Action>
+                            </TeacherClassCard>
+                        }
+                    </div>
+                }
+
+                <SectionHeader Title="Submissions to grade" Icon="check-square" Tone="green" Count="_d.SubmissionsToGrade.Count"
+                               LinkHref="@(_d.SubmissionsToGrade.Count > 0 ? "/teacher/tasks" : null)" LinkLabel="Tasks" />
+                @if (_d.SubmissionsToGrade.Count == 0)
+                {
+                    <InlineEmpty Icon="check" Text="Nothing waiting to be graded." />
+                }
+                else
+                {
+                    <ListGroup AriaLabel="Submissions to grade">
+                        @foreach (var s in _d.SubmissionsToGrade.Take(3))
+                        {
+                            <ListRow Icon="check-square" Tone="green" Title="@s.AssignmentTitle" Subtitle="@SubmissionLine(s)" Href="@($"/assignments/{s.AssignmentId}")" ShowChevron="true">
+                                <Trailing>@if (s.IsLate) { <Badge Style="Late" /> }</Trailing>
+                            </ListRow>
+                        }
+                    </ListGroup>
+                }
+
+                <SectionHeader Title="Doubts to answer" Icon="help" Tone="orange" Count="_openDoubts.Count"
+                               LinkHref="@(_openDoubts.Count > 0 ? "/teacher/tasks#doubts" : null)" LinkLabel="Doubts" />
+                @if (_openDoubts.Count == 0)
+                {
+                    <InlineEmpty Icon="help" Text="No open doubts." />
+                }
+                else
+                {
+                    <ListGroup AriaLabel="Doubts to answer">
+                        @foreach (var d in _openDoubts.Take(3)) { <DoubtRow Doubt="d" Tz="@Tz" /> }
+                    </ListGroup>
+                }
+            </div>
+
+            <div class="t-col">
+                @if (_d.PendingAiApprovals.Count > 0)
+                {
+                    <SectionHeader Title="AI drafts awaiting your review" Icon="sparkle" Tone="orange" Count="_d.PendingAiApprovals.Count" />
+                    <ListGroup AriaLabel="AI drafts awaiting your review">
+                        @foreach (var a in _d.PendingAiApprovals)
+                        {
+                            <ListRow Icon="sparkle" Tone="orange" Title="@a.SessionTitle" Subtitle="@($"Drafted {Time.Short(a.CreatedAtUtc, Tz)}")" Href="@($"/ai/drafts/{a.DraftId}")" />
+                        }
+                    </ListGroup>
+                    <p class="note-line" style="margin-top:8px"><Icon Name="info" /><span>AI drafts are not visible to students until you review, approve and publish them.</span></p>
+                }
+
+                <SectionHeader Title="Coming up" Icon="calendar-clock" Tone="navy" LinkHref="/sessions" LinkLabel="All classes" />
+                @if (_comingUp.Count == 0)
+                {
+                    <InlineEmpty Icon="calendar" Text="Nothing else scheduled this week." />
+                }
+                else
+                {
+                    <div class="stack-sm t-cards">
+                        @foreach (var s in _comingUp) { <TeacherClassCard Session="s" Tz="@Tz" Href="@($"/sessions/{s.Id}")" /> }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</DataView>
+
+@code {
+    private TeacherDashboardDto? _d;
+    private ApiException? _error;
+    private string? _joinUrl;
+    private List<DoubtListItemDto> _openDoubts = [];
+    private List<SessionListItemDto> _comingUp = [];
+
+    private static readonly StatusStyle Late = new("Late", "amber");
+    private static readonly IReadOnlyList<ShortcutItem> Shortcuts =
+    [
+        new("Timetable", "/sessions", "calendar"),
+        new("Videos", "/videos", "play-circle", "navy"),
+        new("Grading", "/teacher/tasks", "check-square", "green"),
+        new("Doubts", "/teacher/tasks#doubts", "help", "orange"),
+    ];
+
+    private string FirstName => People.ShortName(Me?.FullName).Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+
+    protected override async Task LoadAsync()
+    {
+        _error = null;
+        (_d, _error) = await Fetch(() => Api.GetAsync<TeacherDashboardDto>("dashboard/teacher"));
+        if (_d is null) return;
+
+        // The list only says a link exists; fetch the class for its URL only when Join is offered right now.
+        _joinUrl = null;
+        if (_d.NextSession is { } next && TeachingRules.JoinableNow(next, DateTime.UtcNow))
+            _joinUrl = (await Fetch(() => Api.GetAsync<SessionDetailDto>($"sessions/{next.Id}"))).Value?.MeetingUrl is { Length: > 0 } url ? url : null;
+
+        _openDoubts = _d.UnresolvedDoubts.Where(d => TeachingRules.IsOpenDoubt(d.Status)).ToList();
+        _comingUp = _d.UpcomingSessions.Where(s => s.Id != _d.NextSession?.Id).Take(3).ToList();
+    }
+
+    private static string AttendanceHref(SessionListItemDto s) => $"/sessions/{s.Id}?tab=attendance";
+
+    private string SubmissionLine(SubmissionToGradeDto s) => TeacherText.SubmissionLine(s, Tz);
+}

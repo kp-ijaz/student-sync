@@ -1,0 +1,46 @@
+@inherits AppComponent
+
+<div class="card">
+    <div class="card-head"><h2>Recording, transcription &amp; AI consent</h2></div>
+    <DataView Loading="_c is null && _error is null" Error="_error" OnRetry="Load">
+        @if (_c is not null)
+        {
+            <p class="small">Recording, transcription and AI processing only happen when your institution allows them <em>and</em> every participant (or their guardian) has consented. Consent can be withdrawn at any time.</p>
+            <div class="row" style="margin-bottom:16px">
+                <span class="badge @(_c.RecordingEnabledByInstitution ? "green" : "slate")">Recording @(_c.RecordingEnabledByInstitution ? "allowed" : "disabled") by institution</span>
+                <span class="badge @(_c.TranscriptionEnabledByInstitution ? "green" : "slate")">Transcription @(_c.TranscriptionEnabledByInstitution ? "allowed" : "disabled")</span>
+                <span class="badge @(_c.AiEnabledByInstitution ? "green" : "slate")">AI assistant @(_c.AiEnabledByInstitution ? "allowed" : "disabled")</span>
+            </div>
+            <div class="table-wrap"><table class="table stack-mobile">
+                <thead><tr><th>Student</th><th>Recording</th><th>Transcription</th><th>AI processing</th></tr></thead>
+                <tbody>
+                    @foreach (var s in _c.Students)
+                    {
+                        <tr><td data-label="Student">@s.StudentName</td>
+                            @foreach (var (type, value) in new[] { (ConsentType.Recording, s.Recording), (ConsentType.Transcription, s.Transcription), (ConsentType.AiProcessing, s.AiProcessing) })
+                            {
+                                <td data-label="@type">
+                                    <span class="badge @(value == true ? "green" : value == false ? "red" : "slate")">@(value == true ? "Granted" : value == false ? "Declined" : "Not given")</span>
+                                    <button class="btn btn-ghost btn-sm" @onclick="() => Give(s.StudentId, type, value != true)">@(value == true ? "Withdraw" : "Grant")</button>
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table></div>
+            @if (Session.CanManage) { <p class="caption" style="margin-top:12px">Staff may record consent collected on a signed form; the method and your name are stored with each record.</p> }
+        }
+    </DataView>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SessionDetailDto Session { get; set; } = default!;
+    private ConsentStatusDto? _c;
+    private ApiException? _error;
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load() => (_c, _error) = await Fetch(() => Api.GetAsync<ConsentStatusDto>($"sessions/{Session.Id}/consent"));
+    private async Task Give(Guid studentId, ConsentType type, bool granted)
+    {
+        if (await Run(() => Api.PostAsync($"sessions/{Session.Id}/consent", new GiveConsentRequest(studentId, type, granted)), granted ? "Consent recorded." : "Consent withdrawn.")) await Load();
+    }
+}

@@ -1,0 +1,63 @@
+@page "/admin"
+@attribute [Authorize(Roles = "InstitutionAdmin")]
+@inherits AppPage
+
+<PageHeader Title="Institution dashboard" Subtitle="@Me?.TenantName">
+    <Actions>
+        <a class="btn btn-secondary" href="/sessions/new?type=OneToOne"><Icon Name="user" /> Schedule one-to-one</a>
+        <a class="btn btn-secondary" href="/sessions/new?type=Group"><Icon Name="users" /> Create group session</a>
+        <a class="btn btn-primary" href="/sessions/new?type=Batch"><Icon Name="plus" /> Create batch class</a>
+    </Actions>
+</PageHeader>
+
+<DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_d is not null)
+    {
+        <div class="stat-grid" style="margin-bottom:24px">
+            @foreach (var s in _d.Stats) { var ic = StatIcons.For(s.Key); <StatCard Label="@s.Label" Value="@s.Value" Hint="@s.Hint" Icon="@ic?.Icon" Tone="@(ic?.Tone ?? "blue")" /> }
+        </div>
+        @if (_d.Alerts.Count > 0)
+        {
+            <div class="stack-sm" style="margin-bottom:24px">
+                @foreach (var a in _d.Alerts) { <div class="@(a.Severity == "warning" ? "warn-panel" : "info-panel") row-between"><span>@a.Message</span>@if (a.Link is not null) { <a class="panel-link" href="@a.Link">Review <Icon Name="chevron-right" /></a> }</div> }
+            </div>
+        }
+        <div class="grid grid-main">
+            <div class="card">
+                <div class="card-head"><h2>Upcoming sessions</h2><a href="/sessions">View calendar</a></div>
+                <DataView IsEmpty="_d.UpcomingSessions.Count == 0" EmptyTitle="No upcoming sessions" EmptyText="Schedule a batch class, group session or one-to-one lesson to get started." EmptyIcon="calendar">
+                    <ul class="list">@foreach (var s in _d.UpcomingSessions) { <li><SessionItem Session="s" Tz="@Tz" /></li> }</ul>
+                </DataView>
+            </div>
+            <div class="stack dash-aside">
+                <div class="card">
+                    <div class="card-head"><h2>Attendance · last 30 days</h2></div>
+                    <AttendanceBars Summary="_d.AttendanceLast30Days" />
+                </div>
+                <div class="card">
+                    <div class="card-head"><h2>Sessions by teaching mode</h2></div>
+                    <p class="caption">Past 30 days to next 30 days, excluding cancelled. Each session is counted once by its own mode.</p>
+                    @foreach (var t in _d.SessionsByType)
+                    {
+                        <div class="bar-row"><span class="small">@StatusStyles.For(t.SessionType).Label</span>
+                            <div class="progress-bar" role="img" aria-label="@t.Sessions sessions"><span style="width:@Pct(t.Sessions, _d.SessionsByType.Sum(x => x.Sessions))%"></span></div>
+                            <span class="small num" style="text-align:end">@t.Sessions</span></div>
+                    }
+                </div>
+                <div class="card">
+                    <div class="card-head"><h2>Recent activity</h2><a href="/admin/settings?tab=audit">Audit log</a></div>
+                    <DataView IsEmpty="_d.RecentActivity.Count == 0" EmptyTitle="No activity yet">
+                        <ul class="list">@foreach (var a in _d.RecentActivity) { <li><div class="small">@a.Summary</div><div class="caption">@(a.UserName ?? "System") · <LocalTime Utc="a.AtUtc" Tz="@Tz" Format="relative" /></div></li> }</ul>
+                    </DataView>
+                </div>
+            </div>
+        </div>
+    }
+</DataView>
+
+@code {
+    private AdminDashboardDto? _d;
+    private ApiException? _error;
+    protected override async Task LoadAsync() => (_d, _error) = await Fetch(() => Api.GetAsync<AdminDashboardDto>("dashboard/admin"));
+    private static double Pct(int v, int total) => total == 0 ? 0 : Math.Round(100.0 * v / total, 1);
+}

@@ -1,0 +1,7 @@
+@page "/not-found"
+@attribute [AllowAnonymous]
+<PageTitle>Page not found · Student Sync</PageTitle>
+<StateView Page="true" Illustration="@Illustrations.NotFound" Title="We couldn't find that page"
+           Message="The link may be old or mistyped. Everything you need is on your home page.">
+    <a class="btn btn-primary btn-pill" href="/"><Icon Name="home" /> Go to home</a>
+</StateView>

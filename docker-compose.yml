@@ -1,0 +1,80 @@
+# Student Sync local infrastructure.
+#   docker compose up -d sqlserver mailpit        -> dependencies only (run API/Web with dotnet)
+#   docker compose --profile app up -d --build    -> full stack in containers
+name: studentsync
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-CU16-ubuntu-22.04
+    platform: linux/amd64
+    # The amd64 image runs under emulation on Apple-silicon Macs and occasionally crashes
+    # (exit 139); come straight back instead of leaving the API without a database.
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?set MSSQL_SA_PASSWORD in .env}
+      MSSQL_PID: Developer
+    ports:
+      - "${SQL_PORT:-14350}:1433"
+    volumes:
+      - sqldata:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  mailpit:
+    # Local SMTP sink: email is accepted and viewable at http://localhost:18025, never delivered externally.
+    image: axllent/mailpit:v1.27
+    ports:
+      - "11025:1025"
+      - "18025:8025"
+
+  api:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: src/StudentSync.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Default: "Server=sqlserver,1433;Database=StudentSync;User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=True"
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY in .env}
+      Email__Smtp__Host: mailpit
+      Email__Smtp__Port: "1025"
+      Storage__Local__LocalRootPath: /app/storage
+      Database__MigrateOnStartup: "true"
+      Demo__Password: ${DEMO_PASSWORD:-}
+      Demo__ForcePasswordChange: ${DEMO_FORCE_PASSWORD_CHANGE:-true}
+      Cors__Origins__0: http://localhost:5090
+    ports:
+      - "5080:8080"
+    volumes:
+      - storage:/app/storage
+      - apikeys:/app/keys
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
+  web:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: src/StudentSync.Web/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Api__BaseUrl: http://api:8080
+      Api__PublicBaseUrl: http://localhost:5080
+    ports:
+      - "5090:8080"
+    volumes:
+      - webkeys:/app/keys
+    depends_on:
+      - api
+
+volumes:
+  sqldata:
+  storage:
+  apikeys:
+  webkeys:

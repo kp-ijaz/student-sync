@@ -1,0 +1,126 @@
+@page "/doubts/{Id:guid}"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher,Student,Parent")]
+@inherits AppPage
+
+<DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_d is not null)
+    {
+        <PageHeader Title="@_d.Title" Subtitle="@($"{_d.StudentName} · {_d.SubjectName ?? "No subject"}")"><Breadcrumb><a href="/doubts">Doubt Centre</a> /</Breadcrumb></PageHeader>
+        <div class="row" style="margin:-12px 0 16px"><Badge Style="StatusStyles.For(_d.Status)" /><Badge Style="StatusStyles.For(_d.Priority)" />@if (_d.IsPrivate) { <span class="badge slate">Private</span> }
+            @if (_d.SessionId is { } sid) { <a class="small" href="/sessions/@sid">From: @_d.SessionTitle</a> }
+            @if (_d.RecordingTimestampSeconds is { } ts) { <span class="small muted">at @TimeSpan.FromSeconds(ts).ToString(@"mm\:ss") in the recording</span> }</div>
+        @if (_d.FollowUpSessionId is { } fid) { <div class="info-panel" style="margin-bottom:16px">On the agenda for <a href="/sessions/@fid">@_d.FollowUpSessionTitle</a> — @(_d.FollowUpSessionStartUtc is { } f ? Time.Short(f, Tz) : "")</div> }
+        @if (_d.CanConfirm && _d.Status is DoubtStatus.Answered or DoubtStatus.PendingConfirmation)
+        {
+            <div class="warn-panel row-between" style="margin-bottom:16px"><span><strong>Is your doubt resolved?</strong> Let your teacher know.</span>
+                <div class="btn-group"><button class="btn btn-secondary btn-sm" @onclick="() => Confirm(false)">No, still unclear</button><button class="btn btn-primary btn-sm" @onclick="() => Confirm(true)">Yes, resolved</button></div></div>
+        }
+        <div class="grid grid-main">
+            <div class="card">
+                <div class="chat">
+                    <div class="bubble"><div class="meta">@_d.StudentName · question</div>@_d.Description
+                        @if (_d.Attachments.Count > 0) { <div class="row" style="margin-top:8px">@foreach (var f in _d.Attachments) { <FileButton FileId="f.Id" Label="@f.FileName" /> }</div> }</div>
+                    @foreach (var m in _d.Messages)
+                    {
+                        <div class="bubble @(m.IsTeacherReply ? "teacher" : "") @(m.AuthorName == Me?.FullName ? "mine" : "")"><div class="meta">@m.AuthorName · <LocalTime Utc="m.CreatedAtUtc" Tz="@Tz" /></div>@m.Body
+                            @if (m.Attachments.Count > 0) { <div class="row" style="margin-top:8px">@foreach (var f in m.Attachments) { <FileButton FileId="f.Id" Label="@f.FileName" /> }</div> }</div>
+                    }
+                </div>
+                @if (_d.CanAnswer || _d.CanConfirm)
+                {
+                    <div class="stack-sm" style="margin-top:16px">
+                        <label for="reply" class="label">@(_d.CanAnswer ? "Your explanation" : "Follow-up question")</label>
+                        <textarea id="reply" class="textarea" @bind="_reply"></textarea>
+                        <div class="row-between">
+                            <InputFile multiple OnChange="Upload" aria-label="Attach files" />
+                            <div class="btn-group">
+                                @if (_d.CanAnswer) { <button class="btn btn-secondary" @onclick="() => Reply(false)" disabled="@(Busy || string.IsNullOrWhiteSpace(_reply))">Reply</button><button class="btn btn-primary" @onclick="() => Reply(true)" disabled="@(Busy || string.IsNullOrWhiteSpace(_reply))">Reply &amp; mark answered</button> }
+                                else { <button class="btn btn-primary" @onclick="() => Reply(false)" disabled="@(Busy || string.IsNullOrWhiteSpace(_reply))"><Icon Name="send" /> Send</button> }
+                            </div>
+                        </div>
+                        @if (_files.Count > 0) { <div class="pill-list">@foreach (var f in _files) { <span class="badge slate">@f.FileName</span> }</div> }
+                    </div>
+                }
+            </div>
+            <div class="stack">
+                @if (_d.CanAnswer)
+                {
+                    <div class="card">
+                        <div class="card-head"><h2>Manage</h2></div>
+                        <div class="stack-sm">
+                            <div class="field"><label for="pr">Priority</label><select id="pr" class="select" @bind="_priority">@foreach (var p in Enum.GetValues<DoubtPriority>()) { <option value="@p">@p</option> }</select></div>
+                            @if (IsAdmin) { <div class="field"><label for="as">Assigned teacher</label><select id="as" class="select" @bind="_teacher"><option value="">Unassigned</option>@foreach (var t in _teachers) { <option value="@t.Id">@t.FullName</option> }</select></div> }
+                            <div class="field"><label for="fu">Discuss in class</label><select id="fu" class="select" @bind="_followUp"><option value="">Not scheduled</option>@foreach (var s in _upcoming) { <option value="@s.Id">@s.Title — @Time.Short(s.StartUtc, Tz)</option> }</select></div>
+                            <div class="field"><label for="st">Status</label><select id="st" class="select" @bind="_status"><option value="">Keep (@StatusStyles.For(_d.Status).Label)</option>
+                                @foreach (var s in new[] { DoubtStatus.InProgress, DoubtStatus.Answered, DoubtStatus.PendingConfirmation }.Where(s => s != _d.Status)) { <option value="@s">@StatusStyles.For(s).Label</option> }</select>
+                                <span class="help">Only the student can mark a doubt resolved.</span></div>
+                            <button class="btn btn-primary" @onclick="Update" disabled="@Busy">Save</button>
+                        </div>
+                    </div>
+                }
+                <div class="card">
+                    <div class="card-head"><h2>History</h2></div>
+                    <ul class="list">@foreach (var h in _d.History) { <li class="small">@StatusStyles.For(h.From).Label → <strong>@StatusStyles.For(h.To).Label</strong><div class="caption">@h.ChangedBy · <LocalTime Utc="h.AtUtc" Tz="@Tz" /> @(h.Note is null ? "" : $"· {h.Note}")</div></li> }</ul>
+                    @if (_d.History.Count == 0) { <p class="small muted">No status changes yet.</p> }
+                </div>
+            </div>
+        </div>
+    }
+</DataView>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private DoubtDetailDto? _d;
+    private ApiException? _error;
+    private string _reply = "";
+    private readonly List<FileDto> _files = [];
+    private DoubtPriority _priority;
+    private Guid? _teacher, _followUp;
+    private DoubtStatus? _status;
+    private List<TeacherDto> _teachers = [];
+    private List<SessionListItemDto> _upcoming = [];
+
+    protected override async Task LoadAsync()
+    {
+        (_d, _error) = await Fetch(() => Api.GetAsync<DoubtDetailDto>($"doubts/{Id}"));
+        if (_d is null) return;
+        (_priority, _teacher, _followUp, _status) = (_d.Priority, _d.AssignedTeacherId, _d.FollowUpSessionId, null);
+        if (_d.CanAnswer)
+        {
+            if (IsAdmin) _teachers = (await Fetch(() => Api.GetAsync<PagedResult<TeacherDto>>("teachers?pageSize=100"))).Value?.Items.ToList() ?? [];
+            _upcoming = (await Fetch(() => Api.GetAsync<List<SessionListItemDto>>($"sessions?fromUtc={DateTime.UtcNow:O}&toUtc={DateTime.UtcNow.AddDays(30):O}&studentId={_d.StudentId}&status=Scheduled"))).Value ?? [];
+        }
+    }
+
+    private async Task Upload(InputFileChangeEventArgs e)
+    {
+        await Run(async () =>
+        {
+            foreach (var file in e.GetMultipleFiles(5))
+            {
+                using var form = new MultipartFormDataContent();
+                var c = new StreamContent(file.OpenReadStream(15_000_000));
+                c.Headers.ContentType = new(string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType);
+                form.Add(c, "file", file.Name);
+                form.Add(new StringContent("DoubtAttachment"), "purpose");
+                _files.Add(await Api.PostFormAsync<FileDto>("files", form));
+            }
+        });
+    }
+
+    private async Task Reply(bool answered)
+    {
+        if (await Run(() => Api.PostAsync($"doubts/{Id}/replies", new ReplyDoubtRequest(_reply, _files.Select(f => f.Id).ToList(), answered)), "Reply sent."))
+        { _reply = ""; _files.Clear(); await LoadAsync(); }
+    }
+
+    private async Task Confirm(bool resolved)
+    {
+        if (await Run(() => Api.PostAsync($"doubts/{Id}/confirm", new ConfirmDoubtRequest(resolved, null)), resolved ? "Great — marked as resolved." : "Your teacher will follow up.")) await LoadAsync();
+    }
+
+    private async Task Update()
+    {
+        if (await Run(() => Api.PutAsync($"doubts/{Id}", new UpdateDoubtRequest(_teacher, _priority, _status, _followUp, _d!.RowVersion)), "Doubt updated.")) await LoadAsync();
+    }
+}

@@ -1,0 +1,137 @@
+@page "/admin/settings"
+@attribute [Authorize(Roles = "InstitutionAdmin")]
+@inherits AppPage
+
+<PageHeader Title="Institution settings" />
+<div class="tabs" role="tablist">
+    @foreach (var (k, l) in new[] { ("general", "General & policies"), ("holidays", "Holidays"), ("subscription", "Subscription"), ("integrations", "Integrations"), ("permissions", "Roles & permissions"), ("audit", "Audit log") })
+    { <button role="tab" aria-selected="@(Aria.Bool(_tab == k))" @onclick="() => Switch(k)">@l</button> }
+</div>
+@switch (_tab)
+{
+    case "general":
+        <DataView Loading="_s is null && _error is null" Error="_error" OnRetry="LoadAsync">
+            @if (_s is not null)
+            {
+                <div class="card">
+                    <div class="form-grid">
+                        <div class="field"><label for="in">Institution name</label><input id="in" class="input" @bind="_name" /></div>
+                        <div class="field"><label>Institution code</label><input class="input" value="@_s.Slug" disabled /><span class="help">Used at sign-in when an email exists at several institutions.</span></div>
+                        <div class="field"><label for="itz">Default time zone</label><TimeZoneSelect Id="itz" @bind-Value="_tz" /></div>
+                        <div class="field"><label for="icc">Country (ISO code)</label><input id="icc" class="input" maxlength="2" @bind="_country" /></div>
+                        <div class="field"><label for="icur">Currency</label><input id="icur" class="input" maxlength="3" @bind="_currency" /></div>
+                        <div class="field"><label for="ilang">Default language</label><select id="ilang" class="select" @bind="_lang"><option value="en">English</option><option value="ar">Arabic</option><option value="ml">Malayalam</option></select></div>
+                        <div class="field"><label for="ie">Contact email</label><input id="ie" class="input" @bind="_email" /></div>
+                        <div class="field"><label for="ibc">Brand colour</label><input id="ibc" class="input" placeholder="#1264D8" @bind="_brand" /></div>
+                    </div>
+                    <h3 style="margin:24px 0 8px">Recording, transcription &amp; AI</h3>
+                    <div class="stack-sm">
+                        <label class="check"><input type="checkbox" @bind="_rec" /> Allow class recordings (participants must still consent)</label>
+                        <label class="check"><input type="checkbox" @bind="_tx" /> Allow transcription</label>
+                        <label class="check"><input type="checkbox" @bind="_ai" /> Enable the AI Class Assistant (teacher approval is always required before students see AI content)</label>
+                        <div class="field" style="max-width:260px"><label for="iret">Keep recordings for (days)</label><input id="iret" type="number" min="7" max="3650" class="input" @bind="_retention" /></div>
+                    </div>
+                    <h3 style="margin:24px 0 8px">Communication &amp; doubts</h3>
+                    <div class="stack-sm">
+                        <label class="check"><input type="checkbox" @bind="_followUp" /> Automatically carry unresolved doubts into the next relevant class</label>
+                        <label class="check"><input type="checkbox" @bind="_studentMsg" /> Students may message their teachers</label>
+                        <label class="check"><input type="checkbox" @bind="_parentMsg" /> Parents may message their children's teachers</label>
+                    </div>
+                    <div class="form-actions"><button class="btn btn-primary" @onclick="Save" disabled="@Busy">Save settings</button></div>
+                </div>
+            }
+        </DataView>
+        break;
+    case "holidays":
+        <div class="card">
+            <div class="row" style="margin-bottom:16px"><input type="date" class="input" style="max-width:200px" aria-label="Holiday date" @bind="_hDate" /><input class="input" style="max-width:280px" placeholder="Holiday name" aria-label="Holiday name" @bind="_hName" />
+                <button class="btn btn-primary" @onclick="AddHoliday" disabled="@Busy">Add holiday</button></div>
+            <p class="caption">Recurring schedules can skip these dates automatically.</p>
+            <ul class="list">@foreach (var h in _holidays) { <li class="row-between"><span>@h.Date.ToString("ddd d MMM yyyy") — @h.Name</span><button class="btn btn-ghost btn-sm" @onclick="() => RemoveHoliday(h)">Remove</button></li> }</ul>
+        </div>
+        break;
+    case "subscription":
+        @if (_sub is not null)
+        {
+            <div class="card">
+                <div class="card-head"><h2>@_sub.PlanName plan</h2><span class="badge @(_sub.Status is SubscriptionStatus.Active or SubscriptionStatus.Trialing ? "green" : "amber")">@_sub.Status</span></div>
+                <p class="small">@(_sub.CurrentPeriodEndUtc is { } e ? $"Current period ends {Time.Date(e, Tz)}." : "") @(_sub.BillingProviderConfigured ? "" : "Billing is managed by the Student Sync team; no card payments are taken in the app.")</p>
+                <div class="stack-sm">
+                    <Usage Label="Active students" Used="_sub.Usage.Students" Limit="_sub.Usage.MaxStudents" />
+                    <Usage Label="Active teachers" Used="_sub.Usage.Teachers" Limit="_sub.Usage.MaxTeachers" />
+                    <Usage Label="Storage (MB)" Used="(int)(_sub.Usage.StorageBytes / 1_000_000)" Limit="_sub.Usage.MaxStorageMb" />
+                    <Usage Label="AI jobs this month" Used="_sub.Usage.AiJobsThisMonth" Limit="_sub.Usage.MonthlyAiJobs" />
+                </div>
+            </div>
+        }
+        break;
+    case "integrations":
+        <div class="card"><ul class="list">@foreach (var i in _integrations) { <li class="row-between"><div><strong>@i.Name</strong><div class="caption">@i.Detail</div></div><span class="badge @(i.Configured ? "green" : "slate")">@(i.Configured ? "Configured" : "Not configured")</span></li> }</ul>
+            <p class="caption" style="margin-top:12px">Integrations are configured by the platform operator through secure server configuration — keys are never entered or shown in the browser.</p></div>
+        break;
+    case "permissions":
+        <div class="card"><p class="small muted">Permissions are enforced on the server for every request. Hidden buttons are never relied on for security.</p>
+            <div class="grid grid-2">@foreach (var r in _matrix) { <div><h3>@r.Role</h3><div class="pill-list">@foreach (var p in r.Permissions) { <span class="badge slate">@p</span> }</div></div> }</div></div>
+        break;
+    case "audit":
+        <div class="card">
+            <DataView Loading="_audit is null" IsEmpty="_audit?.Items.Count == 0" EmptyTitle="No audit entries" EmptyIcon="shield">
+                <div class="table-wrap"><table class="table stack-mobile"><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Details</th></tr></thead>
+                    <tbody>@foreach (var a in _audit?.Items ?? []) { <tr><td data-label="When" class="small">@Time.Short(a.CreatedAtUtc, Tz)</td><td data-label="Who">@(a.UserName ?? "System")</td><td data-label="Action"><code>@a.Action</code></td><td data-label="Details" class="small">@a.Summary</td></tr> }</tbody></table></div>
+                @if (_audit is not null) { <Pager Page="_audit.Page" TotalPages="_audit.TotalPages" Total="_audit.TotalCount" OnPage="LoadAudit" /> }
+            </DataView>
+        </div>
+        break;
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "tab")] public string? TabParam { get; set; }
+    private string _tab = "general";
+    private InstitutionSettingsDto? _s;
+    private ApiException? _error;
+    private string _name = "", _tz = "UTC", _country = "", _currency = "", _lang = "en";
+    private string? _email, _brand;
+    private bool _rec, _tx, _ai, _followUp, _studentMsg, _parentMsg;
+    private int _retention;
+    private List<HolidayDto> _holidays = [];
+    private DateOnly _hDate = DateOnly.FromDateTime(DateTime.Today);
+    private string _hName = "";
+    private SubscriptionDto? _sub;
+    private List<IntegrationStatusDto> _integrations = [];
+    private List<RolePermissionDto> _matrix = [];
+    private PagedResult<AuditEntryDto>? _audit;
+
+    protected override async Task LoadAsync()
+    {
+        if (TabParam is { Length: > 0 }) _tab = TabParam;
+        (_s, _error) = await Fetch(() => Api.GetAsync<InstitutionSettingsDto>("institution/settings"));
+        if (_s is not null)
+            (_name, _tz, _country, _currency, _lang, _email, _brand, _rec, _tx, _ai, _followUp, _studentMsg, _parentMsg, _retention) =
+                (_s.Name, _s.DefaultTimeZoneId, _s.CountryCode, _s.CurrencyCode, _s.DefaultLanguage, _s.ContactEmail, _s.BrandColorHex, _s.RecordingEnabled, _s.TranscriptionEnabled,
+                 _s.AiAssistantEnabled, _s.DoubtFollowUpEnabled, _s.StudentsCanMessageTeachers, _s.ParentsCanMessageTeachers, _s.RecordingRetentionDays);
+        await Switch(_tab);
+    }
+
+    private async Task Switch(string tab)
+    {
+        _tab = tab;
+        switch (tab)
+        {
+            case "holidays": _holidays = (await Fetch(() => Api.GetAsync<List<HolidayDto>>("institution/holidays"))).Value ?? []; break;
+            case "subscription": _sub = (await Fetch(() => Api.GetAsync<SubscriptionDto>("institution/subscription"))).Value; break;
+            case "integrations": _integrations = (await Fetch(() => Api.GetAsync<List<IntegrationStatusDto>>("institution/integrations"))).Value ?? []; break;
+            case "permissions": _matrix = (await Fetch(() => Api.GetAsync<List<RolePermissionDto>>("institution/permissions"))).Value ?? []; break;
+            case "audit": await LoadAudit(1); break;
+        }
+    }
+
+    private async Task LoadAudit(int p) => _audit = (await Fetch(() => Api.GetAsync<PagedResult<AuditEntryDto>>($"institution/audit?page={p}&pageSize=25"))).Value;
+
+    private async Task Save()
+    {
+        if (await Run(() => Api.PutAsync("institution/settings", new UpdateInstitutionSettingsRequest(_name, _country, _tz, _currency, _lang, _email, _brand, _rec, _tx, _ai, _followUp, _retention, _studentMsg, _parentMsg, _s!.RowVersion)), "Settings saved."))
+            await LoadAsync();
+    }
+    private async Task AddHoliday() { if (await Run(() => Api.PostAsync("institution/holidays", new SaveHolidayRequest(_hDate, _hName)), "Holiday added.")) { _hName = ""; await Switch("holidays"); } }
+    private async Task RemoveHoliday(HolidayDto h) { if (await Run(() => Api.DeleteAsync($"institution/holidays/{h.Id}"), "Holiday removed.")) await Switch("holidays"); }
+}

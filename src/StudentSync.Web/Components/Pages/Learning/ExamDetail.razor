@@ -1,0 +1,55 @@
+@page "/exams/{Id:guid}"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher")]
+@inherits AppPage
+
+<DataView Loading="_e is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_e is not null)
+    {
+        <PageHeader Title="@_e.Title" Subtitle="@($"{Time.Short(_e.OpensAtUtc, Tz)} → {Time.Short(_e.ClosesAtUtc, Tz)} · {_e.DurationMinutes} min · {_e.TotalMarks} marks")">
+            <Breadcrumb><a href="/exams">Exams</a> /</Breadcrumb>
+            <Actions>
+                @if (_e.Status == ExamStatus.Draft) { <a class="btn btn-secondary" href="/exams/@Id/edit">Edit</a><button class="btn btn-primary" @onclick="Publish" disabled="@Busy">Publish to @_e.Recipients.Count student(s)</button> }
+                @if (_e.Status != ExamStatus.Draft) { <a class="btn btn-secondary" href="/exams/@Id/paper-entry"><Icon Name="clipboard" /> Enter paper answers</a> }
+                @if (_e.Status != ExamStatus.Draft && !_e.ResultsReleased) { <button class="btn btn-primary" @onclick="Release" disabled="@(Busy || _r?.PendingManualGrading > 0)">Release results</button> }
+            </Actions>
+        </PageHeader>
+        <div class="row" style="margin:-12px 0 16px"><Badge Style="StatusStyles.For(_e.Status)" />@if (_e.Purpose == ExamPurpose.Diagnostic) { <span class="badge violet">Diagnostic</span> }@if (_e.ResultsReleased) { <span class="badge green">Results released</span> }</div>
+        @if (_r is not null)
+        {
+            <div class="grid grid-4" style="margin-bottom:16px">
+                <StatCard Label="Attempts" Value="@_r.Attempts.Count.ToString()" />
+                <StatCard Label="Average" Value="@(_r.Average?.ToString() ?? "—")" Hint="@($"out of {_r.TotalMarks}")" />
+                <StatCard Label="Highest" Value="@(_r.Highest?.ToString() ?? "—")" />
+                <StatCard Label="Awaiting manual grading" Value="@_r.PendingManualGrading.ToString()" />
+            </div>
+        }
+        <div class="grid grid-main">
+            <div class="card">
+                <div class="card-head"><h2>Attempts</h2></div>
+                <DataView IsEmpty="_r?.Attempts.Count == 0" EmptyTitle="No attempts yet" EmptyIcon="inbox">
+                    <table class="table stack-mobile"><thead><tr><th>Student</th><th>Attempt</th><th>Status</th><th>Score</th><th></th></tr></thead>
+                        <tbody>@foreach (var a in _r?.Attempts ?? []) { <tr><td data-label="Student">@a.StudentName</td><td data-label="Attempt">#@a.AttemptNumber@if (a.EntryMode == AttemptEntryMode.PaperEntered) { <span class="caption"> · paper</span> }</td><td data-label="Status"><Badge Style="StatusStyles.For(a.Status)" /></td>
+                            <td data-label="Score" class="num">@(a.Score?.ToString() ?? "—")</td><td><a class="btn btn-secondary btn-sm" href="/attempts/@a.AttemptId/result">@(a.Status == AttemptStatus.Submitted ? "Grade" : _e.Purpose == ExamPurpose.Diagnostic ? "Breakdown" : "View")</a></td></tr> }</tbody></table>
+                </DataView>
+            </div>
+            <div class="card">
+                <div class="card-head"><h2>Questions</h2></div>
+                <ol>@foreach (var q in _e.Questions) { <li style="margin-bottom:8px">@q.Stem <span class="caption">(@q.Type, @q.Marks)</span></li> }</ol>
+            </div>
+        </div>
+    }
+</DataView>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private ExamDetailDto? _e;
+    private ExamResultsDto? _r;
+    private ApiException? _error;
+    protected override async Task LoadAsync()
+    {
+        (_e, _error) = await Fetch(() => Api.GetAsync<ExamDetailDto>($"exams/{Id}"));
+        if (_e is not null) _r = (await Fetch(() => Api.GetAsync<ExamResultsDto>($"exams/{Id}/results"))).Value;
+    }
+    private async Task Publish() { if (await Run(() => Api.PostAsync($"exams/{Id}/publish"), "Exam published.")) await LoadAsync(); }
+    private async Task Release() { if (await Run(() => Api.PostAsync($"exams/{Id}/release-results"), "Results released to students and parents.")) await LoadAsync(); }
+}

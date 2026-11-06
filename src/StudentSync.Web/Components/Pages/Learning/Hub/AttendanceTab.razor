@@ -1,0 +1,72 @@
+@inherits AppComponent
+
+<div class="card">
+    <div class="card-head"><h2>Attendance</h2>
+        @if (_roster?.CanEdit == true)
+        {
+            <div class="btn-group"><button class="btn btn-secondary btn-sm" @onclick="AllPresent">Mark all present</button>
+                <button class="btn btn-primary btn-sm" @onclick="Save" disabled="@Busy">Save attendance</button></div>
+        }
+    </div>
+    <DataView Loading="_roster is null && _error is null" Error="_error" OnRetry="Load" IsEmpty="_roster?.Rows.Count == 0" EmptyTitle="No participants" EmptyIcon="users">
+        @if (_roster is not null)
+        {
+            @if (_roster.CanEdit && Session.StartUtc > DateTime.UtcNow.AddMinutes(30)) { <div class="info-panel" style="margin-bottom:12px">Attendance opens 30 minutes before the session starts.</div> }
+            <div class="table-wrap"><table class="table stack-mobile">
+                <thead><tr><th>Student</th><th>Status</th>@if (_roster.CanEdit) { <th>Note</th> }<th>Marked</th></tr></thead>
+                <tbody>
+                    @foreach (var r in _roster.Rows)
+                    {
+                        <tr>
+                            <td data-label="Student">@r.StudentName</td>
+                            <td data-label="Status">
+                                @if (_roster.CanEdit)
+                                {
+                                    <div class="segmented" role="radiogroup" aria-label="Attendance for @r.StudentName">
+                                        @foreach (var st in Enum.GetValues<AttendanceStatus>())
+                                        { <button type="button" role="radio" aria-checked="@(Aria.Bool(_marks[r.StudentId] == st))" aria-pressed="@(Aria.Bool(_marks[r.StudentId] == st))" @onclick="() => _marks[r.StudentId] = st">@StatusStyles.For(st).Label</button> }
+                                    </div>
+                                }
+                                else if (r.Status is { } s) { <Badge Style="StatusStyles.For(s)" /> }
+                                else { <span class="muted">Not marked</span> }
+                            </td>
+                            @if (_roster.CanEdit) { <td data-label="Note"><input class="input" aria-label="Note for @r.StudentName" @bind="_notes[r.StudentId]" /></td> }
+                            <td data-label="Marked" class="small muted">@(r.MarkedAtUtc is { } m ? Time.Short(m, Tz) : "—")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table></div>
+        }
+    </DataView>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SessionDetailDto Session { get; set; } = default!;
+    [Parameter] public EventCallback OnChanged { get; set; }
+    private AttendanceRosterDto? _roster;
+    private ApiException? _error;
+    private Dictionary<Guid, AttendanceStatus?> _marks = [];
+    private Dictionary<Guid, string?> _notes = [];
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load()
+    {
+        (_roster, _error) = await Fetch(() => Api.GetAsync<AttendanceRosterDto>($"sessions/{Session.Id}/attendance"));
+        if (_roster is not null)
+        {
+            _marks = _roster.Rows.ToDictionary(r => r.StudentId, r => r.Status);
+            _notes = _roster.Rows.ToDictionary(r => r.StudentId, r => r.Note);
+        }
+    }
+
+    private void AllPresent() { foreach (var k in _marks.Keys.ToList()) _marks[k] ??= AttendanceStatus.Present; }
+
+    private async Task Save()
+    {
+        var entries = _marks.Where(m => m.Value is not null).Select(m => new AttendanceEntry(m.Key, m.Value!.Value, _notes.GetValueOrDefault(m.Key))).ToList();
+        if (entries.Count == 0) { Toasts.Show("Mark at least one student.", ToastKind.Error); return; }
+        if (await Run(() => Api.PutAsync($"sessions/{Session.Id}/attendance", new MarkAttendanceRequest(entries)), $"Attendance saved for {entries.Count} student(s)."))
+        { await Load(); await OnChanged.InvokeAsync(); }
+    }
+}

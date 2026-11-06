@@ -1,0 +1,35 @@
+@page "/teacher/availability"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher")]
+@inherits AppPage
+
+<PageHeader Title="Weekly availability" Subtitle="When you're usually available to teach. Used when planning sessions." />
+<div class="card" style="max-width:760px">
+    <div class="field" style="max-width:320px;margin-bottom:16px"><label for="atz">Time zone</label><TimeZoneSelect Id="atz" @bind-Value="_tz" /></div>
+    @foreach (var s in _slots)
+    {
+        <div class="row" style="margin-bottom:8px">
+            <select class="select" style="max-width:160px" aria-label="Day" @bind="s.Day">@foreach (var d in Enum.GetValues<DayOfWeek>()) { <option value="@d">@d</option> }</select>
+            <input type="time" class="input" style="max-width:140px" aria-label="From" @bind="s.Start" /> <span>to</span>
+            <input type="time" class="input" style="max-width:140px" aria-label="To" @bind="s.End" />
+            <button class="btn btn-ghost btn-sm" @onclick="() => _slots.Remove(s)">Remove</button>
+        </div>
+    }
+    @if (_slots.Count == 0) { <p class="muted">No availability set.</p> }
+    <div class="form-actions" style="justify-content:space-between"><button class="btn btn-secondary" @onclick='() => _slots.Add(new())'><Icon Name="plus" /> Add slot</button><button class="btn btn-primary" @onclick="Save" disabled="@Busy">Save availability</button></div>
+</div>
+
+@code {
+    private sealed class Slot { public DayOfWeek Day { get; set; } = DayOfWeek.Monday; public TimeOnly Start { get; set; } = new(16, 0); public TimeOnly End { get; set; } = new(20, 0); }
+    [SupplyParameterFromQuery(Name = "teacherId")] public Guid? TeacherParam { get; set; }
+    private List<Slot> _slots = [];
+    private string _tz = "UTC";
+    private Guid TeacherId => IsAdmin && TeacherParam is { } t ? t : Me!.Id;
+    protected override async Task LoadAsync()
+    {
+        _tz = Tz;
+        var items = (await Fetch(() => Api.GetAsync<List<AvailabilityDto>>($"teachers/{TeacherId}/availability"))).Value ?? [];
+        _slots = items.Select(a => new Slot { Day = a.DayOfWeek, Start = a.StartLocalTime, End = a.EndLocalTime }).ToList();
+        if (items.Count > 0) _tz = items[0].TimeZoneId;
+    }
+    private Task Save() => Run(() => Api.PutAsync($"teachers/{TeacherId}/availability", new SaveAvailabilityRequest(_slots.Select(s => new AvailabilitySlot(s.Day, s.Start, s.End)).ToList(), _tz)), "Availability saved.");
+}

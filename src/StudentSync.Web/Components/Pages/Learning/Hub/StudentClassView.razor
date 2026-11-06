@@ -1,0 +1,276 @@
+@inherits AppComponent
+@inject IJSRuntime JS
+@inject MarkdownRenderer Renderer
+
+@* The class page for students — one scrolling page, no tabs (session_detail_screen.dart): cover header, title, teacher,
+   fact pills, Join (only while joinable now), the facts, what the class covers, then Class notes → Assignments →
+   Class videos → Recordings → Materials → Your attendance. Empty sections are left out. ?tab=notes|assignments|videos|
+   recordings|materials|attendance scrolls to that section. Everything shown comes from the API's own access rules. *@
+@{
+    var s = Session;
+    var status = StatusStyles.For(s.Status);
+    var organiser = ClassTimes.Organiser(s.StartUtc, s.EndUtc, s.TimeZoneId, Tz);
+    var duration = CalendarMath.Duration(s.EndUtc - s.StartUtc);
+}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/timetable">Timetable</a> ›</nav>
+<div class="st-class-top">
+    <ClassCover Subject="@s.SubjectName" Title="@s.Title" Height="clamp(190px, 24vw, 260px)" Class="st-class-cover">
+        <div class="row-between" style="flex-wrap:nowrap">
+            <GlassPill Class="eyebrow-pill"><i class="status-dot @(s.Status == SessionStatus.Live ? "live" : "")" aria-hidden="true"></i><span>@status.Label.ToUpperInvariant()</span></GlassPill>
+            <GlassPill Icon="calendar" Label="@ClassTimes.DayLabel(s.StartUtc, Tz)" />
+        </div>
+        @if (s.SubjectName is not null) { <div class="st-eyebrow" style="margin-top:auto">@s.SubjectName</div> }
+    </ClassCover>
+    <div class="st-class-intro">
+        <h1 class="st-class-title @(s.Status == SessionStatus.Cancelled ? "struck" : "")" tabindex="-1">@s.Title</h1>
+        <div class="st-class-teacher">
+            <Avatar Name="@s.TeacherName" PhotoUrl="@s.TeacherPhotoUrl" Size="lg" />
+            <div><div class="st-class-teacher-name">@s.TeacherName</div><div class="caption">Teacher</div></div>
+        </div>
+        <ul class="st-fact-pills" aria-label="Class facts">
+            <li><Icon Name="clock" /><span>@ClassTimes.Range(s.StartUtc, s.EndUtc, Tz)</span></li>
+            <li><Icon Name="timer" /><span>@duration</span></li>
+            <li><Icon Name="@ClassTimes.ModeIcon(s.DeliveryMode)" /><span>@ClassTimes.Mode(s.DeliveryMode)</span></li>
+            <li><Icon Name="users" /><span>@StatusStyles.For(s.SessionType).Label</span></li>
+        </ul>
+        @if (JoinRules.JoinableNow(s, DateTime.UtcNow))
+        {
+            <a class="btn btn-primary btn-pill btn-block st-join" href="@s.MeetingUrl" target="_blank" rel="noopener noreferrer"><Icon Name="video" /> @(s.Status == SessionStatus.Live ? "Join live class" : "Join class") <span class="sr-only">(opens in a new tab)</span></a>
+        }
+        else if (JoinRules.CanJoin(s.Status, !string.IsNullOrWhiteSpace(s.MeetingUrl)) && s.StartUtc > DateTime.UtcNow)
+        {
+            <p class="caption st-join-hint"><Icon Name="info" /> Join opens 15 minutes before the class starts.</p>
+        }
+    </div>
+</div>
+
+<div class="st-class-facts">
+    @if (s.Status == SessionStatus.Cancelled)
+    {
+        <div class="error-panel">This class was cancelled.@(s.CancellationReason is { Length: > 0 } r ? $" {r}" : "")</div>
+    }
+    <div class="card tight">
+        <ul class="info-rows">
+            <li><IconTile Icon="clock" Size="md" /><div><span class="l">When (your time, @Tz)</span><span class="v">@ClassTimes.Range(s.StartUtc, s.EndUtc, Tz) · @duration</span></div></li>
+            @if (organiser is not null) { <li><IconTile Icon="globe" Size="md" /><div><span class="l">Organiser's time</span><span class="v">@organiser</span></div></li> }
+            <li><IconTile Icon="user" Size="md" /><div><span class="l">Teacher</span><span class="v">@s.TeacherName</span></div></li>
+            @if (s.SubjectName is not null) { <li><IconTile Icon="book-open" Size="md" /><div><span class="l">Subject</span><span class="v">@s.SubjectName@(s.ChapterTitle is null ? "" : $" · {s.ChapterTitle}")</span></div></li> }
+            @if (s.BatchName is not null) { <li><IconTile Icon="users" Size="md" /><div><span class="l">Batch</span><span class="v">@s.BatchName</span></div></li> }
+            @if (s.ArrangementTitle is not null) { <li><IconTile Icon="user-check" Size="md" /><div><span class="l">Arrangement</span><span class="v">@s.ArrangementTitle</span></div></li> }
+            @if (!string.IsNullOrWhiteSpace(s.Location)) { <li><IconTile Icon="map-pin" Size="md" /><div><span class="l">Location</span><span class="v">@s.Location</span></div></li> }
+            @if (string.IsNullOrWhiteSpace(s.MeetingUrl) && s.DeliveryMode != DeliveryMode.InPerson && s.Status != SessionStatus.Cancelled)
+            {
+                <li><IconTile Icon="link" Size="md" Tone="slate" /><div><span class="l">Meeting link</span><span class="v">Not added yet</span></div></li>
+            }
+        </ul>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(s.Objectives))
+    {
+        <section aria-labelledby="covers-h">
+            <SectionHeader Title="What this class covers" Id="covers-h" Icon="target" Tone="orange" />
+            <div class="card tight"><MarkdownView Markdown="@s.Objectives" /></div>
+        </section>
+    }
+</div>
+
+@if (!_loaded)
+{
+    <LoadingView Label="Loading class content" />
+}
+else
+{
+    @if (_notes is { Count: > 0 })
+    {
+        <section id="notes" class="st-class-section" aria-labelledby="notes-h">
+            <SectionHeader Title="Class notes" Id="notes-h" Icon="notebook" Count="_notes.Count" />
+            <div class="stack">
+                @foreach (var n in _notes)
+                {
+                    <article class="card st-note" aria-labelledby="note-@n.Id">
+                        <div class="st-note-head">
+                            <div class="grow">
+                                <h3 id="note-@n.Id">@n.Title</h3>
+                                <div class="caption">@n.AuthorName · @ClassTimes.DateTime(n.PublishedAtUtc ?? n.UpdatedAtUtc, Tz)</div>
+                            </div>
+                            @if (n.AvailableOffline)
+                            {
+                                <button type="button" class="btn btn-secondary btn-sm btn-pill" @onclick="() => SaveOffline(n)"><Icon Name="download" /> Save for offline</button>
+                            }
+                        </div>
+                        @if (n.Source == ContentSource.AiApproved) { <div style="margin-top:8px"><TagPill Label="AI-assisted · reviewed by your teacher" Icon="check-circle" /></div> }
+                        <hr class="st-rule" />
+                        <MarkdownView Markdown="@n.BodyMarkdown" />
+                    </article>
+                }
+            </div>
+        </section>
+    }
+    @if (_assignments is { Count: > 0 })
+    {
+        <section id="assignments" class="st-class-section" aria-labelledby="assign-h">
+            <SectionHeader Title="Assignments" Id="assign-h" Icon="clipboard" Tone="green" Count="_assignments.Count" />
+            <div class="st-row-grid">
+                @foreach (var a in _assignments)
+                {
+                    <AssignmentCard Assignment="a" Tz="@Tz" ShowContext="false" />
+                }
+            </div>
+        </section>
+    }
+    @if (_videos is { Count: > 0 })
+    {
+        <section id="videos" class="st-class-section" aria-labelledby="videos-h">
+            <SectionHeader Title="Class videos" Id="videos-h" Icon="play-circle" Tone="blue" Count="_videos.Count" />
+            <div class="st-row-grid">
+                @foreach (var v in _videos)
+                {
+                    var playable = VideoRules.CanPlay(v);
+                    <div class="media-row">
+                        <IconTile Icon="@(v.IsUnlocked ? "play-circle" : "lock")" Tone="@(v.IsUnlocked ? "blue" : "slate")" Size="md" Class="on-fill" />
+                        <div class="grow">
+                            <div class="media-title">@v.Title</div>
+                            <div class="caption">@(v.IsUnlocked ? (v.DurationSeconds is { } d ? VideoRules.Length(d) : "Pre-recorded video") : LockDetail(v))</div>
+                        </div>
+                        @if (playable) { <button type="button" class="btn btn-secondary btn-sm btn-pill" @onclick="() => _playing = new(v.Title, v.FileId!.Value)" aria-label="@($"Watch {v.Title}")"><Icon Name="video" /> Watch</button> }
+                        else { <span class="caption st-locked"><Icon Name="lock" /> Locked</span> }
+                    </div>
+                }
+            </div>
+        </section>
+    }
+    @if (_recordings is { Count: > 0 })
+    {
+        <section id="recordings" class="st-class-section" aria-labelledby="rec-h">
+            <SectionHeader Title="Recordings" Id="rec-h" Icon="clapperboard" Tone="navy" Count="_recordings.Count" />
+            <div class="st-row-grid">
+                @foreach (var r in _recordings)
+                {
+                    <div class="media-row">
+                        <IconTile Icon="clapperboard" Tone="navy" Size="md" Class="on-fill" />
+                        <div class="grow">
+                            <div class="media-title">@r.Title</div>
+                            <div class="caption">@string.Join(" · ", new[] { "Class recording", r.DurationSeconds is { } d ? TimeSpan.FromSeconds(d).ToString(@"h\:mm\:ss") : null, r.Completed ? "Watched" : r.ResumePositionSeconds is > 0 ? $"Resume at {TimeSpan.FromSeconds(r.ResumePositionSeconds.Value):m\\:ss}" : null }.Where(x => x is not null))</div>
+                        </div>
+                        @if (r.Status == RecordingStatus.Available && r.FileId is { } f)
+                        {
+                            <button type="button" class="btn btn-secondary btn-sm btn-pill" @onclick="() => _playing = new(r.Title, f, r.Id, r.Completed ? null : r.ResumePositionSeconds)" aria-label="@($"Watch {r.Title}")"><Icon Name="video" /> Watch</button>
+                        }
+                        else { <Badge Style='new StatusStyle("Not available yet", "slate")' /> }
+                    </div>
+                }
+            </div>
+        </section>
+    }
+    @if (_materials is { Count: > 0 })
+    {
+        <section id="materials" class="st-class-section" aria-labelledby="mat-h">
+            <SectionHeader Title="Materials" Id="mat-h" Icon="folder" Tone="green" Count="_materials.Count" />
+            <div class="st-row-grid">
+                @foreach (var m in _materials)
+                {
+                    <div class="media-row">
+                        <IconTile Icon="@(m.Kind == MaterialKind.Link ? "link" : "file")" Tone="green" Size="md" Class="on-fill" />
+                        <div class="grow">
+                            <div class="media-title">@m.Title</div>
+                            @if (!string.IsNullOrWhiteSpace(m.Description)) { <div class="caption">@m.Description</div> }
+                        </div>
+                        @if (m.Kind == MaterialKind.Link && m.Url is not null) { <a class="btn btn-secondary btn-sm btn-pill" href="@m.Url" target="_blank" rel="noopener noreferrer" aria-label="@($"Open {m.Title} (opens in a new tab)")"><Icon Name="link" /> Open</a> }
+                        else if (m.File is { } file) { <FileButton FileId="file.Id" Label="Open" CssClass="btn-secondary btn-sm btn-pill" /> }
+                    </div>
+                }
+            </div>
+        </section>
+    }
+    @if (_attendance is { Count: > 0 })
+    {
+        <section id="attendance" class="st-class-section" aria-labelledby="att-h">
+            <SectionHeader Title="Your attendance" Id="att-h" Icon="clipboard-check" Tone="amber" />
+            <ListGroup AriaLabel="Your attendance">
+                @foreach (var r in _attendance)
+                {
+                    <ListRow Icon="user-check" Tone="amber" Title="@r.StudentName" Subtitle="@string.Join(" · ", new[] { r.MarkedAtUtc is { } at ? $"Marked {ClassTimes.DateTime(at, Tz)}" : "Not marked yet", r.Note }.Where(x => !string.IsNullOrWhiteSpace(x)))">
+                        <Trailing>@if (r.Status is { } st) { <Badge Style="StatusStyles.For(st)" /> } else { <Badge Style='new StatusStyle("Not marked", "slate")' /> }</Trailing>
+                    </ListRow>
+                }
+            </ListGroup>
+        </section>
+    }
+    @if (_failed.Count > 0)
+    {
+        <div class="inline-empty st-gap" role="alert">
+            <Icon Name="alert" /><span class="grow">Some of this class's content couldn't be loaded (@string.Join(", ", _failed)).</span>
+            <button type="button" class="btn btn-secondary btn-sm btn-pill" @onclick="LoadContent"><Icon Name="refresh" /> Retry</button>
+        </div>
+    }
+}
+
+<p class="note-line st-class-foot"><Icon Name="info" /><span>Notes and assignments are added after the class; videos unlock around it.</span></p>
+<MediaPlayer @bind-Item="_playing" SaveRecordingProgress="true" />
+
+@code {
+    [Parameter, EditorRequired] public SessionDetailDto Session { get; set; } = default!;
+    /// <summary>Section to scroll to once loaded (from ?tab=).</summary>
+    [Parameter] public string? Section { get; set; }
+
+    private List<NoteDto>? _notes;
+    private List<AssignmentListItemDto>? _assignments;
+    private List<PrerecordedVideoDto>? _videos;
+    private List<RecordingDto>? _recordings;
+    private List<MaterialDto>? _materials;
+    private List<AttendanceRowDto>? _attendance;
+    private readonly List<string> _failed = [];
+    private bool _loaded, _scrolled;
+    private MediaPlayer.Playable? _playing;
+
+    protected override Task OnInitializedAsync() => LoadContent();
+
+    private async Task LoadContent()
+    {
+        _failed.Clear();
+        var id = Session.Id;
+        var notes = Fetch(() => Api.GetAsync<List<NoteDto>>($"sessions/{id}/notes"));
+        var assignments = Fetch(() => Api.GetAsync<PagedResult<AssignmentListItemDto>>($"assignments?sessionId={id}&pageSize=50"));
+        var videos = Fetch(() => Api.GetAsync<List<PrerecordedVideoDto>>($"sessions/{id}/videos"));
+        var recordings = Fetch(() => Api.GetAsync<List<RecordingDto>>($"sessions/{id}/recordings"));
+        var materials = Fetch(() => Api.GetAsync<PagedResult<MaterialDto>>($"sessions/{id}/materials"));
+        var attendance = Fetch(() => Api.GetAsync<AttendanceRosterDto>($"sessions/{id}/attendance"));
+        await Task.WhenAll(notes, assignments, videos, recordings, materials, attendance);
+
+        // A student only ever sees published notes; the filter is a second guard on top of the API's.
+        _notes = Take(notes.Result, "notes")?.Where(n => n.Status == PublicationStatus.Published).ToList();
+        _assignments = Take(assignments.Result, "assignments")?.Items.ToList();
+        _videos = Take(videos.Result, "videos")?.OrderBy(v => v.IsUnlocked ? 0 : 1).ThenBy(v => v.UnlocksAtUtc ?? v.CreatedAtUtc).ToList();
+        _recordings = Take(recordings.Result, "recordings");
+        _materials = Take(materials.Result, "materials")?.Items.ToList();
+        _attendance = Take(attendance.Result, "attendance")?.Rows.ToList();
+        _loaded = true;
+    }
+
+    private T? Take<T>((T? Value, ApiException? Error) r, string name)
+    {
+        // 403/404 for one section (e.g. attendance not open to this viewer) just hides it.
+        if (r.Error is { Status: not (403 or 404) }) _failed.Add(name);
+        return r.Value;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_loaded || _scrolled || Section is not { Length: > 0 } id) return;
+        _scrolled = true;
+        try { await JS.InvokeAsync<bool>("ss.scrollToId", id); } catch (JSException) { }
+    }
+
+    private string LockDetail(PrerecordedVideoDto v)
+    {
+        if (v.UnlocksAtUtc is { } at) return $"Unlocks {ClassTimes.DateTime(at, Tz)}";
+        if (v.SessionCancelled) return "Class cancelled";
+        if (v.AccessOverride == VideoAccessOverride.Locked) return "Locked by your teacher";
+        return v.AccessOverride == VideoAccessOverride.Automatic ? VideoRules.RuleText(v.UnlockRule, v.UnlockOffsetMinutes) : "Locked until around the class";
+    }
+
+    private async Task SaveOffline(NoteDto n)
+    {
+        await JS.InvokeVoidAsync("ss.saveOfflineNote", Me.Id.ToString(), n.Id.ToString(), n.Title, Renderer.ToHtml(n.BodyMarkdown));
+        Toasts.Show("Saved on this device. It's removed when you sign out.");
+    }
+}

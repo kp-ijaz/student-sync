@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launch screen before Android 12: light, with the Student Sync book mark (Android 12+ uses values-v31). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ss_splash" />
+    <item>
+        <bitmap android:gravity="center" android:src="@drawable/launch_image" />
+    </item>
+</layer-list>

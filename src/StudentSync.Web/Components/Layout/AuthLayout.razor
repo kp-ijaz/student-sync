@@ -1,0 +1,26 @@
+@inherits LayoutComponentBase
+@* Sign-in: a brand-gradient hero with the welcome photos (desktop), or a compact gradient header
+   that the form card overlaps (phones/tablets), as in the mobile app. *@
+<div class="auth">
+    <section class="auth-hero" aria-label="About Student Sync">
+        <BrandLockup OnDark="true" Class="auth-lockup" />
+        <div>
+            <p class="auth-headline">Your classes, videos and teachers — all in one place</p>
+            <p class="lead">Batch classes, group sessions and one-to-one tuition, with every lesson's notes, recordings and homework together.</p>
+        </div>
+        <div class="auth-photos" aria-hidden="true">
+            <img src="images/welcome/live.jpg" alt="" />
+            <img src="images/welcome/anywhere.jpg" alt="" />
+            <img src="images/welcome/grow.jpg" alt="" />
+        </div>
+        <ul class="auth-points">
+            <li>Class videos unlock automatically around each live class</li>
+            <li>Times are shown in each person's own time zone</li>
+        </ul>
+    </section>
+    <div class="auth-mobile-head">
+        <BrandLockup OnDark="true" Class="auth-lockup" />
+        <p>Your classes, videos and teachers — all in one place.</p>
+    </div>
+    <main class="auth-form"><div class="auth-card">@Body</div></main>
+</div>

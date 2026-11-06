@@ -1,0 +1,77 @@
+@page "/doubts"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher,Student,Parent")]
+@inherits AppPage
+
+@* Doubt Centre — one page with two sections, as on mobile (doubts_list_screen.dart): "Open" (still needs something:
+   not answered, awaiting confirmation or resolved) then "Answered & closed". Open doubts come from the unresolved list;
+   resolved ones are paged separately so old doubts never push open ones off the page. *@
+<PageHeader Title="Doubt Centre" Subtitle="@(IsStudent ? "Ask questions any time. Unresolved doubts are carried into your next relevant class." : "Questions from students, with automatic follow-up into upcoming classes.")">
+    <Actions>@if (IsStudent) { <a class="btn btn-primary btn-pill fab-mobile" href="/doubts/new"><Icon Name="help" /> Ask a doubt</a> }</Actions>
+</PageHeader>
+
+<div class="row st-doubt-filters">
+    <input class="input" style="max-width:320px" placeholder="Search doubts" aria-label="Search doubts" @bind="_search" @bind:after="Reload" />
+    @if (IsTeacher)
+    {
+        <label class="check"><input type="checkbox" @bind="_mine" @bind:after="Reload" /> Only doubts assigned to me</label>
+    }
+</div>
+
+<DataView Loading="_unresolved is null && _error is null" Error="_error" OnRetry="Reload" LoadingLabel="Loading doubts"
+          IsEmpty="_unresolved?.Count == 0 && _resolved?.TotalCount == 0" EmptyTitle="@(_search == "" ? "No doubts yet" : "No doubts match your search")"
+          EmptyIllustration="@(_search == "" ? Illustrations.Questions : Illustrations.Search)"
+          EmptyText="@(_search != "" ? "Try other words." : IsStudent ? "Stuck on something? Ask your teacher with “Ask a doubt”." : "Doubts from your students will appear here.")">
+    @{
+        var (open, answered) = TeachingRules.SplitDoubts(_unresolved ?? []);
+        var closedCount = answered.Count + (_resolved?.TotalCount ?? 0);
+    }
+    <section aria-labelledby="open-h">
+        <SectionHeader Title="Open" Id="open-h" Icon="help" Tone="orange" Count="open.Count" />
+        @if (open.Count == 0)
+        {
+            <InlineEmpty Icon="check-circle" Text="Nothing open right now." />
+        }
+        else
+        {
+            <div class="st-doubt-list">@foreach (var d in open) { <DoubtCard Doubt="d" Tz="@Tz" ShowStudent="!IsStudent" /> }</div>
+        }
+    </section>
+    @if (closedCount > 0)
+    {
+        <section aria-labelledby="closed-h">
+            <SectionHeader Title="Answered & closed" Id="closed-h" Icon="check-circle" Tone="green" Count="closedCount" />
+            <div class="st-doubt-list">
+                @if ((_resolved?.Page ?? 1) == 1) { foreach (var d in answered) { <DoubtCard Doubt="d" Tz="@Tz" ShowStudent="!IsStudent" /> } }
+                @foreach (var d in _resolved?.Items ?? []) { <DoubtCard Doubt="d" Tz="@Tz" ShowStudent="!IsStudent" /> }
+            </div>
+            @if (_resolved is { TotalPages: > 1 } r) { <Pager Page="r.Page" TotalPages="r.TotalPages" Total="r.TotalCount" OnPage="LoadResolved" /> }
+        </section>
+    }
+</DataView>
+
+@code {
+    private List<DoubtListItemDto>? _unresolved;
+    private PagedResult<DoubtListItemDto>? _resolved;
+    private ApiException? _error;
+    private string _search = "";
+    private bool _mine;
+
+    private string Filter => $"search={Uri.EscapeDataString(_search)}" + (_mine ? "&assignedToMe=true" : "");
+
+    protected override Task LoadAsync() => Reload();
+
+    private async Task Reload()
+    {
+        _unresolved = null; _resolved = null; _error = null;
+        var (page, error) = await Fetch(() => Api.GetAsync<PagedResult<DoubtListItemDto>>($"doubts?unresolvedOnly=true&page=1&pageSize=100&{Filter}"));
+        if (error is not null) { _error = error; return; }
+        await LoadResolved(1);
+        _unresolved = page!.Items.ToList();
+    }
+
+    private async Task LoadResolved(int page)
+    {
+        var (r, error) = await Fetch(() => Api.GetAsync<PagedResult<DoubtListItemDto>>($"doubts?status={DoubtStatus.Resolved}&page={page}&pageSize=20&{Filter}"));
+        if (error is not null) _error = error; else _resolved = r;
+    }
+}

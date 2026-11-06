@@ -1,0 +1,15 @@
+@* GlassPill: translucent pill for text on photos (ClassCover, TeacherPhotoCard) and HeroCards — never a light badge
+   on a photo. Live="true" adds the orange dot used for "LIVE" / "NEXT CLASS". ChildContent replaces Label. *@
+<span class="glass-pill @Class">
+    @if (Live) { <i class="live-dot" aria-hidden="true"></i> }
+    @if (Icon is not null) { <Icon Name="@Icon" /> }
+    @if (ChildContent is not null) { @ChildContent } else { <span>@Label</span> }
+</span>
+
+@code {
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public bool Live { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

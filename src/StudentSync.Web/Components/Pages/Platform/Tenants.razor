@@ -1,0 +1,95 @@
+@page "/platform/tenants"
+@attribute [Authorize(Roles = "SuperAdmin")]
+@inherits AppPage
+
+<PageHeader Title="Institutions"><Actions><button class="btn btn-primary" @onclick="New"><Icon Name="plus" /> New institution</button></Actions></PageHeader>
+<div class="card">
+    <DataView Loading="_items is null && _error is null" Error="_error" OnRetry="LoadAsync" IsEmpty="_items?.Count == 0" EmptyTitle="No institutions" EmptyIcon="building">
+        <div class="table-wrap"><table class="table stack-mobile">
+            <thead><tr><th>Institution</th><th>Plan</th><th>Subscription</th><th>Students</th><th>Teachers</th><th>Status</th><th></th></tr></thead>
+            <tbody>@foreach (var t in _items ?? [])
+            {
+                <tr><td data-label="Institution"><strong>@t.Name</strong> @if (t.IsDemo) { <span class="badge slate">Demo</span> }<div class="caption">@t.Slug · @t.CountryCode · @t.DefaultTimeZoneId</div></td>
+                    <td data-label="Plan">@t.PlanName</td><td data-label="Subscription">@t.SubscriptionStatus</td><td data-label="Students" class="num">@t.StudentCount</td><td data-label="Teachers" class="num">@t.TeacherCount</td>
+                    <td data-label="Status"><span class="badge @(t.Status == TenantStatus.Active ? "green" : "amber")">@t.Status</span></td>
+                    <td><button class="btn btn-ghost btn-sm" @onclick="() => OpenSub(t)">Subscription</button><button class="btn btn-ghost btn-sm" @onclick="() => OpenStatus(t)">@(t.Status == TenantStatus.Active ? "Suspend" : "Reactivate")</button></td></tr>
+            }</tbody>
+        </table></div>
+    </DataView>
+</div>
+
+<Modal @bind-Open="_open" Title="New institution" Wide="true">
+    <div class="form-grid">
+        <div class="field"><label for="tn">Name *</label><input id="tn" class="input" @bind="_name" /></div>
+        <div class="field"><label for="ts">Institution code *</label><input id="ts" class="input" placeholder="lowercase-with-hyphens" @bind="_slug" /></div>
+        <div class="field"><label for="tc">Country code *</label><input id="tc" class="input" maxlength="2" @bind="_country" /></div>
+        <div class="field"><label for="tcur">Currency *</label><input id="tcur" class="input" maxlength="3" @bind="_currency" /></div>
+        <div class="field"><label for="ttz">Time zone *</label><TimeZoneSelect Id="ttz" @bind-Value="_tz" /></div>
+        <div class="field"><label for="tp">Plan *</label><select id="tp" class="select" @bind="_plan"><option value="">Choose…</option>@foreach (var p in _plans) { <option value="@p.Id">@p.Name</option> }</select></div>
+        <div class="field"><label for="ce">Contact email</label><input id="ce" class="input" @bind="_contact" /></div>
+        <div class="field"><label for="tl">Language</label><select id="tl" class="select" @bind="_lang"><option value="en">English</option><option value="ar">Arabic</option><option value="ml">Malayalam</option></select></div>
+        <div class="field"><label for="an">First administrator name *</label><input id="an" class="input" @bind="_adminName" /></div>
+        <div class="field"><label for="ae">First administrator email *</label><input id="ae" class="input" type="email" @bind="_adminEmail" /></div>
+        <div class="field full"><span class="help">The institution starts on a 30-day trial. No payment is taken.</span></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _open = false">Cancel</button><button class="btn btn-primary" @onclick="Create" disabled="@Busy">Create institution</button></div>
+</Modal>
+<Modal Open="_subFor is not null" OpenChanged="_ => _subFor = null" Title="@($"Subscription — {_subFor?.Name}")">
+    <div class="stack">
+        <div class="field"><label for="sp">Plan</label><select id="sp" class="select" @bind="_subPlan">@foreach (var p in _plans) { <option value="@p.Id">@p.Name</option> }</select></div>
+        <div class="field"><label for="ss">Status</label><select id="ss" class="select" @bind="_subStatus">@foreach (var s in Enum.GetValues<SubscriptionStatus>()) { <option value="@s">@s</option> }</select></div>
+        <div class="field"><label for="sn">Note</label><input id="sn" class="input" @bind="_note" /></div>
+        <h3>History</h3>
+        <ul class="list small">@foreach (var h in _history) { <li>@Time.Short(h.AtUtc, Tz): @h.EventType @h.FromPlan → @h.ToPlan (@h.FromStatus → @h.ToStatus) @h.Note</li> }</ul>
+        <div class="form-actions"><button class="btn btn-primary" @onclick="SaveSub" disabled="@Busy">Save</button></div>
+    </div>
+</Modal>
+<Modal Open="_statusFor is not null" OpenChanged="_ => _statusFor = null" Title="@(_statusFor?.Status == TenantStatus.Active ? "Suspend institution" : "Reactivate institution")">
+    <div class="stack">
+        @if (_statusFor?.Status == TenantStatus.Active) { <div class="warn-panel">All users of @_statusFor?.Name will be signed out within minutes and won't be able to sign in.</div> }
+        <div class="field"><label for="sr">Reason *</label><input id="sr" class="input" @bind="_reason" /></div>
+        <div class="form-actions"><button class="btn @(_statusFor?.Status == TenantStatus.Active ? "btn-danger" : "btn-primary")" @onclick="SaveStatus" disabled="@(Busy || string.IsNullOrWhiteSpace(_reason))">Confirm</button></div>
+    </div>
+</Modal>
+<TempPasswordDialog @bind-Password="_tempPassword" />
+
+@code {
+    private List<TenantSummaryDto>? _items;
+    private ApiException? _error;
+    private List<PlanDto> _plans = [];
+    private bool _open;
+    private string _name = "", _slug = "", _country = "AE", _currency = "AED", _tz = "Asia/Dubai", _lang = "en", _adminName = "", _adminEmail = "", _reason = "";
+    private string? _contact, _tempPassword, _note;
+    private Guid? _plan;
+    private TenantSummaryDto? _subFor, _statusFor;
+    private Guid _subPlan;
+    private SubscriptionStatus _subStatus;
+    private List<SubscriptionEventDto> _history = [];
+
+    protected override async Task LoadAsync()
+    {
+        (_items, _error) = await Fetch(() => Api.GetAsync<List<TenantSummaryDto>>("platform/tenants"));
+        _plans = (await Fetch(() => Api.GetAsync<List<PlanDto>>("platform/plans"))).Value ?? [];
+    }
+    private void New() { (_name, _slug, _adminName, _adminEmail, _contact, _plan) = ("", "", "", "", null, _plans.FirstOrDefault()?.Id); _open = true; }
+    private async Task Create()
+    {
+        if (_plan is not { } p) { Toasts.Show("Choose a plan.", ToastKind.Error); return; }
+        if (await Run(async () => _tempPassword = (await Api.PostAsync<CreateTenantResponse>("platform/tenants", new CreateTenantRequest(_name, _slug, _country, _tz, _currency, _lang, _contact, p, _adminName, _adminEmail))).AdminTemporaryPassword, "Institution created."))
+        { _open = false; await LoadAsync(); }
+    }
+    private async Task OpenSub(TenantSummaryDto t)
+    {
+        _subFor = t; _note = null;
+        _subPlan = _plans.FirstOrDefault(p => p.Name == t.PlanName)?.Id ?? _plans[0].Id;
+        _subStatus = t.SubscriptionStatus ?? SubscriptionStatus.Active;
+        _history = (await Fetch(() => Api.GetAsync<List<SubscriptionEventDto>>($"platform/tenants/{t.Id}/subscription/history"))).Value ?? [];
+    }
+    private async Task SaveSub() { if (await Run(() => Api.PutAsync($"platform/tenants/{_subFor!.Id}/subscription", new ChangeSubscriptionRequest(_subPlan, _subStatus, null, _note)), "Subscription updated.")) { _subFor = null; await LoadAsync(); } }
+    private void OpenStatus(TenantSummaryDto t) { _statusFor = t; _reason = ""; }
+    private async Task SaveStatus()
+    {
+        var next = _statusFor!.Status == TenantStatus.Active ? TenantStatus.Suspended : TenantStatus.Active;
+        if (await Run(() => Api.PutAsync($"platform/tenants/{_statusFor.Id}/status", new UpdateTenantStatusRequest(next, _reason)), $"Institution {next.ToString().ToLowerInvariant()}.")) { _statusFor = null; await LoadAsync(); }
+    }
+}

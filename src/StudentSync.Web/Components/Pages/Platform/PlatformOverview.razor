@@ -1,0 +1,29 @@
+@page "/platform"
+@attribute [Authorize(Roles = "SuperAdmin")]
+@inherits AppPage
+
+<PageHeader Title="Platform overview" Subtitle="Aggregate health across institutions. Educational content stays private to each institution." />
+<DataView Loading="_o is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_o is not null)
+    {
+        <div class="grid grid-4" style="margin-bottom:16px">
+            <StatCard Label="Institutions" Value="@_o.Tenants.ToString()" Hint="@($"{_o.ActiveTenants} active")" />
+            <StatCard Label="Active users" Value="@_o.TotalUsers.ToString()" Hint="@($"{_o.Students} students · {_o.Teachers} teachers")" />
+            <StatCard Label="Sessions next 7 days" Value="@_o.SessionsNext7Days.ToString()" />
+            <StatCard Label="AI jobs (30 days)" Value="@_o.AiJobsLast30Days.ToString()" Hint="@($"{_o.FailedAiJobsLast30Days} failed")" />
+        </div>
+        <div class="grid grid-2">
+            <div class="card"><div class="card-head"><h2>Integrations</h2></div>
+                <ul class="list">@foreach (var i in _o.Integrations) { <li class="row-between"><div><strong>@i.Name</strong><div class="caption">@i.Detail</div></div><span class="badge @(i.Configured ? "green" : "slate")">@(i.Configured ? "Configured" : "Not configured")</span></li> }</ul></div>
+            <div class="card"><div class="card-head"><h2>Notification delivery</h2></div>
+                <dl class="kv"><dt>Pending</dt><dd class="num">@_o.PendingEmailDeliveries</dd><dt>Failed (30 days)</dt><dd class="num">@_o.FailedEmailDeliveries</dd></dl>
+                <p class="caption" style="margin-top:12px">Deliveries are marked accepted only when the provider accepts them.</p></div>
+        </div>
+    }
+</DataView>
+
+@code {
+    private PlatformOverviewDto? _o;
+    private ApiException? _error;
+    protected override async Task LoadAsync() => (_o, _error) = await Fetch(() => Api.GetAsync<PlatformOverviewDto>("platform/overview"));
+}

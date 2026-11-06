@@ -1,0 +1,26 @@
+@* MetricTile: one progress measure as a card — label, value and bar — that expands (native details/summary, so it is
+   keyboard and screen-reader friendly) to "How is this calculated?". Bar colour: ≥75% green, ≥50% blue, else amber. *@
+<details class="card metric @Class">
+    <summary>
+        <span class="metric-main">
+            <span class="metric-label">@Metric.Label</span>
+            @if (Metric.Percent is { } p)
+            {
+                <span class="progress-bar @Tone(p)" aria-hidden="true"><span style="width:@(Math.Clamp(p, 0, 100).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></span></span>
+            }
+        </span>
+        <span class="metric-value">@Metric.Value</span>
+        <Icon Name="chevron-down" Class="chev" />
+    </summary>
+    <div class="metric-how">
+        <strong>How is this calculated?</strong>
+        <p>@Metric.HowCalculated</p>
+    </div>
+</details>
+
+@code {
+    [Parameter, EditorRequired] public MetricDto Metric { get; set; } = default!;
+    [Parameter] public string? Class { get; set; }
+
+    private static string Tone(double p) => p >= 75 ? "green" : p >= 50 ? "" : "amber";
+}

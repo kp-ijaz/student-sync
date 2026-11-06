@@ -1,0 +1,133 @@
+@page "/questions"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher")]
+@inherits AppPage
+
+<PageHeader Title="Question bank" Subtitle="Reusable questions by subject. Questions already answered in an exam can't be edited, so results stay accurate.">
+    <Actions><button class="btn btn-primary" @onclick="New"><Icon Name="plus" /> New question</button></Actions>
+</PageHeader>
+<div class="card">
+    <div class="row" style="margin-bottom:16px">
+        <select class="select" style="max-width:260px" @bind="_subjectFilter" @bind:after="() => Load(1)" aria-label="Subject"><option value="">All subjects</option>@foreach (var s in _subjects) { <option value="@s.Id">@s.Name</option> }</select>
+        <input class="input" style="max-width:280px" placeholder="Search question text" @bind="_search" @bind:after="() => Load(1)" aria-label="Search" />
+    </div>
+    <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0" EmptyTitle="No questions yet" EmptyText="Add questions for the subjects you teach." EmptyIcon="database">
+        <ul class="list">
+            @foreach (var q in _page?.Items ?? [])
+            {
+                <li class="row-between"><div class="grow"><strong>@q.Stem</strong><div class="caption">@q.SubjectName@(q.ChapterTitle is null ? "" : $" · {q.ChapterTitle}") · @q.Type · @q.Difficulty · @q.DefaultMarks mark(s)@if (q.ImageFileId is not null) { <span class="badge slate" style="margin-left:6px">Image</span> }</div></div>
+                    <div class="btn-group"><button class="btn btn-secondary btn-sm" @onclick="() => Edit(q)">Edit</button><button class="btn btn-ghost btn-sm" @onclick="() => Archive(q)">Archive</button></div></li>
+            }
+        </ul>
+        @if (_page is not null) { <Pager Page="_page.Page" TotalPages="_page.TotalPages" Total="_page.TotalCount" OnPage="Load" /> }
+    </DataView>
+</div>
+
+<Modal @bind-Open="_open" Title="@(_editId is null ? "New question" : "Edit question")" Wide="true">
+    <div class="form-grid">
+        <div class="field"><label for="qs">Subject *</label><select id="qs" class="select" @bind="_subjectId" @bind:after="() => _chapterId = null"><option value="">Choose…</option>@foreach (var s in _subjects) { <option value="@s.Id">@s.Name</option> }</select></div>
+        <div class="field"><label for="qch">Chapter</label><select id="qch" class="select" @bind="_chapterId" disabled="@(Chapters.Count == 0)"><option value="">Not set</option>@foreach (var c in Chapters) { <option value="@c.Id">@c.Title</option> }</select><span class="help">Used to break diagnostic results down by chapter.</span></div>
+        <div class="field"><label for="qt">Type *</label><select id="qt" class="select" @bind="_type" @bind:after="TypeChanged">@foreach (var t in Enum.GetValues<QuestionType>()) { <option value="@t">@t</option> }</select></div>
+        <div class="field"><label for="qd">Difficulty</label><select id="qd" class="select" @bind="_difficulty">@foreach (var d in Enum.GetValues<Difficulty>()) { <option value="@d">@d</option> }</select></div>
+        <div class="field"><label for="qm">Marks</label><input id="qm" type="number" min="0.5" step="0.5" class="input" @bind="_marks" /></div>
+        <div class="field full"><label for="qstem">Question *</label><textarea id="qstem" class="textarea" @bind="_stem"></textarea></div>
+        <div class="field full"><label for="qimg">Diagram or image (optional, PNG/JPEG/WebP up to 10 MB)</label>
+            <InputFile id="qimg" class="input" accept="image/png,image/jpeg,image/webp" OnChange="UploadImage" disabled="@_uploading" />
+            @if (_imageFileId is not null) { <div class="row" style="margin-top:8px;align-items:flex-start"><div class="grow"><QuestionImage FileId="_imageFileId" /></div><button class="btn btn-ghost btn-sm" @onclick="() => _imageFileId = null">Remove image</button></div> }
+            else if (_uploading) { <span class="help">Uploading…</span> }</div>
+        @if (_type is QuestionType.SingleChoice or QuestionType.MultipleChoice or QuestionType.TrueFalse or QuestionType.Matching)
+        {
+            <div class="field full"><span class="label">@(_type == QuestionType.Matching ? "Pairs" : "Options (tick the correct answer" + (_type == QuestionType.MultipleChoice ? "s" : "") + ")")</span>
+                @for (var i = 0; i < _options.Count; i++)
+                {
+                    var o = _options[i];
+                    <div class="row" style="margin-bottom:6px">
+                        @if (_type != QuestionType.Matching) { <input type="checkbox" checked="@o.IsCorrect" @onchange="e => o.IsCorrect = e.Value is true" aria-label="Correct" style="width:18px;height:18px" /> }
+                        <input class="input grow" @bind="o.Text" aria-label="Option text" />
+                        @if (_type == QuestionType.Matching) { <span>→</span><input class="input grow" @bind="o.Match" aria-label="Matches" /> }
+                        <button class="btn btn-ghost btn-sm" @onclick="() => _options.Remove(o)" aria-label="Remove option">×</button>
+                    </div>
+                }
+                <button class="btn btn-secondary btn-sm" @onclick="() => _options.Add(new())">Add @(_type == QuestionType.Matching ? "pair" : "option")</button></div>
+        }
+        @if (_type is QuestionType.ShortAnswer or QuestionType.FillBlank)
+        { <div class="field full"><label for="qa">Accepted answers (separate with |; leave empty to grade manually)</label><input id="qa" class="input" @bind="_accepted" /></div> }
+        @if (_type == QuestionType.Numerical)
+        {
+            <div class="field"><label for="qn">Correct value</label><input id="qn" type="number" step="any" class="input" @bind="_numeric" /></div>
+            <div class="field"><label for="qtol">Tolerance (±)</label><input id="qtol" type="number" step="any" class="input" @bind="_tolerance" /></div>
+        }
+        <div class="field full"><label for="qe">Explanation (shown after results are released)</label><textarea id="qe" class="textarea" @bind="_explanation"></textarea></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _open = false">Cancel</button><button class="btn btn-primary" @onclick="Save" disabled="@Busy">Save question</button></div>
+</Modal>
+
+@code {
+    private sealed class Opt { public string Text { get; set; } = ""; public bool IsCorrect { get; set; } public string? Match { get; set; } }
+    private PagedResult<QuestionDto>? _page;
+    private ApiException? _error;
+    private List<SubjectDto> _subjects = [];
+    private string _subjectFilter = "", _search = "", _stem = "";
+    private bool _open;
+    private Guid? _editId, _subjectId, _chapterId, _imageFileId;
+    private bool _uploading;
+    private IReadOnlyList<ChapterDto> Chapters => _subjects.FirstOrDefault(s => s.Id == _subjectId)?.Chapters.OrderBy(c => c.SortOrder).ToList() ?? [];
+    private QuestionType _type = QuestionType.SingleChoice;
+    private Difficulty _difficulty = Difficulty.Medium;
+    private decimal _marks = 1, _tolerance;
+    private decimal? _numeric;
+    private string? _accepted, _explanation;
+    private List<Opt> _options = [];
+
+    protected override async Task LoadAsync()
+    {
+        _subjects = (await Fetch(() => Api.GetAsync<List<SubjectDto>>("academics/subjects"))).Value ?? [];
+        await Load(1);
+    }
+
+    private async Task Load(int page) => (_page, _error) = await Fetch(() => Api.GetAsync<PagedResult<QuestionDto>>($"questions?page={page}&pageSize=20&search={Uri.EscapeDataString(_search)}" + (_subjectFilter == "" ? "" : $"&subjectId={_subjectFilter}")));
+
+    private void TypeChanged()
+    {
+        if (_type == QuestionType.TrueFalse) _options = [new() { Text = "True" }, new() { Text = "False" }];
+        else if (_type is QuestionType.SingleChoice or QuestionType.MultipleChoice or QuestionType.Matching && _options.Count < 2) _options = [new(), new(), new()];
+    }
+
+    private void New() { _editId = null; _subjectId = Guid.TryParse(_subjectFilter, out var s) ? s : null; _chapterId = null; _imageFileId = null; _type = QuestionType.SingleChoice; _stem = ""; _marks = 1; _accepted = _explanation = null; _numeric = null; _tolerance = 0; _options = [new(), new(), new()]; _open = true; }
+
+    private void Edit(QuestionDto q)
+    {
+        (_editId, _subjectId, _type, _difficulty, _stem, _marks, _accepted, _numeric, _tolerance, _explanation) = (q.Id, q.SubjectId, q.Type, q.Difficulty, q.Stem, q.DefaultMarks, q.AcceptedAnswers, q.NumericAnswer, q.NumericTolerance, q.Explanation);
+        (_chapterId, _imageFileId) = (q.ChapterId, q.ImageFileId);
+        _options = q.Options.Select(o => new Opt { Text = o.Text, IsCorrect = o.IsCorrect, Match = o.MatchText }).ToList();
+        _open = true;
+    }
+
+    private async Task Save()
+    {
+        if (_subjectId is not { } subject) { Toasts.Show("Choose a subject.", ToastKind.Error); return; }
+        var req = new SaveQuestionRequest(subject, _chapterId, _type, _difficulty, _stem, _explanation, _marks, _accepted, _numeric, _tolerance,
+            _options.Where(o => !string.IsNullOrWhiteSpace(o.Text)).Select(o => new SaveQuestionOption(o.Text, o.IsCorrect, o.Match)).ToList(), _imageFileId);
+        if (await Run(() => _editId is null ? Api.PostAsync("questions", req) : Api.PutAsync($"questions/{_editId}", req), "Question saved.")) { _open = false; await Load(_page?.Page ?? 1); }
+    }
+
+    // The image is stored privately as soon as it is chosen; it is attached to the question when the form is saved.
+    private async Task UploadImage(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file.Size > 10_000_000) { Toasts.Show("Choose an image under 10 MB.", ToastKind.Error); return; }
+        _uploading = true;
+        try
+        {
+            using var form = new MultipartFormDataContent();
+            var content = new StreamContent(file.OpenReadStream(10_000_000));
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType);
+            form.Add(content, "file", file.Name);
+            form.Add(new StringContent("QuestionImage"), "purpose");
+            _imageFileId = (await Api.PostFormAsync<FileDto>("files", form)).Id;
+        }
+        catch (ApiException ex) { Toasts.Show(ex.Describe(), ToastKind.Error); }
+        finally { _uploading = false; }
+    }
+
+    private async Task Archive(QuestionDto q) { if (await Run(() => Api.DeleteAsync($"questions/{q.Id}"), "Question archived.")) await Load(_page?.Page ?? 1); }
+}

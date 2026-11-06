@@ -1,0 +1,9 @@
+<time datetime="@Utc.ToString("O")" title="@Title">@Text</time>
+
+@code {
+    [Parameter] public DateTime Utc { get; set; }
+    [Parameter] public string Tz { get; set; } = "UTC";
+    [Parameter] public string Format { get; set; } = "short";
+    private string Text => Format switch { "date" => Time.Date(Utc, Tz), "time" => Time.Clock(Utc, Tz), "relative" => Time.Relative(Utc), _ => Time.Short(Utc, Tz) };
+    private string Title => $"{Time.Short(Utc, Tz)} ({Tz})";
+}

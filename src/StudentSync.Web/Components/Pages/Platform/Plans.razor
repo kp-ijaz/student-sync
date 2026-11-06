@@ -1,0 +1,57 @@
+@page "/platform/plans"
+@attribute [Authorize(Roles = "SuperAdmin")]
+@inherits AppPage
+
+<PageHeader Title="Subscription plans" Subtitle="Plans define limits and features. Payment collection requires a billing provider, which is not configured.">
+    <Actions><button class="btn btn-primary" @onclick="() => Edit(null)"><Icon Name="plus" /> New plan</button></Actions>
+</PageHeader>
+<DataView Loading="_plans is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    <div class="grid grid-3">
+        @foreach (var p in _plans ?? [])
+        {
+            <div class="card"><div class="card-head"><h2>@p.Name</h2><span class="badge @(p.IsActive ? "green" : "slate")">@(p.IsActive ? "Active" : "Inactive")</span></div>
+                <div class="stat"><span class="value">@p.CurrencyCode @p.MonthlyPrice.ToString("0.##")</span><span class="hint">per month</span></div>
+                <ul class="small"><li>@p.MaxStudents students · @p.MaxTeachers teachers</li><li>@(p.MaxStorageMb / 1000) GB storage</li><li>@p.MonthlyAiJobs AI jobs / month</li></ul>
+                <div class="pill-list" style="margin-bottom:12px">@foreach (var f in p.Features) { <span class="badge blue">@f</span> }</div>
+                <button class="btn btn-secondary btn-sm" @onclick="() => Edit(p)">Edit</button></div>
+        }
+    </div>
+</DataView>
+<Modal @bind-Open="_open" Title="@(_id is null ? "New plan" : "Edit plan")">
+    <div class="form-grid">
+        <div class="field"><label for="pc">Code</label><input id="pc" class="input" @bind="_code" /></div>
+        <div class="field"><label for="pn">Name</label><input id="pn" class="input" @bind="_name" /></div>
+        <div class="field"><label for="pp">Monthly price</label><input id="pp" type="number" step="0.01" class="input" @bind="_price" /></div>
+        <div class="field"><label for="pcur">Currency</label><input id="pcur" class="input" @bind="_currency" /></div>
+        <div class="field"><label for="ps">Max students</label><input id="ps" type="number" class="input" @bind="_students" /></div>
+        <div class="field"><label for="pt">Max teachers</label><input id="pt" type="number" class="input" @bind="_teachers" /></div>
+        <div class="field"><label for="pst">Storage (MB)</label><input id="pst" type="number" class="input" @bind="_storage" /></div>
+        <div class="field"><label for="pai">AI jobs / month</label><input id="pai" type="number" class="input" @bind="_ai" /></div>
+        <div class="field full"><span class="label">Features</span><div class="pill-list">@foreach (var f in FeatureKeys.All) { <label class="check"><input type="checkbox" checked="@_features.Contains(f)" @onchange="e => { if (e.Value is true) _features.Add(f); else _features.Remove(f); }" /> @f</label> }</div></div>
+        <div class="field"><label class="check"><input type="checkbox" @bind="_active" /> Available for new subscriptions</label></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-primary" @onclick="Save" disabled="@Busy">Save plan</button></div>
+</Modal>
+
+@code {
+    private List<PlanDto>? _plans;
+    private ApiException? _error;
+    private bool _open, _active = true;
+    private Guid? _id;
+    private string _code = "", _name = "", _currency = "USD";
+    private decimal _price;
+    private int _students = 100, _teachers = 10, _storage = 10000, _ai = 50;
+    private HashSet<string> _features = [];
+    protected override async Task LoadAsync() => (_plans, _error) = await Fetch(() => Api.GetAsync<List<PlanDto>>("platform/plans"));
+    private void Edit(PlanDto? p)
+    {
+        if (p is null) { (_id, _code, _name, _price, _currency, _students, _teachers, _storage, _ai, _active) = (null, "", "", 0, "USD", 100, 10, 10000, 50, true); _features = []; }
+        else { (_id, _code, _name, _price, _currency, _students, _teachers, _storage, _ai, _active) = (p.Id, p.Code, p.Name, p.MonthlyPrice, p.CurrencyCode, p.MaxStudents, p.MaxTeachers, p.MaxStorageMb, p.MonthlyAiJobs, p.IsActive); _features = p.Features.ToHashSet(); }
+        _open = true;
+    }
+    private async Task Save()
+    {
+        var req = new SavePlanRequest(_code, _name, null, _price, _currency, _students, _teachers, _storage, _ai, _active, _features.ToList());
+        if (await Run(() => _id is null ? Api.PostAsync("platform/plans", req) : Api.PutAsync($"platform/plans/{_id}", req), "Plan saved.")) { _open = false; await LoadAsync(); }
+    }
+}

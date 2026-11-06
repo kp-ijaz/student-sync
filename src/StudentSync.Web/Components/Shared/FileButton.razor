@@ -1,0 +1,23 @@
+@inject ApiClient Api
+@inject IJSRuntime JS
+@inject IConfiguration Config
+@inject ToastService Toasts
+
+<button class="btn @CssClass" @onclick="Open" disabled="@_busy"><Icon Name="@IconName" /> @Label</button>
+
+@code {
+    [Parameter, EditorRequired] public Guid FileId { get; set; }
+    [Parameter] public string Label { get; set; } = "Open";
+    [Parameter] public string CssClass { get; set; } = "btn-secondary btn-sm";
+    [Parameter] public string IconName { get; set; } = "download";
+    private bool _busy;
+
+    // Requests a short-lived, user-bound link and opens it; files are never exposed via public URLs.
+    private async Task Open()
+    {
+        _busy = true;
+        try { await JS.InvokeVoidAsync("ss.openUrl", await Api.FileUrlAsync(FileId, Config["Api:PublicBaseUrl"]!)); }
+        catch (Exception ex) { Toasts.Error(ex); }
+        finally { _busy = false; }
+    }
+}

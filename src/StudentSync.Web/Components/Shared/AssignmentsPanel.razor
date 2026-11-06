@@ -1,0 +1,67 @@
+@inherits AppComponent
+@* AssignmentsPanel: the assignments list — shared by /assignments and the student Learning page (Assignments tab).
+   Staff get a searchable table with a status filter; students get the same cards as the mobile app (AssignmentCard),
+   to-do items first. *@
+<div class="@(_isStaff ? "card" : "stack-sm st-assignment-list")">
+    <div class="row" style="margin-bottom:@(_isStaff ? "16px" : "4px")">
+        <input class="input" style="max-width:320px" placeholder="Search assignments" @bind="_search" @bind:after="() => Load(1)" aria-label="Search assignments" />
+        @if (_isStaff)
+        {
+            <select class="select" style="max-width:200px" @bind="_status" @bind:after="() => Load(1)" aria-label="Status">
+                <option value="">Any status</option>@foreach (var s in Enum.GetValues<AssignmentStatus>()) { <option value="@s">@s</option> }
+            </select>
+        }
+    </div>
+    <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0" EmptyTitle="No assignments" EmptyIcon="clipboard">
+        @if (_page is not null && !_isStaff)
+        {
+            <div class="stack-sm">
+                @foreach (var a in _page.Items.OrderBy(a => a.MySubmissionStatus is SubmissionStatus.Submitted or SubmissionStatus.Graded).ThenBy(a => a.DueAtUtc))
+                {
+                    <AssignmentCard Assignment="a" Tz="@Tz" />
+                }
+            </div>
+            <Pager Page="_page.Page" TotalPages="_page.TotalPages" Total="_page.TotalCount" OnPage="Load" />
+        }
+        else if (_page is not null)
+        {
+            <div class="table-wrap"><table class="table stack-mobile">
+                <thead><tr><th>Assignment</th><th>Due</th><th>Status</th>@if (_isStaff) { <th>Submitted</th><th>Graded</th> } else { <th>My work</th><th>Marks</th> }</tr></thead>
+                <tbody>
+                    @foreach (var a in _page.Items)
+                    {
+                        <tr>
+                            <td data-label="Assignment"><a href="/assignments/@a.Id"><strong>@a.Title</strong></a><div class="caption">@a.TeacherName @(a.SessionTitle is null ? "" : $"· {a.SessionTitle}")</div></td>
+                            <td data-label="Due" class="small"><LocalTime Utc="a.DueAtUtc" Tz="@Tz" /></td>
+                            <td data-label="Status"><Badge Style="StatusStyles.For(a.Status)" /></td>
+                            @if (_isStaff)
+                            {
+                                <td data-label="Submitted" class="num">@a.SubmittedCount / @a.RecipientCount</td>
+                                <td data-label="Graded" class="num">@a.GradedCount</td>
+                            }
+                            else
+                            {
+                                <td data-label="My work">@if (a.MySubmissionStatus is { } st) { <Badge Style="StatusStyles.For(st)" /> } else { <span class="badge slate">Not started</span> }</td>
+                                <td data-label="Marks" class="num">@(a.MyMarks is { } m ? $"{m} / {a.MaxMarks}" : "—")</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table></div>
+            <Pager Page="_page.Page" TotalPages="_page.TotalPages" Total="_page.TotalCount" OnPage="Load" />
+        }
+    </DataView>
+</div>
+
+@code {
+    private PagedResult<AssignmentListItemDto>? _page;
+    private ApiException? _error;
+    private string _search = "", _status = "";
+    private bool _isStaff => Me.Role is UserRole.Teacher or UserRole.InstitutionAdmin;
+    protected override Task OnInitializedAsync() => Load(1);
+    private async Task Load(int page)
+    {
+        var q = $"assignments?page={page}&pageSize=20&search={Uri.EscapeDataString(_search)}" + (_status == "" ? "" : $"&status={_status}");
+        (_page, _error) = await Fetch(() => Api.GetAsync<PagedResult<AssignmentListItemDto>>(q));
+    }
+}

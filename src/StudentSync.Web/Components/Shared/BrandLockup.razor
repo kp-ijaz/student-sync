@@ -1,0 +1,10 @@
+@* Mark + "Student Sync" wordmark. OnDark: tiled mark and white/lilac wordmark for navy or gradient backgrounds. *@
+<span class="brand-lockup @(OnDark ? "on-dark" : null) @Class" role="img" aria-label="Student Sync">
+    <BrandMark OnDark="OnDark" Alt="" />
+    <img class="brand-wordmark" src="images/brand/@(OnDark ? "wordmark_light.png" : "wordmark.png")" alt="" />
+</span>
+
+@code {
+    [Parameter] public bool OnDark { get; set; }
+    [Parameter] public string? Class { get; set; }
+}

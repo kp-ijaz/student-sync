@@ -1,0 +1,135 @@
+@page "/timetable"
+@attribute [Authorize(Roles = "Student")]
+@inherits AppPage
+
+@* Timetable — mirrors timetable_screen.dart: Day | Month. Day: a Monday–Sunday week strip (dots on days with classes)
+   and the chosen day hour by hour. Month: the shared MonthGrid (as on /sessions) with the chosen day's classes below. *@
+<PageHeader Title="Timetable" Subtitle="@($"Times shown in {Tz}.")" />
+
+<div class="st-tt-bar">
+    <Segmented TValue="string" Label="Timetable view" Options="Views" Value="_view" ValueChanged="SetView" Class="st-seg" />
+</div>
+
+@if (_view == "month")
+{
+    <div class="card st-tt-month">
+        <div class="st-week-nav">
+            <button type="button" class="icon-btn" @onclick="() => ShiftMonth(-1)" aria-label="Previous month"><Icon Name="chevron-left" /></button>
+            <h2 class="st-week-label" aria-live="polite">@_month.ToString("MMMM yyyy", Inv)</h2>
+            <button type="button" class="icon-btn" @onclick="() => ShiftMonth(1)" aria-label="Next month"><Icon Name="chevron-right" /></button>
+        </div>
+        <DataView Loading="_items is null && _error is null" Error="_error" OnRetry="Reload" LoadingLabel="Loading timetable">
+            @if (_items is not null)
+            {
+                <MonthGrid Items="_items" Anchor="_month" Tz="@Tz" Selected="_day" SelectedChanged="d => { if (d is { } x) _day = x; }" AllowDeselect="false" ShowSubject="true" />
+            }
+        </DataView>
+    </div>
+    @if (_items is not null) { @DayList() }
+}
+else
+{
+    var week = CalendarMath.WeekStart(_day);
+    var busy = (_items ?? []).Select(s => ClassTimes.Day(s.StartUtc, Tz)).ToHashSet();
+    <div class="card st-week" role="group" aria-label="Week">
+        <div class="st-week-nav">
+            <button type="button" class="icon-btn" @onclick="() => ShiftWeek(-1)" aria-label="Previous week"><Icon Name="chevron-left" /></button>
+            <h2 class="st-week-label" aria-live="polite">@week.ToString("d MMM", Inv) – @week.AddDays(6).ToString("d MMM yyyy", Inv)</h2>
+            <button type="button" class="icon-btn" @onclick="() => ShiftWeek(1)" aria-label="Next week"><Icon Name="chevron-right" /></button>
+        </div>
+        <div class="st-week-days">
+            @for (var i = 0; i < 7; i++)
+            {
+                var d = week.AddDays(i);
+                var isBusy = busy.Contains(d);
+                <button type="button" class="st-day-chip @(d == _day ? "selected" : "") @(d == LocalToday ? "today" : "")" aria-pressed="@Aria.Bool(d == _day)"
+                        aria-label="@($"{d.ToString("dddd d MMMM", Inv)}{(isBusy ? ", has classes" : "")}{(d == LocalToday ? ", today" : "")}")" @onclick="() => _day = d">
+                    <span class="dow">@d.ToString("ddd", Inv)[..2].ToUpperInvariant()</span>
+                    <span class="num">@d.Day</span>
+                    <i class="dot @(isBusy ? "on" : "")" aria-hidden="true"></i>
+                </button>
+            }
+        </div>
+    </div>
+    <DataView Loading="_items is null && _error is null" Error="_error" OnRetry="Reload" LoadingLabel="Loading timetable">
+        @DayList()
+    </DataView>
+}
+
+@code {
+    private static readonly System.Globalization.CultureInfo Inv = System.Globalization.CultureInfo.InvariantCulture;
+    private static readonly IReadOnlyList<Segmented<string>.Option> Views = [new("day", "Day", "clock"), new("month", "Month", "calendar")];
+
+    [SupplyParameterFromQuery(Name = "view")] public string? ViewParam { get; set; }
+    private string _view = "day";
+    private DateOnly _day, _month;
+    private List<SessionListItemDto>? _items;
+    private ApiException? _error;
+    private (DateTime, DateTime)? _loadedRange;
+
+    private DateOnly LocalToday => ClassTimes.Day(DateTime.UtcNow, Tz);
+
+    protected override Task LoadAsync()
+    {
+        _day = LocalToday;
+        _month = _day;
+        if (ViewParam is "month") _view = "month";
+        return Reload();
+    }
+
+    private (DateTime From, DateTime To) Range()
+    {
+        if (_view == "month")
+        {
+            var days = CalendarMath.MonthDays(_month).ToList();
+            return (CalendarMath.DayStartUtc(days[0], Tz), CalendarMath.DayStartUtc(days[^1].AddDays(1), Tz));
+        }
+        var week = CalendarMath.WeekStart(_day);
+        return (CalendarMath.DayStartUtc(week, Tz), CalendarMath.DayStartUtc(week.AddDays(7), Tz));
+    }
+
+    private async Task Reload()
+    {
+        var range = Range();
+        _items = null; _error = null; _loadedRange = range;
+        var (from, to) = range;
+        var limit = _view == "month" ? 500 : 200;
+        (var items, _error) = await Fetch(() => Api.GetAsync<List<SessionListItemDto>>($"sessions?fromUtc={Uri.EscapeDataString(from.ToString("O"))}&toUtc={Uri.EscapeDataString(to.ToString("O"))}&limit={limit}"));
+        if (_loadedRange == range) _items = items?.OrderBy(s => s.StartUtc).ToList();
+    }
+
+    private Task SetView(string v)
+    {
+        _view = v;
+        if (v == "month") _month = _day;
+        return Reload();
+    }
+
+    private Task ShiftWeek(int dir) { _day = _day.AddDays(7 * dir); return Reload(); }
+
+    private Task ShiftMonth(int dir)
+    {
+        _month = new DateOnly(_month.Year, _month.Month, 1).AddMonths(dir);
+        _day = _month.Year == LocalToday.Year && _month.Month == LocalToday.Month ? LocalToday : _month;
+        return Reload();
+    }
+
+    private RenderFragment DayList() => __builder =>
+    {
+        var classes = (_items ?? []).Where(s => ClassTimes.Day(s.StartUtc, Tz) == _day).ToList();
+        <section class="st-day" aria-labelledby="day-h">
+            <div class="row-between st-day-head">
+                <h2 id="day-h">@_day.ToString("dddd d MMMM", Inv)</h2>
+                <span class="caption">@classes.Count @(classes.Count == 1 ? "class" : "classes")</span>
+            </div>
+            @if (classes.Count == 0)
+            {
+                <StateView Title="No classes on this day" Message="@(_view == "month" ? "Pick another day in the calendar." : "Pick another day above, or use the arrows to change week.")" Illustration="@Illustrations.AllDone" />
+            }
+            else
+            {
+                <div class="st-day-list">@foreach (var s in classes) { <TimetableSlot Session="s" Tz="@Tz" /> }</div>
+            }
+        </section>
+    };
+}

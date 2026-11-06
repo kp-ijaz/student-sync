@@ -1,0 +1,65 @@
+name: student_sync
+description: "Student Sync — native mobile app for students, teachers and parents."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Networking (dart.dev). A thin typed client with our own serialized refresh logic sits on top.
+  http: ^1.6.0
+  # Keychain / Android Keystore-backed token storage.
+  flutter_secure_storage: ^11.2.0
+  # Declarative routing with auth redirects and deep-link-ready paths (flutter.dev).
+  go_router: ^17.5.0
+  # Opening meeting links, external materials and expiring file links.
+  url_launcher: ^6.3.3
+  # IANA time-zone database for showing times in the user's and organiser's zones.
+  timezone: ^0.11.2
+  # Date/number formatting.
+  intl: ^0.20.3
+  # Markdown rendering for published notes (maintained successor of the discontinued flutter_markdown).
+  flutter_markdown_plus: ^1.0.12
+  video_player: ^2.11.1
+  # Lucide line icons (MIT), used app-wide.
+  lucide_icons_flutter: ^4.0.1
+  # Camera / photo library for the optional profile photo (flutter.dev).
+  image_picker: ^1.2.4
+  # Content types for multipart photo uploads (dart.dev; already a dependency of http).
+  http_parser: ^4.1.2
+  # SVG illustrations for empty, error and not-found states (flutter.dev).
+  flutter_svg: ^2.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  # On-device walkthrough used for simulator verification and screenshots.
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/brand/
+    - assets/images/covers/
+    - assets/images/welcome/
+    - assets/illustrations/
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+    - family: PlusJakartaSans
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/PlusJakartaSans-Bold.ttf
+          weight: 700

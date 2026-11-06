@@ -1,0 +1,42 @@
+@* ListRow: one row of a ListGroup — tinted IconTile, title, optional subtitle, optional trailing content and a chevron.
+   Renders a link (Href), a button (OnClick) or plain text (neither). The chevron shows by default for links/buttons
+   without Trailing content. *@
+<li>
+    @if (Href is not null)
+    {
+        <a class="list-row" href="@Href">@Body</a>
+    }
+    else if (OnClick.HasDelegate)
+    {
+        <button type="button" class="list-row" @onclick="OnClick" disabled="@Disabled">@Body</button>
+    }
+    else
+    {
+        <div class="list-row">@Body</div>
+    }
+</li>
+
+@code {
+    [Parameter, EditorRequired] public string Icon { get; set; } = "";
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string? Subtitle { get; set; }
+    [Parameter] public string Tone { get; set; } = "blue";
+    [Parameter] public string? Href { get; set; }
+    [Parameter] public EventCallback OnClick { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public RenderFragment? Trailing { get; set; }
+    [Parameter] public bool? ShowChevron { get; set; }
+
+    private bool Chevron => ShowChevron ?? ((Href is not null || OnClick.HasDelegate) && Trailing is null);
+
+    private RenderFragment Body => __builder =>
+    {
+        <IconTile Icon="@Icon" Tone="@Tone" Size="md" />
+        <span class="list-text">
+            <span class="list-title">@Title</span>
+            @if (!string.IsNullOrEmpty(Subtitle)) { <span class="list-sub">@Subtitle</span> }
+        </span>
+        @Trailing
+        @if (Chevron) { <Icon Name="chevron-right" Class="chev" /> }
+    };
+}

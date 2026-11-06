@@ -1,0 +1,175 @@
+@inherits LayoutComponentBase
+@implements IAsyncDisposable
+@inject ApiClient Api
+@inject RealtimeService Realtime
+@inject ToastService Toasts
+@inject ShellState Shell
+@inject NavigationManager Nav
+
+@* Desktop (≥ 1024 px): docked grouped side menu. Phones and tablets: the side menu becomes a drawer and the shell
+   mirrors the mobile app — page title in the app bar with the bell and the photo avatar, and a floating four-tab
+   bar at the bottom (Navigation.Tabs). Everything not in the four tabs stays reachable from the drawer. *@
+<div class="shell @(_navOpen ? "nav-open" : "") @(_tabs.Count > 0 ? "has-tabs" : "") @(Shell.Title is not null ? "has-title" : "")">
+    <aside class="sidebar" aria-label="Main navigation">
+        <div class="brand"><BrandLockup OnDark="true" /></div>
+        @if (_me?.TenantName is { } tenant) { <div class="tenant-name truncate" title="@tenant">@tenant</div> }
+        <nav>
+            <ul class="nav">
+                @if (_me is not null)
+                {
+                    @foreach (var item in _items)
+                    {
+                        @if (item.Children is { } children)
+                        {
+                            var open = _expanded.Contains(item.Label);
+                            var id = "nav-" + item.Label.ToLowerInvariant().Replace(' ', '-');
+                            <li class="nav-group @(open ? "open" : "") @(children.Contains(_active) ? "has-active" : "")">
+                                <button type="button" class="nav-group-btn" aria-expanded="@(Aria.Bool(open))" aria-controls="@id" @onclick="() => Toggle(item.Label)">
+                                    <Icon Name="@item.Icon" /><span class="grow">@I18n.T(Lang, item.Label)</span><Icon Name="chevron-down" Class="chev" />
+                                </button>
+                                <ul class="nav-sub" id="@id" hidden="@(!open)">
+                                    @foreach (var child in children) { <li>@NavLinkFor(child)</li> }
+                                </ul>
+                            </li>
+                        }
+                        else
+                        {
+                            <li>@NavLinkFor(item)</li>
+                        }
+                    }
+                }
+            </ul>
+        </nav>
+        <div class="sidebar-foot">@(_me is null ? "" : StatusStyles.RoleLabel(_me.Role)) · @(_me?.TimeZoneId)</div>
+    </aside>
+    <div class="scrim" @onclick="() => _navOpen = false"></div>
+    <div class="main">
+        <header class="topbar">
+            <button class="icon-btn menu-btn" aria-label="@I18n.T(Lang, "Open navigation")" aria-expanded="@(Aria.Bool(_navOpen))" @onclick="() => _navOpen = !_navOpen"><Icon Name="menu" /></button>
+            @* Phones/tablets only (CSS): the page title in the app bar, as in the mobile app. Rendered from data-title by CSS so it is
+               never a second text copy of the heading for assistive tech or tests; the page keeps its own h1. *@
+            <div class="appbar-title truncate" aria-hidden="true" data-title="@AppBarTitle"></div>
+            <div class="grow"></div>
+            @* App bar actions as on mobile: white circle bell with the unread count and the profile photo (opens Profile).
+               Messages and Sign out are desktop-only here; on phones they live in the drawer and on Profile. *@
+            <a class="icon-btn circle desk-only" href="/messages" aria-label="Messages (@_unread.Messages unread)" title="Messages"><Icon Name="message" />@if (_unread.Messages > 0) { <span class="dot-count" aria-hidden="true">@_unread.Messages</span> }</a>
+            <a class="icon-btn circle" href="/notifications" aria-label="Notifications (@_unread.Notifications unread)" title="Notifications"><Icon Name="bell" />@if (_unread.Notifications > 0) { <span class="dot-count" aria-hidden="true">@(_unread.Notifications > 99 ? "99+" : _unread.Notifications)</span> }</a>
+            <form method="post" action="/account/logout" data-enhance="false" class="desk-only">
+                <AntiforgeryToken />
+                <button class="icon-btn circle" type="submit" aria-label="@I18n.T(Lang, "Sign out")" title="@I18n.T(Lang, "Sign out")"><Icon Name="logout" /></button>
+            </form>
+            <a class="top-avatar" href="/profile" aria-label="Your profile" title="@(_me?.FullName)">
+                <Avatar Name="@_me?.FullName" PhotoUrl="@_me?.PhotoUrl" Size="md" Ring="true" />
+            </a>
+        </header>
+        <div id="offline-banner" class="offline-banner" hidden>You're offline. Changes can't be saved until your connection returns.</div>
+        <main class="content" id="main">
+            @Body
+        </main>
+    </div>
+    @if (_tabs.Count > 0)
+    {
+        @* Floating bottom tab bar (phones/tablets): the selected tab is a navy pill with its label, the others are
+           icon-only tiles with tooltips — the same bar as the mobile app (role_shell.dart). *@
+        <nav class="tabbar" aria-label="Main sections">
+            @foreach (var tab in _tabs)
+            {
+                var selected = tab == _activeTab;
+                var label = I18n.T(Lang, tab.Label);
+                <a href="@tab.Href" class="@(selected ? "selected" : "")" aria-current="@(selected ? "page" : null)" title="@label"><Icon Name="@tab.Icon" /><span class="tab-label">@label</span></a>
+            }
+        </nav>
+    }
+</div>
+<Toasts />
+
+<div id="blazor-error-ui" data-nosnippet>
+    Something went wrong. <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    private CurrentUserDto? _me;
+    private IReadOnlyList<NavItem> _items = [];
+    private IReadOnlyList<NavItem> _tabs = [];
+    private NavItem? _active;
+    private NavItem? _activeTab;
+    private readonly HashSet<string> _expanded = [];
+    private UnreadCountsDto _unread = new(0, 0);
+    private bool _navOpen;
+    private Timer? _poll;
+    private string Lang => _me?.PreferredLanguage ?? "en";
+    // Page title published by PageHeader, else the current tab or menu item (e.g. "Home" on the dashboards).
+    private string AppBarTitle => Shell.Title ?? I18n.T(Lang, _activeTab?.Label ?? _active?.Label ?? "Student Sync");
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _me = await Api.MeAsync();
+            _items = Navigation.For(_me.Role);
+            _tabs = Navigation.Tabs(_me.Role);
+            UpdateActive();
+            Nav.LocationChanged += OnLocationChanged;
+            Shell.Changed += OnShellChanged;
+            if (_me.MustChangePassword && !Nav.Uri.Contains("/change-password")) { Nav.NavigateTo("/change-password"); return; }
+            await RefreshUnread();
+        }
+        catch (ApiException ex) when (ex.Status == 401) { Nav.NavigateTo("/login", forceLoad: true); }
+        catch (ApiException) { /* counts are non-critical */ }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _me is null) return;
+        Realtime.NotificationReceived += OnNotification;
+        Realtime.MessageReceived += OnMessage;
+        await Realtime.StartAsync();
+        // Fallback refresh in case the real-time channel is unavailable.
+        _poll = new Timer(_ => InvokeAsync(RefreshUnread), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+    }
+
+    private RenderFragment NavLinkFor(NavItem item) => __builder =>
+    {
+        <a href="@item.Href" class="@(item == _active ? "active" : "")" aria-current="@(item == _active ? "page" : null)" @onclick="() => _navOpen = false">
+            <Icon Name="@item.Icon" /><span class="grow">@I18n.T(Lang, item.Label)</span>
+            @if (item.Href == "/messages" && _unread.Messages > 0) { <span class="nav-count" aria-label="@_unread.Messages unread">@_unread.Messages</span> }
+        </a>
+    };
+
+    private void Toggle(string group)
+    {
+        if (!_expanded.Remove(group)) _expanded.Add(group);
+    }
+
+    // Open the group holding the current page; groups the user opened stay open.
+    private void UpdateActive()
+    {
+        var path = Nav.ToBaseRelativePath(Nav.Uri);
+        _active = Navigation.Active(_items, path);
+        _activeTab = Navigation.ActiveTab(_tabs, path);
+        if (_items.FirstOrDefault(g => g.Children?.Contains(_active) == true) is { } group) _expanded.Add(group.Label);
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => InvokeAsync(() => { UpdateActive(); StateHasChanged(); });
+    private void OnShellChanged() => InvokeAsync(StateHasChanged);
+
+    private void OnNotification(string title) => InvokeAsync(async () => { Toasts.Show(title, ToastKind.Info); await RefreshUnread(); });
+    private void OnMessage() => InvokeAsync(RefreshUnread);
+
+    private async Task RefreshUnread()
+    {
+        try { _unread = await Api.GetAsync<UnreadCountsDto>("notifications/unread"); StateHasChanged(); }
+        catch (ApiException) { }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+        Shell.Changed -= OnShellChanged;
+        Realtime.NotificationReceived -= OnNotification;
+        Realtime.MessageReceived -= OnMessage;
+        _poll?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

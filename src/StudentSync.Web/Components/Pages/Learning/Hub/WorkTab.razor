@@ -1,0 +1,40 @@
+@inherits AppComponent
+
+<div class="grid grid-2">
+    <div class="card">
+        <div class="card-head"><h2>Assignments</h2>
+            @if (Session.CanManage)
+            {
+                if (Ended) { <a class="btn btn-secondary btn-sm" href="/assignments/new?sessionId=@Session.Id"><Icon Name="plus" /> New for this class</a> }
+                else { <button type="button" class="btn btn-secondary btn-sm" disabled aria-describedby="work-locked"><Icon Name="plus" /> New for this class</button> }
+            }</div>
+        @if (Session.CanManage && !Ended) { <p id="work-locked" class="info-panel small" style="margin:0 0 12px">Notes and assignments open once the class has ended.</p> }
+        <DataView Loading="_assignments is null && _aError is null" Error="_aError" IsEmpty="_assignments?.Count == 0" EmptyTitle="No assignments linked to this class" EmptyIcon="clipboard">
+            <ul class="list">@foreach (var a in _assignments ?? []) { <li class="row-between"><div><a href="/assignments/@a.Id"><strong>@a.Title</strong></a><div class="caption">Due <LocalTime Utc="a.DueAtUtc" Tz="@Tz" /></div></div>
+                @if (a.MySubmissionStatus is { } st) { <Badge Style="StatusStyles.For(st)" /> } else if (Session.CanManage) { <span class="small muted">@a.SubmittedCount/@a.RecipientCount submitted</span> }</li> }</ul>
+        </DataView>
+    </div>
+    <div class="card">
+        <div class="card-head"><h2>Doubts</h2>
+            @if (Me.Role == UserRole.Student) { <a class="btn btn-secondary btn-sm" href="/doubts/new?sessionId=@Session.Id"><Icon Name="help" /> Ask about this class</a> }</div>
+        <DataView Loading="_doubts is null && _dError is null" Error="_dError" IsEmpty="_doubts?.Count == 0" EmptyTitle="No doubts for this class" EmptyIcon="help">
+            <ul class="list">@foreach (var d in _doubts ?? []) { <li><a href="/doubts/@d.Id"><strong>@d.Title</strong></a><div class="caption">@d.StudentName · <Badge Style="StatusStyles.For(d.Status)" /> @(d.FollowUpSessionId == Session.Id ? "· carried forward to this class" : "")</div></li> }</ul>
+        </DataView>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SessionDetailDto Session { get; set; } = default!;
+    private List<AssignmentListItemDto>? _assignments;
+    private List<DoubtListItemDto>? _doubts;
+    private ApiException? _aError, _dError;
+    private bool Ended => JoinRules.HasEnded(Session.Status, Session.EndUtc, DateTime.UtcNow);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var (a, ae) = await Fetch(() => Api.GetAsync<PagedResult<AssignmentListItemDto>>($"assignments?sessionId={Session.Id}&pageSize=50"));
+        (_assignments, _aError) = (a?.Items.ToList(), ae);
+        var (d, de) = await Fetch(() => Api.GetAsync<PagedResult<DoubtListItemDto>>($"doubts?sessionId={Session.Id}&pageSize=50"));
+        (_doubts, _dError) = (d?.Items.ToList(), de);
+    }
+}

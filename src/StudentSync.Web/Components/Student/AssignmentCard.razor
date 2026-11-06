@@ -1,0 +1,26 @@
+@* AssignmentCard: one assignment for a student (port of assignment_card.dart) — clipboard tile (green; red once
+   overdue and not handed in), title + submission badge, "Due … · marks" (red when overdue), then teacher · class. *@
+@{
+    var a = Assignment;
+    var handedIn = a.MySubmissionStatus is SubmissionStatus.Submitted or SubmissionStatus.Graded;
+    var overdue = !handedIn && a.DueAtUtc < DateTime.UtcNow;
+}
+<div class="card tight st-assignment @(overdue ? "overdue" : "")">
+    <IconTile Icon="clipboard" Tone="@(overdue ? "red" : "green")" Size="md" />
+    <div class="grow">
+        <a class="stretched st-assignment-title" href="/assignments/@a.Id">@a.Title</a>
+        <div class="caption st-assignment-due">Due @ClassTimes.DateTime(a.DueAtUtc, Tz) · @a.MaxMarks.ToString("0.##") marks@(a.MyMarks is { } m ? $" · scored {m:0.##}" : "")</div>
+        @if (ShowContext && (a.TeacherName is { Length: > 0 } || a.SessionTitle is not null))
+        {
+            <div class="caption">@People.ShortName(a.TeacherName)@(a.SessionTitle is null ? "" : $" · {a.SessionTitle}")</div>
+        }
+    </div>
+    @if (a.MySubmissionStatus is { } st) { <Badge Style="StatusStyles.For(st)" /> } else { <Badge Style='new StatusStyle("Not started", "slate")' /> }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public AssignmentListItemDto Assignment { get; set; } = default!;
+    [Parameter, EditorRequired] public string Tz { get; set; } = "UTC";
+    /// <summary>Show "teacher · class" (off inside a class page, where both are already known).</summary>
+    [Parameter] public bool ShowContext { get; set; } = true;
+}

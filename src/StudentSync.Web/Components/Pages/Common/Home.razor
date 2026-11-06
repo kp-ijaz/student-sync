@@ -1,0 +1,11 @@
+@page "/"
+@attribute [Authorize]
+@inherits AppPage
+<LoadingView Page="true" Label="Opening your dashboard" />
+@code {
+    protected override Task LoadAsync()
+    {
+        if (Me is not null) Nav.NavigateTo(Navigation.Home(Me.Role), replace: true);
+        return Task.CompletedTask;
+    }
+}

@@ -1,0 +1,8 @@
+@* StatusBadge: a tinted pill with a leading dot and the status text (never colour alone). Map enums to a
+   StatusStyle with StatusStyles.For(...). Set Dot="false" for a plain tinted label. *@
+<span class="badge @Style.Tone @(Dot ? "dot" : "")">@Style.Label</span>
+
+@code {
+    [Parameter, EditorRequired] public StatusStyle Style { get; set; } = new("", "slate");
+    [Parameter] public bool Dot { get; set; } = true;
+}

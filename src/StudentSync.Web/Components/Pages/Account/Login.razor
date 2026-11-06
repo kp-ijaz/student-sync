@@ -1,0 +1,51 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout AuthLayout
+
+<PageTitle>Sign in · Student Sync</PageTitle>
+<form method="post" action="/account/login" data-enhance="false" novalidate>
+    <AntiforgeryToken />
+    <input type="hidden" name="returnUrl" value="@ReturnUrl" />
+    <div class="stack">
+        <div>
+            <h1>Welcome back</h1>
+            <p class="muted" style="margin:4px 0 0">Sign in with the email and password your institute gave you.</p>
+        </div>
+        @if (Message is { } m)
+        {
+            <div class="@(Error is null ? "ok-panel" : "error-panel")" role="alert">@m</div>
+        }
+        <div class="field">
+            <label for="email">Email</label>
+            <div class="input-icon"><Icon Name="mail" /><input id="email" name="email" type="email" class="input" autocomplete="username" required value="@Email" autofocus /></div>
+        </div>
+        <div class="field">
+            <label for="password">Password</label>
+            <div class="input-icon has-toggle">
+                <Icon Name="lock" /><input id="password" name="password" type="password" class="input" autocomplete="current-password" required />
+                <button type="button" class="pw-toggle" data-toggle-password="password" aria-label="Show password" aria-pressed="false"><Icon Name="eye" Class="pw-show" /><Icon Name="eye-off" Class="pw-hide" /></button>
+            </div>
+        </div>
+        <button class="btn btn-primary btn-pill btn-block" type="submit">Sign in</button>
+        <p class="caption" style="text-align:center;margin:0">New students receive their sign-in details from the institute office. Forgot your password? Ask the office to reset it. Student Sync never asks for your password by email or message.</p>
+    </div>
+</form>
+
+@code {
+    [SupplyParameterFromQuery] public string? Error { get; set; }
+    [SupplyParameterFromQuery] public string? Email { get; set; }
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+    [SupplyParameterFromQuery] public string? SignedOut { get; set; }
+
+    private string? Message => Error switch
+    {
+        null => SignedOut is not null ? "You have been signed out." : null,
+        "invalid_credentials" => "The email or password is incorrect.",
+        "parent_access_disabled" => "Parent accounts are not used at this institute. Please contact the institute office.",
+        "locked_out" => "Too many failed attempts. Try again in 15 minutes.",
+        "tenant_inactive" => "Sign-in is currently disabled. Contact the institute office.",
+        "unavailable" => "Student Sync is temporarily unreachable. Please try again shortly.",
+        _ => "We couldn't sign you in. Please try again.",
+    };
+}

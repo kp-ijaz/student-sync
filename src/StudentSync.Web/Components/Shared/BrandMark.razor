@@ -1,0 +1,11 @@
+@* The Student Sync mark (open book and star) from docs/brand. OnDark shows it on its white tile so the dark blue page
+   keeps its contrast on navy or gradient backgrounds. *@
+<img class="brand-mark @(OnDark ? "tile" : null) @Class" src="images/brand/@(OnDark ? "mark_tile.png" : "mark.png")" alt="@Alt" />
+
+@code {
+    [Parameter] public bool OnDark { get; set; }
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Empty when the wordmark beside the mark already names the app.</summary>
+    [Parameter] public string Alt { get; set; } = "Student Sync";
+}

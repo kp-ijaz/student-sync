@@ -1,0 +1,9 @@
+@page "/assignments"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher,Student")]
+@inherits AppPage
+
+<PageHeader Title="Assignments" Subtitle="@(IsStudent ? "Homework and tasks from your teachers." : "Create, publish and grade homework for batches, groups or individual students.")">
+    <Actions>@if (IsStaff) { <a class="btn btn-primary" href="/assignments/new"><Icon Name="plus" /> New assignment</a> }</Actions>
+</PageHeader>
+
+@if (Me is not null) { <AssignmentsPanel Me="Me" /> }

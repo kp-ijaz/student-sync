@@ -1,0 +1,151 @@
+@page "/student"
+@attribute [Authorize(Roles = "Student")]
+@inherits AppPage
+
+@* Student home — mirrors the approved mobile Home (student_home_screen.dart): next-class hero, four shortcuts, your
+   teachers, today's timetable hour by hour, coming up, due assignments, open doubts and what's new in your classes.
+   Progress lives at /progress (from Profile and the shortcut); notes live on each class page (no library link). *@
+<PageTitle>Home · Student Sync</PageTitle>
+@* Greeting as on the mobile Home (HomeGreeting): photo, "Good evening", first name; the date and zone as a caption. *@
+<header class="page-header t-greeting">
+    <a class="t-greeting-avatar" href="/profile" aria-label="Your profile"><Avatar Name="@Me?.FullName" PhotoUrl="@Me?.PhotoUrl" Size="lg" Ring="true" /></a>
+    <div class="grow">
+        <div class="t-greeting-line">@TeachingRules.Greeting(Time.ToLocal(DateTime.UtcNow, Tz).Hour)</div>
+        <h1 tabindex="-1">@FirstName</h1>
+        <div class="caption">@SubtitleText</div>
+    </div>
+    <div class="btn-group"><a class="btn btn-primary btn-pill" href="/doubts/new"><Icon Name="help" /> Ask a doubt</a></div>
+</header>
+
+<DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync" LoadingLabel="Loading your day">
+    @if (_d is not null)
+    {
+        var now = DateTime.UtcNow;
+        var (today, later) = StudentHome.SplitByDay(_d.NextSession, _d.UpcomingSessions, now, u => ClassTimes.Day(u, Tz));
+        var teachers = StudentHome.Teachers(_d.NextSession, _d.UpcomingSessions);
+        <div class="st-home-top @(teachers.Count == 0 ? "no-teachers" : "")">
+            <div class="st-area-hero"><NextClassHero Session="_d.NextSession" Tz="@Tz" /></div>
+            <div class="st-area-shortcuts"><ShortcutGrid Items="Shortcuts" AriaLabel="Shortcuts" /></div>
+            @if (teachers.Count > 0)
+            {
+                <section class="st-area-teachers" aria-labelledby="teachers-h">
+                    <SectionHeader Title="Your teachers" Id="teachers-h" Icon="users" Tone="navy" />
+                    <div class="st-teacher-grid">
+                        @foreach (var t in teachers.Take(4))
+                        {
+                            <button type="button" class="st-teacher-btn" @onclick="() => _teacher = t" aria-haspopup="dialog"
+                                    aria-label="@($"{People.ShortName(t.Name)}{(t.Subject is null ? "" : $", {t.Subject}")} — see upcoming classes")">
+                                <TeacherPhotoCard Name="@t.Name" PhotoUrl="@t.PhotoUrl" Subtitle="@t.Subject" Arrow="true" Class="st-teacher-card" />
+                            </button>
+                        }
+                    </div>
+                </section>
+            }
+        </div>
+
+        <div class="grid grid-main st-home-body">
+            <div class="stack-0">
+                <section aria-labelledby="today-h">
+                    <SectionHeader Title="Today's timetable" Id="today-h" Icon="clock" Count="today.Count" LinkHref="/timetable" LinkLabel="Full timetable" />
+                    @if (today.Count == 0)
+                    {
+                        <InlineEmpty Icon="calendar" Text="No more classes today." />
+                    }
+                    else
+                    {
+                        foreach (var s in today) { <TimetableSlot Session="s" Tz="@Tz" /> }
+                    }
+                </section>
+                @if (later.Count > 0)
+                {
+                    <section aria-labelledby="later-h">
+                        <SectionHeader Title="Coming up" Id="later-h" Icon="calendar" Tone="violet" LinkHref="/timetable" LinkLabel="Timetable" />
+                        <div class="st-carousel" role="list">
+                            @foreach (var s in later.Take(6)) { <div role="listitem"><ClassCarouselCard Session="s" Tz="@Tz" /></div> }
+                        </div>
+                    </section>
+                }
+            </div>
+            <div class="stack-0">
+                <section aria-labelledby="due-h">
+                    <SectionHeader Title="Due assignments" Id="due-h" Icon="clipboard" Tone="green" Count="_d.DueAssignments.Count" LinkHref="/learning" LinkLabel="Learning" />
+                    @if (_d.DueAssignments.Count == 0)
+                    {
+                        <InlineEmpty Icon="check-circle" Text="You're all caught up — no assignments due." />
+                    }
+                    else
+                    {
+                        <div class="stack-sm">
+                            @foreach (var a in _d.DueAssignments)
+                            {
+                                <AssignmentCard Assignment="a" Tz="@Tz" />
+                            }
+                        </div>
+                    }
+                </section>
+                <section aria-labelledby="doubts-h">
+                    <SectionHeader Title="Open doubts" Id="doubts-h" Icon="help" Tone="orange" Count="_d.OpenDoubts.Count" LinkHref="/doubts" LinkLabel="Doubts" />
+                    @if (_d.OpenDoubts.Count == 0)
+                    {
+                        <InlineEmpty Icon="help" Text="No open doubts. Ask one any time from the Doubt Centre." />
+                    }
+                    else
+                    {
+                        <div class="stack-sm">@foreach (var x in _d.OpenDoubts) { <DoubtCard Doubt="x" Tz="@Tz" /> }</div>
+                    }
+                </section>
+                @if (_d.RecentContent.Count > 0)
+                {
+                    <section aria-labelledby="new-h">
+                        <SectionHeader Title="New in your classes" Id="new-h" Icon="sparkle" />
+                        <ListGroup AriaLabel="New in your classes">
+                            @foreach (var c in _d.RecentContent)
+                            {
+                                var (icon, tone, section) = c.Kind switch { "Recording" => ("clapperboard", "navy", "recordings"), "Material" => ("folder", "green", "materials"), _ => ("notebook", "blue", "notes") };
+                                <ListRow Icon="@icon" Tone="@tone" Title="@c.Title" Subtitle="@($"{c.Kind} · {c.SessionTitle} · {Time.Date(c.AtUtc, Tz)}")" Href="@($"/sessions/{c.SessionId}?tab={section}")" />
+                            }
+                        </ListGroup>
+                    </section>
+                }
+            </div>
+        </div>
+
+        <Modal Open="_teacher is not null" OpenChanged="_ => _teacher = null" Title="@(People.ShortName(_teacher?.Name))">
+            @if (_teacher is { } t)
+            {
+                <div class="row" style="flex-wrap:nowrap;margin-bottom:8px">
+                    <Avatar Name="@t.Name" PhotoUrl="@t.PhotoUrl" Size="lg" />
+                    <div class="grow"><strong>@t.Name</strong>@if (t.Subject is not null) { <div class="caption">@t.Subject</div> }</div>
+                </div>
+                <SectionHeader Title="Upcoming classes" Count="t.Classes.Count" Level="3" />
+                <div class="stack-sm st-modal-list">
+                    @foreach (var s in t.Classes) { <ClassRow Session="s" Tz="@Tz" ShowTeacher="false" /> }
+                </div>
+            }
+        </Modal>
+    }
+</DataView>
+
+@code {
+    private StudentDashboardDto? _d;
+    private ApiException? _error;
+    private TeacherClasses? _teacher;
+
+    private static readonly IReadOnlyList<ShortcutItem> Shortcuts =
+    [
+        new("Timetable", "/timetable", "calendar"),
+        new("Videos", "/learning?tab=videos", "play-circle", "navy"),
+        new("Homework", "/learning", "clipboard", "green"),
+        new("My progress", "/progress", "chart-line", "orange"),
+    ];
+
+    private string FirstName => People.ShortName(_d?.FirstName is { Length: > 0 } f ? f : (Me?.FullName ?? "").Split(' ')[0]);
+
+    private string SubtitleText => $"{Time.ToLocal(DateTime.UtcNow, Tz).ToString("dddd d MMMM", System.Globalization.CultureInfo.InvariantCulture)} · times in {Tz}";
+
+    protected override async Task LoadAsync()
+    {
+        _error = null;
+        (_d, _error) = await Fetch(() => Api.GetAsync<StudentDashboardDto>("dashboard/student"));
+    }
+}

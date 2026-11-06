@@ -1,0 +1,39 @@
+@* TeacherClassCard: one class as a card (port of the mobile SessionCard) — a cover thumbnail with the day and date,
+   the title and status, the time in the viewer's zone (+ organiser zone when different), the subject/batch, teaching
+   mode and delivery pills, and an optional action under it (e.g. "Mark attendance"). The main block links to Href. *@
+<article class="card tight t-class">
+    <a class="t-class-main" href="@Href">
+        <ClassCover Subject="@Session.SubjectName" Title="@Session.Title" Height="84px" Class="t-class-thumb">
+            <span class="t-date" aria-hidden="true"><span class="dow">@Local.ToString("ddd").ToUpperInvariant()</span><span class="dom">@Local.Day</span></span>
+        </ClassCover>
+        <span class="t-class-text">
+            <span class="t-class-top">
+                <span class="t-class-title @(Session.Status == SessionStatus.Cancelled ? "struck" : "")">@Session.Title</span>
+                <Badge Style="StatusStyles.For(Session.Status)" />
+            </span>
+            <span class="t-class-time"><Icon Name="clock" /><span>@Time.Range(Session.StartUtc, Session.EndUtc, Tz)</span></span>
+            @if (Session.TimeZoneId != Tz) { <span class="caption">Organiser time: @Time.Range(Session.StartUtc, Session.EndUtc, Session.TimeZoneId) @Time.Abbrev(Session.TimeZoneId)</span> }
+            @if (Secondary.Length > 0) { <span class="caption t-class-sub">@Secondary</span> }
+        </span>
+    </a>
+    <div class="t-class-tags">
+        <TagPill Label="@StatusStyles.For(Session.SessionType).Label" Icon="users" />
+        <TagPill Label="@TeachingRules.DeliveryModeLabel(Session.DeliveryMode)" Icon="@(Session.DeliveryMode == DeliveryMode.InPerson ? "building" : "video")" />
+        @if (Session.IsRecurring) { <TagPill Label="Recurring" Icon="refresh" /> }
+    </div>
+    @if (Action is not null) { <div class="t-class-action">@Action</div> }
+</article>
+
+@code {
+    [Parameter, EditorRequired] public SessionListItemDto Session { get; set; } = default!;
+    [Parameter] public string Tz { get; set; } = "UTC";
+    [Parameter, EditorRequired] public string Href { get; set; } = "";
+    [Parameter] public RenderFragment? Action { get; set; }
+
+    private DateTime Local => Time.ToLocal(Session.StartUtc, Tz);
+    private string Secondary => string.Join(" · ", new[]
+    {
+        Session.SubjectName,
+        Session.SessionType == SessionType.Batch && Session.BatchName != Session.Title ? Session.BatchName : null,
+    }.Where(s => !string.IsNullOrWhiteSpace(s)));
+}

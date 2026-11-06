@@ -1,0 +1,35 @@
+@* MonthGrid: the month calendar (Monday first, 6 weeks) shared by /sessions and the student timetable. Desktop shows each
+   day's classes as links; phones show dots and the day number is a button that selects the day (SelectedChanged). *@
+<div class="calendar" role="group" aria-label="@Anchor.ToString("MMMM yyyy", Inv)">
+    @foreach (var d in new[] { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" }) { <div class="dow" aria-hidden="true">@d</div> }
+    @foreach (var day in CalendarMath.MonthDays(Anchor))
+    {
+        var dayItems = Items.Where(s => DateOnly.FromDateTime(Time.ToLocal(s.StartUtc, Tz)) == day).ToList();
+        <div class="day @(day.Month != Anchor.Month ? "other" : "") @(day == Today ? "today" : "") @(day == Selected ? "selected" : "")">
+            <button type="button" class="day-num" aria-pressed="@(Aria.Bool(day == Selected))" aria-label="@day.ToString("dddd d MMMM", Inv), @dayItems.Count @(dayItems.Count == 1 ? "class" : "classes")" @onclick="() => Select(day)">@day.Day</button>
+            @foreach (var s in dayItems)
+            {
+                <a class="ev @s.SessionType @s.Status" href="/sessions/@s.Id" title="@s.Title">@Time.Clock(s.StartUtc, Tz) @(ShowSubject ? s.SubjectName ?? s.Title : s.Title)</a>
+            }
+            @if (dayItems.Count > 0) { <span class="dots" aria-hidden="true">@foreach (var s in dayItems.Take(3)) { <i class="@s.SessionType @s.Status"></i> }</span> }
+        </div>
+    }
+</div>
+
+@code {
+    private static readonly System.Globalization.CultureInfo Inv = System.Globalization.CultureInfo.InvariantCulture;
+    [Parameter, EditorRequired] public IReadOnlyList<SessionListItemDto> Items { get; set; } = [];
+    /// <summary>Any day in the month to show.</summary>
+    [Parameter, EditorRequired] public DateOnly Anchor { get; set; }
+    [Parameter, EditorRequired] public string Tz { get; set; } = "UTC";
+    [Parameter] public DateOnly? Selected { get; set; }
+    [Parameter] public EventCallback<DateOnly?> SelectedChanged { get; set; }
+    /// <summary>When true a second click on the selected day clears the selection.</summary>
+    [Parameter] public bool AllowDeselect { get; set; } = true;
+    /// <summary>Label events by subject (timetable) instead of the class title.</summary>
+    [Parameter] public bool ShowSubject { get; set; }
+
+    private DateOnly Today => DateOnly.FromDateTime(Time.ToLocal(DateTime.UtcNow, Tz));
+
+    private Task Select(DateOnly day) => SelectedChanged.InvokeAsync(AllowDeselect && Selected == day ? null : day);
+}

@@ -1,0 +1,48 @@
+@inherits AppComponent
+@* ExamsPanel: exams — shared by /exams and the student Learning page. Staff get the table; students get the same
+   cards as the mobile app (ExamCard) with start / resume / result. *@
+<div class="@(_isStaff ? "card" : "")">
+    <DataView Loading="_items is null && _error is null" Error="_error" OnRetry="LoadAsync" IsEmpty="_items?.Count == 0" EmptyTitle="No exams" EmptyIcon="check-square">
+        @if (_isStudent)
+        {
+            <div class="stack-sm">@foreach (var e in _items ?? []) { <ExamCard Exam="e" Tz="@Tz" /> }</div>
+        }
+        else
+        {
+        <div class="table-wrap"><table class="table stack-mobile">
+            <thead><tr><th>Exam</th><th>Window (@Tz)</th><th>Duration</th><th>Status</th>@if (_isStudent) { <th>Result</th><th></th> }</tr></thead>
+            <tbody>
+                @foreach (var e in _items ?? [])
+                {
+                    var open = DateTime.UtcNow >= e.OpensAtUtc && DateTime.UtcNow < e.ClosesAtUtc;
+                    <tr>
+                        <td data-label="Exam">@if (_isStaff) { <a href="/exams/@e.Id"><strong>@e.Title</strong></a> } else { <strong>@e.Title</strong> }@if (e.Purpose == ExamPurpose.Diagnostic) { <span class="badge violet" style="margin-left:6px">Diagnostic</span> }<div class="caption">@e.SubjectName · @e.QuestionCount questions · @e.TotalMarks marks</div></td>
+                        <td data-label="Window" class="small">@Time.Short(e.OpensAtUtc, Tz) → @Time.Short(e.ClosesAtUtc, Tz)</td>
+                        <td data-label="Duration">@e.DurationMinutes min</td>
+                        <td data-label="Status"><Badge Style="StatusStyles.For(e.Status)" /></td>
+                        @if (_isStudent)
+                        {
+                            <td data-label="Result">@(e.ResultsReleased ? (e.MyBestScore is { } s ? $"{s} / {e.TotalMarks}" : "—") : e.AttemptsUsed > 0 ? "Awaiting release" : "—")</td>
+                            <td>
+                                @if (e.HasInProgressAttempt) { <a class="btn btn-accent btn-sm" href="/exams/@e.Id/take">Resume</a> }
+                                else if (open && e.AttemptsUsed < e.MaxAttempts) { <a class="btn btn-primary btn-sm" href="/exams/@e.Id/take">Start</a> }
+                                else if (e.LatestAttemptId is { } last) { <a class="btn btn-secondary btn-sm" href="/attempts/@last/result">View result</a> }
+                                else if (!open && DateTime.UtcNow < e.OpensAtUtc) { <span class="caption">Opens <LocalTime Utc="e.OpensAtUtc" Tz="@Tz" Format="relative" /></span> }
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table></div>
+        }
+    </DataView>
+</div>
+
+@code {
+    private List<ExamListItemDto>? _items;
+    private ApiException? _error;
+    private bool _isStaff => Me.Role is UserRole.Teacher or UserRole.InstitutionAdmin;
+    private bool _isStudent => Me.Role == UserRole.Student;
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync() => (_items, _error) = await Fetch(() => Api.GetAsync<List<ExamListItemDto>>("exams"));
+}

@@ -1,0 +1,54 @@
+@page "/parent"
+@attribute [Authorize(Roles = "Parent")]
+@inherits AppPage
+
+<PageHeader Title="Family dashboard" Subtitle="Attendance, classes and progress for your children." />
+
+<DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync" IsEmpty="_d?.Children.Count == 0"
+          EmptyTitle="No children linked yet" EmptyText="Your institution links your account to your children after verifying the relationship." EmptyIcon="heart">
+    @if (_d?.Child is { } c)
+    {
+        @if (_d.Children.Count > 1)
+        {
+            <div class="segmented" role="group" aria-label="Choose child" style="margin-bottom:24px">
+                @foreach (var ch in _d.Children) { <button aria-pressed="@(Aria.Bool(ch.Id == _d.SelectedChildId))" @onclick="() => Select(ch.Id)">@ch.Name</button> }
+            </div>
+        }
+        <h2 style="margin-bottom:12px">@c.Name</h2>
+        <ProgressPanel Progress="c.Progress" />
+        <div class="grid grid-2" style="margin-top:24px">
+            <div class="card">
+                <div class="card-head"><h2>Upcoming classes</h2></div>
+                <DataView IsEmpty="c.UpcomingSessions.Count == 0" EmptyTitle="No upcoming classes" EmptyIcon="calendar">
+                    <ul class="list">@foreach (var s in c.UpcomingSessions) { <li><SessionItem Session="s" Tz="@Tz" ShowCount="false" /></li> }</ul>
+                </DataView>
+            </div>
+            <div class="card">
+                <div class="card-head"><h2>Recent attendance</h2></div>
+                <DataView IsEmpty="c.RecentAttendance.Count == 0" EmptyTitle="No attendance recorded yet" EmptyIcon="check">
+                    <ul class="list">@foreach (var a in c.RecentAttendance) { <li class="row-between"><div><strong>@a.SessionTitle</strong><div class="caption"><LocalTime Utc="a.StartUtc" Tz="@Tz" /> · @StatusStyles.For(a.SessionType).Label</div></div><Badge Style="StatusStyles.For(a.Status)" /></li> }</ul>
+                </DataView>
+            </div>
+            <div class="card">
+                <div class="card-head"><h2>Assignments</h2></div>
+                <DataView IsEmpty="c.Assignments.Count == 0" EmptyTitle="No assignments yet" EmptyIcon="clipboard">
+                    <ul class="list">@foreach (var a in c.Assignments) { <li class="row-between"><div><strong>@a.Title</strong><div class="caption">Due <LocalTime Utc="a.DueAtUtc" Tz="@Tz" /> · @a.TeacherName</div></div>
+                        <span>@if (a.MySubmissionStatus is { } st) { <Badge Style="StatusStyles.For(st)" /> } else { <span class="badge slate">Not submitted</span> } @if (a.MyMarks is { } m) { <span class="small num"> @m/@a.MaxMarks</span> }</span></li> }</ul>
+                </DataView>
+            </div>
+            <div class="card">
+                <div class="card-head"><h2>Exam results</h2></div>
+                <DataView IsEmpty="c.Results.Count == 0" EmptyTitle="No released results yet" EmptyIcon="check-square">
+                    <ul class="list">@foreach (var r in c.Results) { <li class="row-between"><span>@r.ExamTitle</span><strong class="num">@r.Score / @r.TotalMarks</strong></li> }</ul>
+                </DataView>
+            </div>
+        </div>
+    }
+</DataView>
+
+@code {
+    private ParentDashboardDto? _d;
+    private ApiException? _error;
+    protected override Task LoadAsync() => Select(null);
+    private async Task Select(Guid? childId) => (_d, _error) = await Fetch(() => Api.GetAsync<ParentDashboardDto>("dashboard/parent" + (childId is null ? "" : $"?childId={childId}")));
+}

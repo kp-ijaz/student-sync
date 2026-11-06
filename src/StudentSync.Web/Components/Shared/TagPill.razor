@@ -1,0 +1,8 @@
+@* TagPill: a neutral filled pill for labels such as the teaching mode or a subject code. *@
+<span class="tag-pill @Class">@if (Icon is not null) { <Icon Name="@Icon" /> }<span>@Label</span></span>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public string? Class { get; set; }
+}

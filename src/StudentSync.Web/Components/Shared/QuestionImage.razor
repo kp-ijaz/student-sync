@@ -1,0 +1,28 @@
+@inject ApiClient Api
+@inject IConfiguration Config
+
+@* A question's diagram/image. The file is private: a short-lived, user-bound link is requested and the API refuses it for
+   anyone who may not see the question (staff of the subject, or students the exam was set for). *@
+@if (FileId is not null)
+{
+    @if (_src is not null) { <img class="question-image" src="@_src" alt="@Alt" style="max-width:100%;max-height:420px;border-radius:12px;display:block;margin:8px 0" /> }
+    else if (_failed) { <p class="caption">The image could not be loaded.</p> }
+    else { <div class="skeleton" style="height:120px;border-radius:12px;margin:8px 0" aria-label="Loading image"></div> }
+}
+
+@code {
+    [Parameter] public Guid? FileId { get; set; }
+    [Parameter] public string Alt { get; set; } = "Question diagram";
+    private string? _src;
+    private bool _failed;
+    private Guid? _loaded;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (FileId == _loaded) return;
+        _loaded = FileId; _src = null; _failed = false;
+        if (FileId is not { } id) return;
+        try { _src = await Api.FileUrlAsync(id, Config["Api:PublicBaseUrl"]!); }
+        catch (ApiException) { _failed = true; }
+    }
+}

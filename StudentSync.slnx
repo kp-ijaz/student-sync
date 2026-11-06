@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/StudentSync.Api/StudentSync.Api.csproj" />
+    <Project Path="src/StudentSync.Application/StudentSync.Application.csproj" />
+    <Project Path="src/StudentSync.Contracts/StudentSync.Contracts.csproj" />
+    <Project Path="src/StudentSync.Domain/StudentSync.Domain.csproj" />
+    <Project Path="src/StudentSync.Infrastructure/StudentSync.Infrastructure.csproj" />
+    <Project Path="src/StudentSync.Web/StudentSync.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/StudentSync.IntegrationTests/StudentSync.IntegrationTests.csproj" />
+    <Project Path="tests/StudentSync.UnitTests/StudentSync.UnitTests.csproj" />
+  </Folder>
+</Solution>

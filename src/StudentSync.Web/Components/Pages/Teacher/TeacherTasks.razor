@@ -1,0 +1,129 @@
+@page "/teacher/tasks"
+@attribute [Authorize(Roles = "Teacher")]
+@inherits AppPage
+@implements IDisposable
+
+@* Teacher Tasks on one page (mobile TasksScreen): submissions to grade, attendance to mark, then doubts to answer and
+   those answered or closed. /teacher/tasks#doubts moves focus (and the scroll position) to the doubts. *@
+<PageHeader Title="Tasks" Subtitle="Grading, attendance and student doubts waiting for you." />
+
+<div class="t-tasks">
+    <div class="t-col">
+        <DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadToDo">
+            @if (_d is not null)
+            {
+                <SectionHeader Title="To grade" Icon="check-square" Tone="green" Count="_d.SubmissionsToGrade.Count" Id="to-grade" />
+                @if (_d.SubmissionsToGrade.Count == 0)
+                {
+                    <InlineEmpty Icon="check" Text="Nothing waiting to be graded." />
+                }
+                else
+                {
+                    <ListGroup AriaLabel="To grade">
+                        @foreach (var s in _d.SubmissionsToGrade)
+                        {
+                            <ListRow Icon="check-square" Tone="green" Title="@s.AssignmentTitle" Subtitle="@TeacherText.SubmissionLine(s, Tz)" Href="@($"/assignments/{s.AssignmentId}")" ShowChevron="true">
+                                <Trailing>@if (s.IsLate) { <Badge Style="Late" /> }</Trailing>
+                            </ListRow>
+                        }
+                    </ListGroup>
+                }
+
+                <SectionHeader Title="Attendance to mark" Icon="list-checks" Tone="amber" Count="_d.PendingAttendance.Count" Id="attendance" />
+                @if (_d.PendingAttendance.Count == 0)
+                {
+                    <InlineEmpty Icon="list-checks" Text="All attendance is up to date." />
+                }
+                else
+                {
+                    <ListGroup AriaLabel="Attendance to mark">
+                        @foreach (var s in _d.PendingAttendance)
+                        {
+                            <ListRow Icon="list-checks" Tone="amber" Title="@s.Title" Subtitle="@Time.Range(s.StartUtc, s.EndUtc, Tz)" Href="@($"/sessions/{s.Id}?tab=attendance")" />
+                        }
+                    </ListGroup>
+                }
+            }
+        </DataView>
+    </div>
+
+    <section id="doubts" class="t-col t-doubts" tabindex="-1" aria-labelledby="doubts-title" @ref="_doubtsRef">
+        <DataView Loading="_doubts is null && _doubtsError is null" Error="_doubtsError" OnRetry="LoadDoubts">
+            @if (_doubts is not null)
+            {
+                <SectionHeader Title="Doubts to answer" Icon="help" Tone="orange" Count="_open.Count" Id="doubts-title" />
+                @if (_open.Count == 0)
+                {
+                    <InlineEmpty Icon="check" Text="Nothing open right now." />
+                }
+                else
+                {
+                    <ListGroup AriaLabel="Doubts to answer">
+                        @foreach (var d in _open) { <DoubtRow Doubt="d" Tz="@Tz" /> }
+                    </ListGroup>
+                }
+                @if (_done.Count > 0)
+                {
+                    <SectionHeader Title="Answered &amp; closed" Icon="check" Tone="green" Count="_done.Count" />
+                    <ListGroup AriaLabel="Answered and closed doubts">
+                        @foreach (var d in _done) { <DoubtRow Doubt="d" Tz="@Tz" /> }
+                    </ListGroup>
+                }
+                @if (_doubts.TotalCount > _doubts.Items.Count)
+                {
+                    <p class="note-line" style="margin-top:12px"><Icon Name="info" /><span>Showing the @_doubts.Items.Count most recent doubts. <a href="/doubts">Open the Doubt Centre</a> to search them all.</span></p>
+                }
+            }
+        </DataView>
+    </section>
+</div>
+
+@code {
+    private TeacherDashboardDto? _d;
+    private ApiException? _error;
+    private PagedResult<DoubtListItemDto>? _doubts;
+    private ApiException? _doubtsError;
+    private IReadOnlyList<DoubtListItemDto> _open = [], _done = [];
+    private ElementReference _doubtsRef;
+    private bool _focusDoubts;
+
+    private static readonly StatusStyle Late = new("Late", "amber");
+
+    protected override async Task LoadAsync()
+    {
+        Nav.LocationChanged += OnLocationChanged;
+        _focusDoubts = WantsDoubts(Nav.Uri);
+        await LoadToDo();
+        await LoadDoubts();
+    }
+
+    private async Task LoadToDo() => (_d, _error) = await Fetch(() => Api.GetAsync<TeacherDashboardDto>("dashboard/teacher"));
+
+    private async Task LoadDoubts()
+    {
+        (_doubts, _doubtsError) = await Fetch(() => Api.GetAsync<PagedResult<DoubtListItemDto>>("doubts?page=1&pageSize=100"));
+        (_open, _done) = _doubts is null ? ([], []) : TeachingRules.SplitDoubts(_doubts.Items);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Wait until both sections have rendered so the doubts stay where the focus lands.
+        if (_focusDoubts && (_d is not null || _error is not null) && (_doubts is not null || _doubtsError is not null))
+        {
+            _focusDoubts = false;
+            await _doubtsRef.FocusAsync();
+        }
+    }
+
+    // "Doubts" in the side menu or a shortcut while already on this page only changes the fragment.
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        if (!WantsDoubts(e.Location)) return;
+        _focusDoubts = true;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private static bool WantsDoubts(string uri) => uri.EndsWith("#doubts", StringComparison.OrdinalIgnoreCase);
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+}

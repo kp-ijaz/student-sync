@@ -1,0 +1,90 @@
+@inject ToastService Toasts
+
+@* Upload / change / remove a profile photo. The parent supplies the API calls, so the same control serves the
+   signed-in user's own profile and admins editing a teacher or student. Success is only reported after the API succeeds. *@
+<div class="photo-editor">
+    <Avatar Name="@Name" PhotoUrl="@PhotoUrl" Size="xl" Decorative="false" />
+    <div class="stack-sm">
+        @Info
+        <div class="btn-group">
+            @* The input stays keyboard-focusable (visually hidden); its label is the visible button. *@
+            <InputFile id="@_inputId" class="sr-only" accept=".jpg,.jpeg,.png,image/jpeg,image/png" OnChange="OnSelected" disabled="@_busy" />
+            <label class="btn btn-secondary btn-sm @(_busy ? "disabled" : "")" for="@_inputId">
+                <Icon Name="upload" /> @(PhotoUrl is null ? "Upload photo" : "Change")
+            </label>
+            @if (PhotoUrl is not null)
+            {
+                <button type="button" class="btn btn-ghost btn-sm" @onclick="OnRemove" disabled="@_busy">Remove</button>
+            }
+        </div>
+        <span class="help">JPEG or PNG, up to 5 MB. Location and camera details are removed when you upload.</span>
+        @if (_busy) { <span class="help" role="status">Saving…</span> }
+        @if (_error is not null) { <span class="field-error" role="alert">@_error</span> }
+    </div>
+</div>
+
+@code {
+    public const long MaxBytes = 5_000_000;
+    private static readonly string[] Allowed = ["image/jpeg", "image/png"];
+
+    [Parameter] public string? Name { get; set; }
+    [Parameter] public string? PhotoUrl { get; set; }
+    /// <summary>Optional content shown beside the photo above the buttons (e.g. name and email on the profile header).</summary>
+    [Parameter] public RenderFragment? Info { get; set; }
+    /// <summary>Sends the multipart form (field "file") to the API. Throws ApiException on failure.</summary>
+    [Parameter, EditorRequired] public Func<MultipartFormDataContent, Task> Upload { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<Task> Remove { get; set; } = default!;
+    /// <summary>Raised after a successful upload or removal, with true when a photo is now set.</summary>
+    [Parameter] public EventCallback<bool> OnChanged { get; set; }
+    /// <summary>False when the parent reports success itself (e.g. after reloading the page).</summary>
+    [Parameter] public bool ShowSuccessToast { get; set; } = true;
+
+    private readonly string _inputId = "photo-" + Guid.NewGuid().ToString("N")[..8];
+    private bool _busy;
+    private string? _error;
+
+    private async Task OnSelected(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        var file = e.File;
+        var type = file.ContentType.ToLowerInvariant();
+        if (type == "" && (file.Name.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || file.Name.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase))) type = "image/jpeg";
+        if (type == "" && file.Name.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) type = "image/png";
+        if (!Allowed.Contains(type)) { _error = "Choose a JPEG or PNG image."; return; }
+        if (file.Size > MaxBytes) { _error = "This photo is larger than 5 MB. Choose a smaller one."; return; }
+
+        await RunAsync(async () =>
+        {
+            using var form = new MultipartFormDataContent();
+            var content = new StreamContent(file.OpenReadStream(MaxBytes));
+            content.Headers.ContentType = new(type);
+            form.Add(content, "file", file.Name);
+            await Upload(form);
+        }, "Photo updated.", true);
+    }
+
+    private Task OnRemove() => RunAsync(Remove, "Photo removed.", false);
+
+    private async Task RunAsync(Func<Task> action, string success, bool hasPhoto)
+    {
+        if (_busy) return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+            if (ShowSuccessToast) Toasts.Show(success);
+            await OnChanged.InvokeAsync(hasPhoto);
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Describe();
+            Toasts.Show(_error, ToastKind.Error);
+        }
+        catch (IOException)
+        {
+            _error = "The photo could not be read. Try again or choose another file.";
+        }
+        finally { _busy = false; }
+    }
+}

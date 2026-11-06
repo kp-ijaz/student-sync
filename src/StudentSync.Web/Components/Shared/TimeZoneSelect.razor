@@ -1,0 +1,24 @@
+<select class="select" id="@Id" value="@Value" @onchange="e => ValueChanged.InvokeAsync(e.Value?.ToString())" aria-describedby="@(Id)-help">
+    @foreach (var tz in Options)
+    {
+        <option value="@tz">@tz (UTC@(Offset(tz)))</option>
+    }
+</select>
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    [Parameter] public string Id { get; set; } = "tz";
+
+    private IEnumerable<string> Options => Value is not null && !Time.Common.Contains(Value) ? Time.Common.Prepend(Value) : Time.Common;
+
+    private static string Offset(string tz)
+    {
+        try
+        {
+            var o = TimeZoneInfo.FindSystemTimeZoneById(tz).GetUtcOffset(DateTime.UtcNow);
+            return (o < TimeSpan.Zero ? "−" : "+") + o.Duration().ToString(@"hh\:mm");
+        }
+        catch (TimeZoneNotFoundException) { return "?"; }
+    }
+}

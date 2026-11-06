@@ -1,0 +1,8 @@
+@page "/exams"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher,Student")]
+@inherits AppPage
+
+<PageHeader Title="Exams" Subtitle="@(IsStudent ? "Quizzes and exams set for you." : "Timed exams built from your question bank.")">
+    <Actions>@if (IsStaff) { <a class="btn btn-secondary" href="/questions">Question bank</a><a class="btn btn-primary" href="/exams/new"><Icon Name="plus" /> New exam</a> }</Actions>
+</PageHeader>
+@if (Me is not null) { <ExamsPanel Me="Me" /> }

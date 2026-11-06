@@ -1,0 +1,126 @@
+@inherits AppComponent
+
+@* Weak subjects recorded for a student (addendum C): who said so, since when, and a staff resolution with a reason.
+   Staff add needs here (source: student, parent via admin, admin, teacher); students report their own on /learning-plan. *@
+<section class="card" aria-labelledby="needs-h">
+    <div class="card-head">
+        <div><h2 id="needs-h">Weak subjects</h2><div class="caption">What the student, a parent or a teacher said needs support. Evidence for a learning plan, not a label.</div></div>
+        <label class="check small"><input type="checkbox" @bind="_includeResolved" @bind:after="LoadAsync" /> Show resolved</label>
+    </div>
+    <DataView Loading="_needs is null && _error is null" Error="_error" OnRetry="LoadAsync" Compact="true">
+        @if (_needs is not null)
+        {
+            <div class="stack">
+                @if (_needs.Count == 0) { <InlineEmpty Icon="target" Text="@(_includeResolved ? "Nothing recorded yet." : "No open weak subjects.")" /> }
+                else
+                {
+                    <ul class="list">
+                        @foreach (var n in _needs)
+                        {
+                            <li class="row-between" style="align-items:flex-start;gap:12px">
+                                <div style="min-width:0">
+                                    <div><strong>@n.SubjectName</strong>@if (n.ChapterTitle is not null) { <span class="caption"> · @n.ChapterTitle</span> }
+                                        <span class="badge @(n.Status == LearningNeedStatus.Open ? "amber" : "slate") dot" style="margin-left:8px">@(n.Status == LearningNeedStatus.Open ? "Open" : "Resolved")</span>
+                                        <span class="badge slate" style="margin-left:4px">@SourceLabel(n.Source)</span></div>
+                                    @if (!string.IsNullOrWhiteSpace(n.Note)) { <div class="small" style="margin-top:4px">@n.Note</div> }
+                                    <div class="caption" style="margin-top:4px">Recorded by @n.RecordedBy · <LocalTime Utc="n.RecordedAtUtc" Tz="@Tz" Format="date" />
+                                        @if (n.ResolvedAtUtc is { } r) { <span> · Resolved by @n.ResolvedBy on <LocalTime Utc="r" Tz="@Tz" Format="date" />@(string.IsNullOrWhiteSpace(n.ReviewNote) ? "" : $": {n.ReviewNote}")</span> }</div>
+                                </div>
+                                @if (n.Status == LearningNeedStatus.Open) { <button class="btn btn-secondary btn-sm" @onclick="() => { _resolving = n; _reviewNote = string.Empty; }">Resolve</button> }
+                            </li>
+                        }
+                    </ul>
+                }
+
+                <div class="form-grid" aria-label="Record a weak subject">
+                    <div class="field"><label for="ln-subject">Subject</label>
+                        <select id="ln-subject" class="select" @bind="_subjectId" @bind:after="SubjectChanged"><option value="">Choose…</option>
+                            @foreach (var course in _catalogue.Where(s => s.Status == CatalogStatus.Active).GroupBy(s => s.CourseName).OrderBy(g => g.Key)) { <optgroup label="@course.Key">@foreach (var s in course.OrderBy(x => x.Name)) { <option value="@s.Id">@s.Name</option> }</optgroup> }
+                        </select></div>
+                    <div class="field"><label for="ln-chapter">Chapter (optional)</label>
+                        <select id="ln-chapter" class="select" @bind="_chapterId" disabled="@(_chapters.Count == 0)"><option value="">Whole subject</option>@foreach (var c in _chapters) { <option value="@c.Id">@c.Title</option> }</select></div>
+                    <div class="field"><label for="ln-source">Who told you</label>
+                        <select id="ln-source" class="select" @bind="_source">
+                            <option value="@LearningNeedSource.Student">The student</option>
+                            <option value="@LearningNeedSource.Parent">A parent or guardian</option>
+                            @if (Me.Role == UserRole.Teacher) { <option value="@LearningNeedSource.Teacher">My own observation</option> } else { <option value="@LearningNeedSource.Admin">Institute assessment</option> }
+                        </select></div>
+                    <div class="field full"><label for="ln-note">Note (optional)</label><input id="ln-note" class="input" maxlength="1000" placeholder="e.g. struggles with word problems" @bind="_note" /></div>
+                    <div class="field full form-actions" style="margin-top:0"><button class="btn btn-primary" @onclick="Add" disabled="@(Busy || _subjectId is null)"><Icon Name="plus" /> Record weak subject</button></div>
+                </div>
+            </div>
+        }
+    </DataView>
+</section>
+
+<Modal Open="_resolving is not null" OpenChanged="_ => _resolving = null" Title="Resolve weak subject">
+    @if (_resolving is { } r)
+    {
+        <div class="stack">
+            <p>Mark <strong>@r.SubjectName@(r.ChapterTitle is null ? "" : $" · {r.ChapterTitle}")</strong> as no longer a weak area. The record stays in the history with your note.</p>
+            <div class="field"><label for="ln-review">Why (optional)</label><input id="ln-review" class="input" maxlength="1000" placeholder="e.g. scored 85% on the chapter test" @bind="_reviewNote" /></div>
+            <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _resolving = null">Cancel</button><button class="btn btn-primary" @onclick="Resolve" disabled="@Busy">Resolve</button></div>
+        </div>
+    }
+</Modal>
+
+@code {
+    [Parameter, EditorRequired] public Guid StudentId { get; set; }
+
+    private List<LearningNeedDto>? _needs;
+    private ApiException? _error;
+    private List<SubjectDto> _catalogue = [];
+    private List<ChapterDto> _chapters = [];
+    private bool _includeResolved;
+    private Guid? _subjectId, _chapterId;
+    private LearningNeedSource _source = LearningNeedSource.Student;
+    private string? _note, _reviewNote;
+    private LearningNeedDto? _resolving;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _catalogue = (await Fetch(() => Api.GetAsync<List<SubjectDto>>("academics/subjects"))).Value ?? [];
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        (_needs, _error) = await Fetch(() => Api.GetAsync<List<LearningNeedDto>>($"students/{StudentId}/learning-needs?includeResolved={(_includeResolved ? "true" : "false")}"));
+    }
+
+    private void SubjectChanged()
+    {
+        _chapterId = null;
+        _chapters = _catalogue.FirstOrDefault(s => s.Id == _subjectId)?.Chapters.OrderBy(c => c.SortOrder).ToList() ?? [];
+    }
+
+    public static string SourceLabel(LearningNeedSource s) => s switch
+    {
+        LearningNeedSource.Student => "Said by student",
+        LearningNeedSource.Parent => "Said by parent",
+        LearningNeedSource.Teacher => "Teacher observation",
+        LearningNeedSource.Diagnostic => "Diagnostic test",
+        _ => "Institute assessment",
+    };
+
+    private async Task Add()
+    {
+        if (_subjectId is not { } s) return;
+        if (await Run(() => Api.PostAsync<LearningNeedDto>($"students/{StudentId}/learning-needs", new AddLearningNeedRequest(s, _chapterId, _source, _note)), "Weak subject recorded."))
+        {
+            (_subjectId, _chapterId, _note, _chapters) = (null, null, null, []);
+            await LoadAsync();
+        }
+    }
+
+    private async Task Resolve()
+    {
+        if (_resolving is not { } r) return;
+        if (await Run(() => Api.PostAsync($"students/{StudentId}/learning-needs/{r.Id}/resolve", new ResolveLearningNeedRequest(_reviewNote)), "Marked as resolved."))
+        {
+            _resolving = null;
+            await LoadAsync();
+        }
+    }
+}

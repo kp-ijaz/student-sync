@@ -1,0 +1,116 @@
+@page "/assignments/{Id:guid}"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher,Student,Parent")]
+@inherits AppPage
+@inject IConfiguration Config
+
+<DataView Loading="_a is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_a is not null)
+    {
+        <PageHeader Title="@_a.Title" Subtitle="@($"Due {Time.Short(_a.DueAtUtc, Tz)} · {_a.MaxMarks} marks · {_a.TeacherName}")">
+            <Breadcrumb><a href="/assignments">Assignments</a> /</Breadcrumb>
+            <Actions>
+                @if (_a.CanManage)
+                {
+                    <a class="btn btn-secondary" href="/assignments/@Id/edit">Edit</a>
+                    @if (_a.Status == AssignmentStatus.Draft) { <button class="btn btn-primary" @onclick="Publish" disabled="@Busy">Publish to @_a.Recipients.Count student(s)</button> }
+                    @if (_a.Status == AssignmentStatus.Published) { <button class="btn btn-secondary" @onclick="Close" disabled="@Busy">Close submissions</button> }
+                }
+            </Actions>
+        </PageHeader>
+        <div class="grid grid-main">
+            <div class="stack">
+                <div class="card">
+                    <div class="row" style="margin-bottom:12px"><Badge Style="StatusStyles.For(_a.Status)" />@if (_a.AllowLateSubmission) { <span class="badge slate">Late submissions accepted</span> }@if (_a.AllowResubmission) { <span class="badge slate">Resubmission allowed</span> }
+                        @if (_a.SessionId is { } sid) { <a class="small" href="/sessions/@sid">@_a.SessionTitle</a> }</div>
+                    <MarkdownView Markdown="@_a.InstructionsMarkdown" />
+                    @if (_a.Attachments.Count > 0) { <div class="row" style="margin-top:12px">@foreach (var f in _a.Attachments) { <FileButton FileId="f.Id" Label="@f.FileName" /> }</div> }
+                    @if (_a.CanManage)
+                    {
+                        <div class="row" style="margin-top:16px"><InputFile OnChange="Attach" aria-label="Attach a file" /><span class="caption">PDF, image, Word or text up to 25 MB.</span></div>
+                    }
+                </div>
+                @if (IsStudent) { <SubmissionEditor Me="Me!" Assignment="_a" /> }
+                @if (IsParent && _childSubmission is { } cs)
+                {
+                    <div class="card"><h2>Your child's submission</h2><div class="row"><Badge Style="StatusStyles.For(cs.Status)" />@if (cs.Marks is { } m) { <strong>@m / @cs.MaxMarks</strong> }</div>@if (cs.Feedback is not null) { <p style="margin-top:8px"><strong>Feedback:</strong> @cs.Feedback</p> }</div>
+                }
+                @if (_a.CanManage)
+                {
+                    <div class="card">
+                        <div class="card-head"><h2>Submissions</h2><span class="small muted">@(_subs?.Count ?? 0) of @_a.Recipients.Count</span></div>
+                        <DataView Loading="_subs is null" IsEmpty="_subs?.Count == 0" EmptyTitle="No submissions yet" EmptyIcon="inbox">
+                            <ul class="list">
+                                @foreach (var s in _subs ?? [])
+                                {
+                                    <li>
+                                        <div class="row-between"><div><strong>@s.StudentName</strong><div class="caption">Attempt @s.AttemptNumber · @(s.SubmittedAtUtc is { } at ? Time.Short(at, Tz) : "") @(s.IsLate ? "· late" : "")</div></div>
+                                            <div class="row"><Badge Style="StatusStyles.For(s.Status)" />@if (s.Marks is { } m) { <strong class="num">@m / @s.MaxMarks</strong> }<button class="btn btn-secondary btn-sm" @onclick="() => OpenGrade(s)">@(s.Status == SubmissionStatus.Graded ? "Regrade" : "Grade")</button></div></div>
+                                        @if (!string.IsNullOrWhiteSpace(s.TextAnswer)) { <p class="small" style="white-space:pre-wrap;margin-top:8px">@s.TextAnswer</p> }
+                                        @if (s.Files.Count > 0) { <div class="row">@foreach (var f in s.Files) { <FileButton FileId="f.Id" Label="@f.FileName" /> }</div> }
+                                    </li>
+                                }
+                            </ul>
+                        </DataView>
+                    </div>
+                }
+            </div>
+            @if (_a.CanManage)
+            {
+                <div class="card"><div class="card-head"><h2>Recipients</h2></div>
+                    <ul class="list">@foreach (var r in _a.Recipients) { <li class="small">@r.Name @(_subs?.Any(s => s.StudentId == r.Id) == true ? "✓" : "") </li> }</ul></div>
+            }
+        </div>
+    }
+</DataView>
+
+<Modal Open="_grading is not null" OpenChanged="_ => _grading = null" Title="@($"Grade {_grading?.StudentName}")">
+    <div class="stack">
+        <div class="field"><label for="gm">Marks (out of @_grading?.MaxMarks)</label><input id="gm" type="number" class="input" step="0.5" min="0" @bind="_marks" /></div>
+        <div class="field"><label for="gf">Feedback</label><textarea id="gf" class="textarea" @bind="_feedback"></textarea></div>
+        <label class="check"><input type="checkbox" @bind="_return" /> Return for corrections</label>
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _grading = null">Cancel</button><button class="btn btn-primary" @onclick="Grade" disabled="@Busy">Save grade</button></div>
+    </div>
+</Modal>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [SupplyParameterFromQuery(Name = "studentId")] public Guid? StudentParam { get; set; }
+    private AssignmentDetailDto? _a;
+    private ApiException? _error;
+    private List<SubmissionDto>? _subs;
+    private SubmissionDto? _grading, _childSubmission;
+    private decimal _marks;
+    private string? _feedback;
+    private bool _return;
+
+    protected override async Task LoadAsync()
+    {
+        (_a, _error) = await Fetch(() => Api.GetAsync<AssignmentDetailDto>($"assignments/{Id}"));
+        if (_a?.CanManage == true) _subs = (await Fetch(() => Api.GetAsync<List<SubmissionDto>>($"assignments/{Id}/submissions"))).Value ?? [];
+        if (_a is not null && IsParent && StudentParam is { } sid) _childSubmission = (await Fetch(() => Api.GetOrDefaultAsync<SubmissionDto>($"assignments/{Id}/my-submission?studentId={sid}"))).Value;
+    }
+
+    private async Task Publish() { if (await Run(() => Api.PostAsync($"assignments/{Id}/publish"), "Assignment published. Students and parents have been notified.")) await LoadAsync(); }
+    private async Task Close() { if (await Run(() => Api.PostAsync($"assignments/{Id}/close"), "Submissions closed.")) await LoadAsync(); }
+
+    private async Task Attach(InputFileChangeEventArgs e)
+    {
+        var ok = await Run(async () =>
+        {
+            using var form = new MultipartFormDataContent();
+            var c = new StreamContent(e.File.OpenReadStream(25_000_000));
+            c.Headers.ContentType = new(string.IsNullOrEmpty(e.File.ContentType) ? "application/octet-stream" : e.File.ContentType);
+            form.Add(c, "file", e.File.Name);
+            await Api.PostFormAsync($"assignments/{Id}/attachments", form);
+        }, "File attached.");
+        if (ok) await LoadAsync();
+    }
+
+    private void OpenGrade(SubmissionDto s) { _grading = s; _marks = s.Marks ?? 0; _feedback = s.Feedback; _return = false; }
+
+    private async Task Grade()
+    {
+        if (_grading is { } s && await Run(() => Api.PostAsync($"submissions/{s.Id}/grade", new GradeSubmissionRequest(_marks, _feedback, _return, s.RowVersion)), "Grade saved. The student has been notified."))
+        { _grading = null; await LoadAsync(); }
+    }
+}

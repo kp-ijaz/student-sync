@@ -1,0 +1,8 @@
+<div class="row" style="gap:8px">
+    <span class="badge @(Ok ? "green" : "slate")" aria-hidden="true">@(Ok ? "✓" : "—")</span>
+    <span class="small">@Text <span class="sr-only">@(Ok ? "(done)" : "(not yet)")</span></span>
+</div>
+@code {
+    [Parameter] public bool Ok { get; set; }
+    [Parameter] public string Text { get; set; } = "";
+}

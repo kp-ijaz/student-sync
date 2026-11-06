@@ -1,0 +1,302 @@
+@page "/sessions/new"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher")]
+@inherits AppPage
+
+<PageHeader Title="Schedule a session" Subtitle="Batches are optional — group, one-to-one and private-group sessions never need one.">
+    <Breadcrumb><a href="/sessions">Sessions</a> /</Breadcrumb>
+</PageHeader>
+
+<DataView Loading="_loading" Error="_error" OnRetry="LoadAsync">
+<div class="stack">
+    <section class="card" aria-labelledby="mode-h">
+        <h2 id="mode-h" style="margin-bottom:12px">1. Teaching mode</h2>
+        <div class="choice-cards" role="group" aria-label="Teaching mode">
+            @foreach (var (type, desc) in Modes)
+            {
+                <button type="button" class="choice-card" aria-pressed="@(Aria.Bool(_type == type))" @onclick="() => SelectType(type)">
+                    <strong>@StatusStyles.For(type).Label</strong><span class="caption">@desc</span>
+                </button>
+            }
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="who-h">
+        <h2 id="who-h" style="margin-bottom:12px">2. Who's taking part</h2>
+        <div class="form-grid">
+            @if (IsAdmin)
+            {
+                <div class="field"><label for="teacher">Teacher *</label>
+                    <select id="teacher" class="select" @bind="_teacherId" @bind:after="TeacherChanged">
+                        <option value="">Choose a teacher</option>
+                        @foreach (var t in _teachers) { <option value="@t.Id">@t.FullName</option> }
+                    </select>
+                    @Err("teacherId")</div>
+            }
+            @if (_type is SessionType.Batch or SessionType.Group)
+            {
+                <div class="field"><label for="batch">Batch @(_type == SessionType.Batch ? "*" : "(optional)")</label>
+                    <select id="batch" class="select" @bind="_batchId" @bind:after="BatchChanged">
+                        <option value="">@(_type == SessionType.Batch ? "Choose a batch" : "No batch")</option>
+                        @foreach (var b in Batches) { <option value="@b.Id">@b.Name (@b.ActiveStudents students)</option> }
+                    </select>
+                    @if (_type == SessionType.Batch) { <span class="help">All active students in the batch are added automatically.</span> }
+                    @Err("batchId")</div>
+            }
+            @if (_type is SessionType.OneToOne or SessionType.PrivateGroup)
+            {
+                <div class="field"><label for="arr">Private arrangement (optional)</label>
+                    <select id="arr" class="select" @bind="_arrangementId" @bind:after="ArrangementChanged">
+                        <option value="">None — pick students directly</option>
+                        @foreach (var a in Arrangements) { <option value="@a.Id">@a.Title</option> }
+                    </select>
+                    @Err("arrangementId")</div>
+            }
+        </div>
+        @if (_type != SessionType.Batch)
+        {
+            <div class="field" style="margin-top:16px">
+                <label for="stsearch">@(_type == SessionType.OneToOne ? "Student *" : "Students *")</label>
+                <input id="stsearch" class="input" placeholder="Search by name or student code" @bind="_search" @bind:event="oninput" />
+                <div style="max-height:240px;overflow-y:auto;border:1px solid var(--ss-border);border-radius:10px;padding:8px;margin-top:8px">
+                    @foreach (var s in FilteredStudents)
+                    {
+                        <label class="check" style="display:flex;padding:6px 4px">
+                            <input type="@(_type == SessionType.OneToOne ? "radio" : "checkbox")" name="students" checked="@_selected.Contains(s.Id)" @onchange="e => Toggle(s.Id, e.Value)" />
+                            <span>@s.Name <span class="caption">@s.Detail</span></span>
+                        </label>
+                    }
+                    @if (!FilteredStudents.Any()) { <p class="muted small">No matching students.</p> }
+                </div>
+                <span class="help">@_selected.Count selected</span>
+                @Err("studentIds")
+            </div>
+        }
+    </section>
+
+    <section class="card" aria-labelledby="what-h">
+        <h2 id="what-h" style="margin-bottom:12px">3. Details</h2>
+        <div class="form-grid">
+            <div class="field full"><label for="title">Title *</label><input id="title" class="input" @bind="_title" maxlength="200" />@Err("title")</div>
+            <div class="field"><label for="subject">Subject</label>
+                <select id="subject" class="select" @bind="_subjectId" @bind:after="() => _chapterId = null">
+                    <option value="">Not specified</option>
+                    @foreach (var s in _subjects) { <option value="@s.Id">@s.Name — @s.CourseName</option> }
+                </select></div>
+            <div class="field"><label for="chapter">Chapter</label>
+                <select id="chapter" class="select" @bind="_chapterId" disabled="@(_subjectId is null)">
+                    <option value="">Not specified</option>
+                    @foreach (var c in _subjects.FirstOrDefault(s => s.Id == _subjectId)?.Chapters ?? []) { <option value="@c.Id">@c.Title</option> }
+                </select></div>
+            <div class="field"><label for="delivery">Delivery</label>
+                <select id="delivery" class="select" @bind="_delivery">@foreach (var d in Enum.GetValues<DeliveryMode>()) { <option value="@d">@d</option> }</select></div>
+            <div class="field"><label for="meet">Meeting link</label><input id="meet" class="input" type="url" placeholder="https://meet.google.com/…" @bind="_meetingUrl" />
+                <span class="help">Paste a Google Meet, Zoom or Teams link. Automatic Google Meet creation needs a connected Google Workspace account.</span>@Err("meetingUrl")</div>
+            @if (_delivery != DeliveryMode.Online) { <div class="field full"><label for="loc">Location</label><input id="loc" class="input" @bind="_location" /></div> }
+            <div class="field full"><label for="obj">Objectives</label><textarea id="obj" class="textarea" @bind="_objectives"></textarea></div>
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="when-h">
+        <h2 id="when-h" style="margin-bottom:12px">4. When</h2>
+        <div class="form-grid">
+            <div class="field"><label for="date">Date *</label><input id="date" type="date" class="input" @bind="_date" /></div>
+            <div class="field"><label for="start">Start time *</label><input id="start" type="time" class="input" @bind="_start" /></div>
+            <div class="field"><label for="dur">Duration (minutes) *</label><input id="dur" type="number" min="15" max="720" step="5" class="input" @bind="_duration" />@Err("durationMinutes")</div>
+            <div class="field"><label for="tz">Time zone *</label><TimeZoneSelect Id="tz" @bind-Value="_tz" />
+                <span class="help" id="tz-help">The wall-clock time above is in this zone. Students see it converted to their own time.</span></div>
+            <div class="field full"><label class="check"><input type="checkbox" @bind="_repeat" /> Repeats</label></div>
+            @if (_repeat)
+            {
+                <div class="field"><label for="freq">Frequency</label>
+                    <select id="freq" class="select" @bind="_freq"><option value="@RecurrenceFrequency.Weekly">Weekly</option><option value="@RecurrenceFrequency.Daily">Daily</option></select></div>
+                <div class="field"><label for="interval">Every</label><input id="interval" type="number" min="1" max="12" class="input" @bind="_interval" /><span class="help">@(_freq == RecurrenceFrequency.Weekly ? "week(s)" : "day(s)")</span></div>
+                @if (_freq == RecurrenceFrequency.Weekly)
+                {
+                    <div class="field full"><span class="label">On</span>
+                        <div class="segmented" role="group" aria-label="Weekdays">
+                            @foreach (var d in Enum.GetValues<WeekDays>().Where(d => d != WeekDays.None))
+                            { <button type="button" aria-pressed="@(Aria.Bool(_days.HasFlag(d)))" @onclick="() => _days ^= d">@d.ToString()[..3]</button> }
+                        </div></div>
+                }
+                <div class="field"><label for="until">End date</label><input id="until" type="date" class="input" @bind="_until" /></div>
+                <div class="field"><label for="count">…or number of sessions</label><input id="count" type="number" min="1" max="400" class="input" @bind="_count" /></div>
+                <div class="field full"><label class="check"><input type="checkbox" @bind="_skipHolidays" /> Skip institution holidays</label></div>
+                @Err("recurrence")
+            }
+        </div>
+        <div class="form-actions" style="justify-content:flex-start">
+            <button class="btn btn-secondary" @onclick="Check" disabled="@Busy"><Icon Name="calendar" /> Preview &amp; check conflicts</button>
+        </div>
+        @if (_check is not null)
+        {
+            <div class="stack-sm" style="margin-top:16px">
+                @foreach (var w in _check.Warnings) { <div class="warn-panel">@w</div> }
+                @if (_check.Conflicts.Count > 0)
+                {
+                    <div class="@(_check.HasBlockingConflicts ? "error-panel" : "warn-panel")">
+                        <strong>@(_check.HasBlockingConflicts ? "The teacher is already booked at this time." : "Some students already have a session at this time.")</strong>
+                        <ul>@foreach (var c in _check.Conflicts.Take(12)) { <li>@c.Kind: @c.PersonName — @c.SessionTitle (@Time.Range(c.StartUtc, c.EndUtc, Tz))</li> }</ul>
+                        @if (!_check.HasBlockingConflicts) { <label class="check"><input type="checkbox" @bind="_ack" /> I understand and want to schedule anyway</label> }
+                    </div>
+                }
+                else { <div class="ok-panel">No conflicts found for the teacher or students.</div> }
+                <div class="table-wrap"><table class="table">
+                    <thead><tr><th>Date (@_tz)</th><th>Your time (@Tz)</th><th>Note</th></tr></thead>
+                    <tbody>
+                        @foreach (var o in _check.Occurrences.Take(60))
+                        {
+                            <tr><td>@o.LocalDate.ToString("ddd d MMM yyyy")</td>
+                                <td>@(o.SkippedHoliday ? "—" : Time.Range(o.StartUtc, o.EndUtc, Tz))</td>
+                                <td class="small">@(o.SkippedHoliday ? o.Resolution : o.Resolution == "Exact" ? "" : o.Resolution == "SkippedShiftedForward" ? "DST gap: shifted forward" : "DST overlap: first occurrence")</td></tr>
+                        }
+                    </tbody>
+                </table></div>
+                @if (_check.Occurrences.Count > 60) { <p class="caption">…and @(_check.Occurrences.Count - 60) more.</p> }
+            </div>
+        }
+    </section>
+
+    <div class="form-actions">
+        <a class="btn btn-secondary" href="/sessions">Cancel</a>
+        <button class="btn btn-primary" @onclick="Create" disabled="@(Busy || _check?.HasBlockingConflicts == true)">Schedule @(_repeat ? "sessions" : "session")</button>
+    </div>
+</div>
+</DataView>
+
+@code {
+    [SupplyParameterFromQuery(Name = "type")] public string? TypeParam { get; set; }
+    [SupplyParameterFromQuery(Name = "studentId")] public Guid? StudentParam { get; set; }
+
+    private static readonly (SessionType, string)[] Modes =
+    [
+        (SessionType.Batch, "Scheduled for a predefined batch; its students are added automatically."),
+        (SessionType.Group, "Ad hoc group of selected students. A batch link is optional."),
+        (SessionType.OneToOne, "One teacher, one student. No batch or group needed."),
+        (SessionType.PrivateGroup, "A small private group of selected students."),
+    ];
+
+    private bool _loading = true;
+    private ApiException? _error;
+    private List<TeacherDto> _teachers = [];
+    private List<BatchDto> _batches = [];
+    private List<ArrangementDto> _arrangements = [];
+    private List<SubjectDto> _subjects = [];
+    private List<LookupItem> _students = [];
+    private readonly HashSet<Guid> _selected = [];
+    private IDictionary<string, string[]> _errors = new Dictionary<string, string[]>();
+
+    private SessionType _type = SessionType.Group;
+    private Guid? _teacherId, _batchId, _arrangementId, _subjectId, _chapterId;
+    private string _title = "", _search = "", _tz = "UTC";
+    private string? _meetingUrl, _location, _objectives;
+    private DeliveryMode _delivery = DeliveryMode.Online;
+    private DateOnly _date = DateOnly.FromDateTime(DateTime.Today.AddDays(1));
+    private TimeOnly _start = new(17, 0);
+    private int _duration = 60;
+    private bool _repeat, _skipHolidays = true, _ack;
+    private RecurrenceFrequency _freq = RecurrenceFrequency.Weekly;
+    private int _interval = 1;
+    private WeekDays _days = WeekDays.None;
+    private DateOnly? _until;
+    private int? _count = 8;
+    private ConflictCheckResponse? _check;
+
+    private Guid? EffectiveTeacher => IsTeacher ? Me?.Id : _teacherId;
+    private IEnumerable<BatchDto> Batches => _batches.Where(b => b.Status == CatalogStatus.Active && (EffectiveTeacher is null || b.TeacherId == EffectiveTeacher));
+    private IEnumerable<ArrangementDto> Arrangements => _arrangements.Where(a => (EffectiveTeacher is null || a.TeacherId == EffectiveTeacher)
+        && a.Type == (_type == SessionType.OneToOne ? ArrangementType.OneToOne : ArrangementType.PrivateGroup));
+    private IEnumerable<LookupItem> FilteredStudents => string.IsNullOrWhiteSpace(_search) ? _students
+        : _students.Where(s => s.Name.Contains(_search, StringComparison.OrdinalIgnoreCase) || (s.Detail ?? "").Contains(_search, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task LoadAsync()
+    {
+        _tz = Tz;
+        if (Enum.TryParse<SessionType>(TypeParam, out var t)) _type = t;
+        try
+        {
+            var batches = Api.GetAsync<List<BatchDto>>("academics/batches");
+            var arrangements = Api.GetAsync<List<ArrangementDto>>("academics/arrangements");
+            var subjects = Api.GetAsync<List<SubjectDto>>("academics/subjects");
+            var students = Api.GetAsync<List<LookupItem>>("students/lookup");
+            if (IsAdmin) _teachers = (await Api.GetAsync<PagedResult<TeacherDto>>("teachers?pageSize=100&status=Active")).Items.ToList();
+            _batches = await batches; _arrangements = await arrangements; _subjects = await subjects; _students = await students;
+            if (StudentParam is { } sid && _students.Any(s => s.Id == sid)) _selected.Add(sid);
+            _days = RecurrencePattern.ToFlag(_date.DayOfWeek);
+        }
+        catch (ApiException ex) { _error = ex; }
+        _loading = false;
+    }
+
+    private void SelectType(SessionType t)
+    {
+        _type = t; _check = null; _batchId = null; _arrangementId = null;
+        if (t == SessionType.OneToOne && _selected.Count > 1) _selected.Clear();
+    }
+
+    private void TeacherChanged() { _batchId = null; _arrangementId = null; _check = null; }
+
+    private void BatchChanged()
+    {
+        _check = null;
+        if (_batches.FirstOrDefault(b => b.Id == _batchId) is { } b)
+        {
+            if (string.IsNullOrWhiteSpace(_title)) _title = b.Name;
+            _subjectId ??= b.SubjectId;
+        }
+    }
+
+    private void ArrangementChanged()
+    {
+        _check = null;
+        if (_arrangements.FirstOrDefault(a => a.Id == _arrangementId) is { } a)
+        {
+            _selected.Clear();
+            foreach (var s in a.Students) _selected.Add(s.Id);
+            if (string.IsNullOrWhiteSpace(_title)) _title = a.Title;
+            _subjectId ??= a.SubjectId;
+        }
+    }
+
+    private void Toggle(Guid id, object? value)
+    {
+        if (_type == SessionType.OneToOne) _selected.Clear();
+        if (value is true || _type == SessionType.OneToOne) _selected.Add(id); else _selected.Remove(id);
+        _check = null;
+    }
+
+    private RenderFragment? Err(string field) => _errors.TryGetValue(field, out var m) ? @<span class="error">@string.Join(" ", m)</span> : null;
+
+    private CreateSessionRequest BuildRequest() => new(
+        _title, _type, IsAdmin ? _teacherId : null, _batchId, _arrangementId, null, _subjectId, _chapterId,
+        _type == SessionType.Batch ? null : _selected.ToList(), _tz, _date, _start, _duration, _delivery, _meetingUrl, _location, _objectives,
+        _repeat ? new RecurrenceRequest(_freq, _interval, _freq == RecurrenceFrequency.Weekly ? _days : WeekDays.None, _until, _until is null ? _count : null, _skipHolidays) : null,
+        _ack);
+
+    private async Task Check()
+    {
+        _errors = new Dictionary<string, string[]>();
+        await Run(async () =>
+        {
+            try { _check = await Api.PostAsync<ConflictCheckResponse>("sessions/check", BuildRequest()); }
+            catch (ApiException ex) when (ex.Errors is not null) { _errors = ex.Errors.ToDictionary(); throw; }
+        });
+    }
+
+    private async Task Create()
+    {
+        _errors = new Dictionary<string, string[]>();
+        CreateSessionResponse? result = null;
+        var ok = await Run(async () =>
+        {
+            try { result = await Api.PostAsync<CreateSessionResponse>("sessions", BuildRequest()); }
+            catch (ApiException ex) when (ex.Errors is not null) { _errors = ex.Errors.ToDictionary(); throw; }
+            catch (ApiException ex) when (ex.Status == 409) { _check = await Api.PostAsync<ConflictCheckResponse>("sessions/check", BuildRequest()); throw; }
+        });
+        if (ok && result is not null)
+        {
+            Toasts.Show(result.SessionIds.Count > 1 ? $"{result.SessionIds.Count} sessions scheduled." : "Session scheduled.");
+            foreach (var w in result.Warnings) Toasts.Show(w, ToastKind.Info);
+            Nav.NavigateTo($"/sessions/{result.SessionIds[0]}");
+        }
+    }
+}

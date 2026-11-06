@@ -1,0 +1,16 @@
+<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
+    @foreach (var m in Metrics)
+    {
+        <div class="card tight stat">
+            <span class="label">@m.Label</span>
+            <span class="value" style="font-size:22px;line-height:30px">@m.Value</span>
+            @if (m.Percent is { } p) { <div class="progress-bar" role="img" aria-label="@($"{p:0}%")"><span style="width:@Math.Clamp(p, 0, 100)%"></span></div> }
+            <span class="hint">@m.HowCalculated</span>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ProgressDto Progress { get; set; } = default!;
+    private IEnumerable<MetricDto> Metrics => [Progress.Attendance, Progress.AssignmentsSubmitted, Progress.AverageAssignmentMark, Progress.AverageExamScore, Progress.OpenDoubts, Progress.LessonsAttended, Progress.ActiveWeeks];
+}

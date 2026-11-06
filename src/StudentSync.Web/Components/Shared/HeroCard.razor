@@ -1,0 +1,11 @@
+@* HeroCard: the navy → blue brand-gradient card (profile header, progress summary, a role's home hero). Content is
+   white; .muted/.caption/.help, links, secondary buttons and focus rings are re-coloured for the gradient.
+   Use sparingly — DESIGN.md §9 lists where the gradient is allowed. *@
+<section class="hero-card @Class" aria-label="@AriaLabel">@ChildContent</section>
+
+@code {
+    [Parameter] public string? Class { get; set; }
+    /// <summary>Accessible name for the region (optional).</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

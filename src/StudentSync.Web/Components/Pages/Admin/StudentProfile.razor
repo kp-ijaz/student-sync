@@ -1,0 +1,74 @@
+@page "/students/{Id:guid}"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher")]
+@inherits AppPage
+
+<DataView Loading="_p is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_p is not null)
+    {
+        @* Profile header with the student's photo (initials when none), as on the mobile profile. *@
+        <PageTitle>@_p.Student.FullName · Student Sync</PageTitle>
+        <nav class="breadcrumbs" aria-label="Breadcrumb" style="margin-bottom:12px"><a href="@(IsAdmin ? "/admin/students" : "/teacher/students")">Students</a> /</nav>
+        <HeroCard Class="student-hero" AriaLabel="Student">
+            <div class="profile-hero">
+                <Avatar Name="@_p.Student.FullName" PhotoUrl="@_p.Student.PhotoUrl" Size="xl" Decorative="false" />
+                <div class="who">
+                    <h1 tabindex="-1">@_p.Student.FullName</h1>
+                    <div class="email">@string.Join(" · ", new[] { _p.Student.StudentCode, _p.Student.GradeLevelName ?? "No class", _p.Student.CurriculumName ?? "No syllabus", _p.Student.AcademicYearName, _p.Student.SchoolName, _p.Student.TimeZoneId }.Where(x => !string.IsNullOrWhiteSpace(x)))</div>
+                </div>
+                <a class="btn btn-secondary" href="/sessions/new?type=OneToOne&studentId=@Id"><Icon Name="user" /> Schedule one-to-one</a>
+            </div>
+        </HeroCard>
+        <ProgressPanel Progress="_p.Progress" />
+        <div class="grid grid-3" style="margin-top:16px">
+            <div class="card"><h2 style="margin-bottom:8px">Courses</h2><ul>@foreach (var c in _p.Courses) { <li>@c.Name</li> }</ul>@if (_p.Courses.Count == 0) { <p class="muted small">Not enrolled.</p> }</div>
+            <div class="card"><h2 style="margin-bottom:8px">Batches</h2><ul>@foreach (var b in _p.Batches) { <li>@b.Name</li> }</ul>@if (_p.Batches.Count == 0) { <p class="muted small">No batch — that's fine for private tuition.</p> }</div>
+            <div class="card"><h2 style="margin-bottom:8px">Private tuition</h2><ul>@foreach (var a in _p.Arrangements) { <li>@a.Name <span class="caption">@a.Detail</span></li> }</ul>@if (_p.Arrangements.Count == 0) { <p class="muted small">None.</p> }</div>
+        </div>
+        @if (IsAdmin && Me is not null) { <div style="margin-top:16px"><StudentSubjectsPanel StudentId="Id" Me="Me" /></div> }
+        @if (IsStaff && Me is not null)
+        {
+            <section class="card" style="margin-top:16px" aria-labelledby="diag-h">
+                <div class="card-head"><div><h2 id="diag-h">Diagnostic assessments</h2><div class="caption">Entry tests that show which subjects and chapters need support. Results are evidence for the learning plan.</div></div>
+                    <a class="btn btn-secondary btn-sm" href="/exams/new?purpose=Diagnostic&studentId=@Id"><Icon Name="plus" /> New diagnostic</a></div>
+                @if (_diagnostics.Count == 0) { <InlineEmpty Icon="check-square" Text="No diagnostic yet. Create one, then enter the answers from the paper sheet or let the student take it online." /> }
+                else
+                {
+                    <ul class="list">
+                        @foreach (var d in _diagnostics)
+                        {
+                            <li class="row-between">
+                                <div><strong><a href="/exams/@d.Id">@d.Title</a></strong><div class="caption">@d.SubjectName · @d.QuestionCount questions · <Badge Style="StatusStyles.For(d.Status)" />@(d.AttemptsUsed > 0 ? (d.MyBestScore is { } sc ? $" · {sc} / {d.TotalMarks}" : " · attempted") : " · not attempted")</div></div>
+                                @if (d.LatestAttemptId is { } la) { <a class="btn btn-secondary btn-sm" href="/attempts/@la/result">Breakdown</a> } else if (d.Status != ExamStatus.Draft) { <a class="btn btn-secondary btn-sm" href="/exams/@d.Id/paper-entry">Enter paper answers</a> }
+                            </li>
+                        }
+                    </ul>
+                }
+            </section>
+            <div class="grid grid-2" style="margin-top:16px;align-items:start">
+                <LearningNeedsPanel StudentId="Id" Me="Me" />
+                <StudentNotesPanel StudentId="Id" Me="Me" />
+            </div>
+        }
+        @if (IsAdmin) { <div class="card" style="margin-top:16px"><h2 style="margin-bottom:8px">Parents &amp; guardians</h2><ul>@foreach (var p in _p.Parents) { <li>@p.Name <span class="caption">@p.Detail</span></li> }</ul>@if (_p.Parents.Count == 0) { <p class="muted small">None linked.</p> }</div> }
+        <div class="card" style="margin-top:16px">
+            <div class="card-head"><h2>Upcoming sessions</h2></div>
+            <DataView IsEmpty="_sessions.Count == 0" EmptyTitle="No upcoming sessions" EmptyIcon="calendar">
+                <ul class="list">@foreach (var s in _sessions) { <li><SessionItem Session="s" Tz="@Tz" /></li> }</ul>
+            </DataView>
+        </div>
+    }
+</DataView>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private StudentProfileDto? _p;
+    private ApiException? _error;
+    private List<SessionListItemDto> _sessions = [];
+    private List<ExamListItemDto> _diagnostics = [];
+    protected override async Task LoadAsync()
+    {
+        (_p, _error) = await Fetch(() => Api.GetAsync<StudentProfileDto>($"students/{Id}"));
+        if (_p is not null && IsStaff) _diagnostics = (await Fetch(() => Api.GetAsync<List<ExamListItemDto>>($"exams?studentId={Id}&purpose=Diagnostic"))).Value ?? [];
+        if (_p is not null) _sessions = (await Fetch(() => Api.GetAsync<List<SessionListItemDto>>($"sessions?studentId={Id}&fromUtc={DateTime.UtcNow:O}&toUtc={DateTime.UtcNow.AddDays(30):O}"))).Value ?? [];
+    }
+}

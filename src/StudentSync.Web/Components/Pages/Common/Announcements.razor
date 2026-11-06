@@ -1,0 +1,51 @@
+@page "/announcements"
+@attribute [Authorize]
+@inherits AppPage
+
+<PageHeader Title="Announcements">
+    <Actions>@if (IsStaff) { <button class="btn btn-primary" @onclick="() => _open = true"><Icon Name="megaphone" /> New announcement</button> }</Actions>
+</PageHeader>
+<DataView Loading="_items is null && _error is null" Error="_error" OnRetry="LoadAsync" IsEmpty="_items?.Count == 0" EmptyTitle="No announcements" EmptyIcon="megaphone">
+    <div class="stack">
+        @foreach (var a in _items ?? [])
+        {
+            <article class="card"><div class="row-between"><h2>@a.Title</h2><span class="badge slate">@(a.Audience == AnnouncementAudience.Batch ? a.BatchName : a.Audience.ToString())</span></div>
+                <div class="caption" style="margin-bottom:8px">@a.AuthorName · <LocalTime Utc="a.PublishedAtUtc" Tz="@Tz" /></div>
+                <p style="white-space:pre-wrap;margin:0">@a.Body</p></article>
+        }
+    </div>
+</DataView>
+
+<Modal @bind-Open="_open" Title="New announcement">
+    <div class="stack">
+        <div class="field"><label for="at">Title</label><input id="at" class="input" @bind="_title" /></div>
+        <div class="field"><label for="ab">Message</label><textarea id="ab" class="textarea" @bind="_body"></textarea></div>
+        <div class="field"><label for="aa">Audience</label>
+            <select id="aa" class="select" @bind="_audience">
+                @if (IsAdmin) { @foreach (var a in Enum.GetValues<AnnouncementAudience>()) { <option value="@a">@a</option> } }
+                else { <option value="@AnnouncementAudience.Batch">A batch I teach</option> }
+            </select></div>
+        @if (_audience == AnnouncementAudience.Batch) { <div class="field"><label for="ab2">Batch</label><select id="ab2" class="select" @bind="_batchId"><option value="">Choose…</option>@foreach (var b in _batches) { <option value="@b.Id">@b.Name</option> }</select></div> }
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _open = false">Cancel</button><button class="btn btn-primary" @onclick="Publish" disabled="@Busy">Publish</button></div>
+    </div>
+</Modal>
+
+@code {
+    private List<AnnouncementDto>? _items;
+    private ApiException? _error;
+    private bool _open;
+    private string _title = "", _body = "";
+    private AnnouncementAudience _audience = AnnouncementAudience.Batch;
+    private Guid? _batchId;
+    private List<BatchDto> _batches = [];
+    protected override async Task LoadAsync()
+    {
+        if (IsAdmin) _audience = AnnouncementAudience.Everyone;
+        (_items, _error) = await Fetch(() => Api.GetAsync<List<AnnouncementDto>>("announcements"));
+        if (IsStaff) _batches = (await Fetch(() => Api.GetAsync<List<BatchDto>>("academics/batches"))).Value ?? [];
+    }
+    private async Task Publish()
+    {
+        if (await Run(() => Api.PostAsync("announcements", new CreateAnnouncementRequest(_title, _body, _audience, _batchId)), "Announcement published.")) { _open = false; _title = _body = ""; await LoadAsync(); }
+    }
+}

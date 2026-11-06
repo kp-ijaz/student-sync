@@ -1,0 +1,27 @@
+@inherits AppComponent
+
+<div class="card">
+    <div class="card-head"><h2>Schedule history</h2></div>
+    <DataView Loading="_items is null && _error is null" Error="_error" IsEmpty="_items?.Count == 0" EmptyTitle="No changes since scheduling" EmptyIcon="clock">
+        <ul class="list">
+            @foreach (var c in _items ?? [])
+            {
+                <li><strong>@Describe(c)</strong><div class="caption">@c.ChangedBy · <LocalTime Utc="c.ChangedAtUtc" Tz="@Tz" /> @(c.Reason is null ? "" : $"· {c.Reason}")</div></li>
+            }
+        </ul>
+    </DataView>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SessionDetailDto Session { get; set; } = default!;
+    private List<ScheduleChangeDto>? _items;
+    private ApiException? _error;
+    protected override async Task OnInitializedAsync() => (_items, _error) = await Fetch(() => Api.GetAsync<List<ScheduleChangeDto>>($"sessions/{Session.Id}/history"));
+    private string Describe(ScheduleChangeDto c) => c.ChangeType switch
+    {
+        ScheduleChangeType.Rescheduled => $"Rescheduled from {Time.Short(c.PreviousStartUtc!.Value, Tz)} to {Time.Short(c.NewStartUtc!.Value, Tz)}",
+        ScheduleChangeType.Cancelled => "Cancelled",
+        ScheduleChangeType.ParticipantAdded => $"{c.StudentName} added",
+        _ => $"{c.StudentName} removed",
+    };
+}

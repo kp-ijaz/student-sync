@@ -1,0 +1,28 @@
+<div class="session-item @(Session.Status == SessionStatus.Cancelled ? "cancelled" : "")">
+    <div class="time-block" aria-hidden="true">
+        <div class="d">@Time.ToLocal(Session.StartUtc, Tz).ToString("ddd d")</div>
+        <div class="t">@Time.Clock(Session.StartUtc, Tz)</div>
+    </div>
+    <div class="grow">
+        <a class="title" href="/sessions/@Session.Id"><strong>@Session.Title</strong></a>
+        <div class="small muted">
+            <LocalTime Utc="Session.StartUtc" Tz="@Tz" />–@Time.Clock(Session.EndUtc, Tz)
+            @if (Session.TimeZoneId != Tz) { <span> · organiser: @Time.Clock(Session.StartUtc, Session.TimeZoneId) @Time.Abbrev(Session.TimeZoneId)</span> }
+            · @Session.TeacherName
+        </div>
+        <div class="row" style="gap:6px;margin-top:4px">
+            <Badge Style="StatusStyles.For(Session.SessionType)" />
+            @if (Session.Status != SessionStatus.Scheduled) { <Badge Style="StatusStyles.For(Session.Status)" /> }
+            @if (Session.BatchName is not null) { <span class="caption">@Session.BatchName</span> }
+            @if (Session.ParticipantCount > 0 && ShowCount) { <span class="caption">@Session.ParticipantCount student(s)</span> }
+        </div>
+    </div>
+    @Trailing
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SessionListItemDto Session { get; set; } = default!;
+    [Parameter] public string Tz { get; set; } = "UTC";
+    [Parameter] public bool ShowCount { get; set; } = true;
+    [Parameter] public RenderFragment? Trailing { get; set; }
+}

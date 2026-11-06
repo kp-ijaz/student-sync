@@ -1,0 +1,39 @@
+@* ExamCard: one exam for a student (port of the mobile ExamCard) — navy tile, title + status, "subject · questions ·
+   marks · minutes", the window, attempts, best score or release note, then the one action that applies. *@
+@{
+    var e = Exam;
+    var now = DateTime.UtcNow;
+    var open = now >= e.OpensAtUtc && now < e.ClosesAtUtc;
+    var status = e.HasInProgressAttempt ? new StatusStyle("In progress", "orange") : StatusStyles.For(e.Status);
+}
+<div class="card tight st-exam">
+    <div class="st-exam-head">
+        <IconTile Icon="check-square" Tone="navy" Size="md" />
+        <div class="grow">
+            <div class="st-assignment-title">@e.Title</div>
+            <div class="caption">@e.SubjectName · @e.QuestionCount question@(e.QuestionCount == 1 ? "" : "s") · @e.TotalMarks.ToString("0.##") marks · @e.DurationMinutes min</div>
+        </div>
+        <Badge Style="status" />
+    </div>
+    <div class="caption">
+        @if (now < e.OpensAtUtc) { <span>Opens @ClassTimes.DateTime(e.OpensAtUtc, Tz)</span> }
+        else if (open) { <span>Closes @ClassTimes.DateTime(e.ClosesAtUtc, Tz)</span> }
+        else { <span>Closed @ClassTimes.DateTime(e.ClosesAtUtc, Tz)</span> }
+        <span> · @e.AttemptsUsed of @e.MaxAttempts attempt@(e.MaxAttempts == 1 ? "" : "s") used</span>
+    </div>
+    @if (e.AttemptsUsed > 0)
+    {
+        @if (e.ResultsReleased) { <div class="small st-exam-score">Best score: @(e.MyBestScore is { } s ? $"{s:0.##} / {e.TotalMarks:0.##}" : "—")</div> }
+        else { <div class="caption">Results have not been released yet.</div> }
+    }
+    <div class="st-exam-actions">
+        @if (e.HasInProgressAttempt) { <a class="btn btn-accent btn-block" href="/exams/@e.Id/take"><Icon Name="timer" /> Resume exam</a> }
+        else if (open && e.AttemptsUsed < e.MaxAttempts) { <a class="btn btn-primary btn-block" href="/exams/@e.Id/take"><Icon Name="timer" /> Start exam</a> }
+        @if (e.LatestAttemptId is { } last && !e.HasInProgressAttempt) { <a class="btn btn-secondary btn-block" href="/attempts/@last/result">View result</a> }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ExamListItemDto Exam { get; set; } = default!;
+    [Parameter, EditorRequired] public string Tz { get; set; } = "UTC";
+}

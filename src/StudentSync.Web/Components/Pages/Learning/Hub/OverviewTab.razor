@@ -1,0 +1,192 @@
+@inherits AppComponent
+
+<div class="grid grid-main">
+    <div class="card">
+        <div class="card-head"><h2>Session details</h2>
+            @if (Session.CanManage && Session.Status != SessionStatus.Cancelled)
+            {
+                <div class="btn-group">
+                    <button class="btn btn-secondary btn-sm" @onclick="OpenEdit">Edit</button>
+                    @if (Session.Status == SessionStatus.Scheduled)
+                    {
+                        <button class="btn btn-secondary btn-sm" @onclick="OpenReschedule">Reschedule</button>
+                        <button class="btn btn-secondary btn-sm" @onclick="() => _cancelOpen = true">Cancel</button>
+                    }
+                </div>
+            }
+        </div>
+        <dl class="kv">
+            <dt>Teaching mode</dt><dd>@StatusStyles.For(Session.SessionType).Label</dd>
+            <dt>Teacher</dt><dd>@Session.TeacherName</dd>
+            <dt>Batch</dt><dd>@(Session.BatchName ?? "No batch")</dd>
+            @if (Session.ArrangementTitle is not null) { <dt>Arrangement</dt><dd>@Session.ArrangementTitle</dd> }
+            <dt>Course / subject</dt><dd>@(Session.CourseName ?? "—") / @(Session.SubjectName ?? "—")</dd>
+            <dt>Chapter</dt><dd>@(Session.ChapterTitle ?? "—")</dd>
+            <dt>When</dt><dd><LocalTime Utc="Session.StartUtc" Tz="@Tz" />–@Time.Clock(Session.EndUtc, Tz) <span class="muted">(@Tz)</span></dd>
+            <dt>Delivery</dt><dd>@Session.DeliveryMode @(Session.Location is null ? "" : $"· {Session.Location}")</dd>
+            <dt>Meeting link</dt><dd>@if (Session.MeetingUrl is { } url) { <a href="@url" target="_blank" rel="noopener noreferrer">@url</a> } else { <span class="muted">Not set</span> }</dd>
+            <dt>Recurring</dt><dd>@(Session.SeriesId is null ? "No" : "Yes — part of a series")</dd>
+        </dl>
+        @if (!string.IsNullOrWhiteSpace(Session.Objectives)) { <h3 style="margin-top:16px">Objectives</h3><p style="white-space:pre-wrap">@Session.Objectives</p> }
+        @if (Session.CanManage && Session.Status is SessionStatus.Scheduled or SessionStatus.Live)
+        {
+            <div class="btn-group" style="margin-top:16px">
+                @if (Session.Status == SessionStatus.Scheduled) { <button class="btn btn-secondary btn-sm" @onclick='() => SetStatus(SessionStatus.Live)'>Mark as live</button> }
+                <button class="btn btn-secondary btn-sm" @onclick='() => SetStatus(SessionStatus.Completed)'>Mark as completed</button>
+            </div>
+        }
+    </div>
+    <div class="card">
+        <div class="card-head"><h2>@(Session.CanManage ? $"Participants ({Session.ParticipantCount})" : "Your participation")</h2></div>
+        <ul class="list">
+            @foreach (var p in Session.Participants.Where(p => p.Status == ParticipantStatus.Active))
+            {
+                <li class="row-between">
+                    <div class="row"><span class="avatar">@p.StudentName[..1]</span><span>@p.StudentName</span></div>
+                    <div class="row">
+                        @if (p.Attendance is { } a) { <Badge Style="StatusStyles.For(a)" /> }
+                        @if (Session.CanManage && Session.SessionType != SessionType.OneToOne && Session.Status == SessionStatus.Scheduled)
+                        { <button class="btn btn-ghost btn-sm" @onclick="() => _removing = p">Remove</button> }
+                    </div>
+                </li>
+            }
+        </ul>
+        @if (!Session.CanManage && Session.ParticipantCount > 1) { <p class="caption" style="margin-top:12px">@Session.ParticipantCount students take part. Classmates' details are private.</p> }
+        @if (Session.CanManage && Session.Status == SessionStatus.Scheduled && Session.SessionType != SessionType.OneToOne)
+        {
+            <div class="row" style="margin-top:16px">
+                <select class="select grow" @bind="_addStudent" aria-label="Student to add">
+                    <option value="">Add a student…</option>
+                    @foreach (var s in _lookup.Where(l => Session.Participants.All(p => p.StudentId != l.Id || p.Status != ParticipantStatus.Active))) { <option value="@s.Id">@s.Name (@s.Detail)</option> }
+                </select>
+                <button class="btn btn-secondary" @onclick="Add" disabled="@(_addStudent is null || Busy)">Add</button>
+            </div>
+        }
+    </div>
+</div>
+
+<Modal @bind-Open="_editOpen" Title="Edit session">
+    <div class="stack">
+        <div class="field"><label for="et">Title</label><input id="et" class="input" @bind="_editTitle" /></div>
+        <div class="field"><label for="ed">Delivery</label><select id="ed" class="select" @bind="_editDelivery">@foreach (var d in Enum.GetValues<DeliveryMode>()) { <option value="@d">@d</option> }</select></div>
+        <div class="field"><label for="em">Meeting link</label><input id="em" class="input" @bind="_editMeeting" /></div>
+        <div class="field"><label for="el">Location</label><input id="el" class="input" @bind="_editLocation" /></div>
+        <div class="field"><label for="eo">Objectives</label><textarea id="eo" class="textarea" @bind="_editObjectives"></textarea></div>
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _editOpen = false">Cancel</button><button class="btn btn-primary" @onclick="SaveEdit" disabled="@Busy">Save changes</button></div>
+    </div>
+</Modal>
+
+<Modal @bind-Open="_rescheduleOpen" Title="Reschedule session">
+    <div class="stack">
+        <p class="small muted">The original time is kept in the session history and participants are notified.</p>
+        <div class="form-grid">
+            <div class="field"><label for="rd">Date</label><input id="rd" type="date" class="input" @bind="_rDate" /></div>
+            <div class="field"><label for="rs">Start</label><input id="rs" type="time" class="input" @bind="_rStart" /></div>
+            <div class="field"><label for="rm">Duration (min)</label><input id="rm" type="number" class="input" @bind="_rDuration" /></div>
+            <div class="field"><label for="rz">Time zone</label><TimeZoneSelect Id="rz" @bind-Value="_rTz" /></div>
+            <div class="field full"><label for="rr">Reason</label><input id="rr" class="input" @bind="_rReason" /></div>
+        </div>
+        @if (_conflicts is not null)
+        {
+            <div class="warn-panel"><strong>Conflicts</strong><ul>@foreach (var c in _conflicts) { <li>@c</li> }</ul>
+                <label class="check"><input type="checkbox" @bind="_rAck" /> Reschedule anyway (students only)</label></div>
+        }
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _rescheduleOpen = false">Close</button><button class="btn btn-primary" @onclick="Reschedule" disabled="@Busy">Reschedule</button></div>
+    </div>
+</Modal>
+
+<Modal @bind-Open="_cancelOpen" Title="Cancel session">
+    <div class="stack">
+        <p>Participants and linked parents will be notified. Unresolved doubts scheduled for this class will be carried to the next one.</p>
+        <div class="field"><label for="cr">Reason *</label><input id="cr" class="input" @bind="_cancelReason" /></div>
+        @if (Session.SeriesId is not null) { <label class="check"><input type="checkbox" @bind="_cancelSeries" /> Also cancel all later sessions in this series</label> }
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _cancelOpen = false">Keep session</button><button class="btn btn-danger" @onclick="Cancel" disabled="@(Busy || string.IsNullOrWhiteSpace(_cancelReason))">Cancel session</button></div>
+    </div>
+</Modal>
+
+<Modal Open="_removing is not null" OpenChanged="_ => _removing = null" Title="Remove participant">
+    <div class="stack">
+        <p>Remove <strong>@_removing?.StudentName</strong> from this session? The change is kept in the session history.</p>
+        <div class="field"><label for="rmr">Reason *</label><input id="rmr" class="input" @bind="_removeReason" /></div>
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _removing = null">Keep</button><button class="btn btn-danger" @onclick="Remove" disabled="@(Busy || string.IsNullOrWhiteSpace(_removeReason))">Remove</button></div>
+    </div>
+</Modal>
+
+@code {
+    [Parameter, EditorRequired] public SessionDetailDto Session { get; set; } = default!;
+    [Parameter] public EventCallback OnChanged { get; set; }
+    private List<LookupItem> _lookup = [];
+    private Guid? _addStudent;
+    private bool _editOpen, _rescheduleOpen, _cancelOpen, _cancelSeries, _rAck;
+    private string _editTitle = "", _cancelReason = "", _removeReason = "", _rTz = "UTC";
+    private string? _editMeeting, _editLocation, _editObjectives, _rReason;
+    private DeliveryMode _editDelivery;
+    private DateOnly _rDate; private TimeOnly _rStart; private int _rDuration;
+    private List<string>? _conflicts;
+    private ParticipantDto? _removing;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Session.CanManage) _lookup = (await Fetch(() => Api.GetAsync<List<LookupItem>>("students/lookup"))).Value ?? [];
+    }
+
+    private void OpenEdit()
+    {
+        (_editTitle, _editDelivery, _editMeeting, _editLocation, _editObjectives) = (Session.Title, Session.DeliveryMode, Session.MeetingUrl, Session.Location, Session.Objectives);
+        _editOpen = true;
+    }
+
+    private void OpenReschedule()
+    {
+        var local = Time.ToLocal(Session.StartUtc, Session.TimeZoneId);
+        (_rDate, _rStart, _rDuration, _rTz, _conflicts, _rAck) = (DateOnly.FromDateTime(local), TimeOnly.FromDateTime(local), (int)(Session.EndUtc - Session.StartUtc).TotalMinutes, Session.TimeZoneId, null, false);
+        _rescheduleOpen = true;
+    }
+
+    private async Task SaveEdit()
+    {
+        if (await Run(() => Api.PutAsync($"sessions/{Session.Id}", new UpdateSessionDetailsRequest(_editTitle, Session.SubjectId, Session.ChapterId, _editDelivery, _editMeeting, _editLocation, _editObjectives, Session.RowVersion)), "Session updated."))
+        { _editOpen = false; await OnChanged.InvokeAsync(); }
+    }
+
+    private async Task Reschedule()
+    {
+        var ok = await Run(async () =>
+        {
+            try
+            {
+                var r = await Api.PostAsync<System.Text.Json.JsonElement>($"sessions/{Session.Id}/reschedule", new RescheduleSessionRequest(_rTz, _rDate, _rStart, _rDuration, _rReason, Session.RowVersion, _rAck));
+                foreach (var w in r.GetProperty("warnings").EnumerateArray()) Toasts.Show(w.GetString() ?? "", ToastKind.Info);
+            }
+            catch (ApiException ex) when (ex.Status == 409 && ex.Details is { ValueKind: System.Text.Json.JsonValueKind.Array } d)
+            {
+                _conflicts = d.EnumerateArray().Select(c => $"{c.GetProperty("kind").GetString()}: {c.GetProperty("personName").GetString()} — {c.GetProperty("sessionTitle").GetString()}").ToList();
+                throw;
+            }
+        }, "Session rescheduled.");
+        if (ok) { _rescheduleOpen = false; await OnChanged.InvokeAsync(); }
+    }
+
+    private async Task Cancel()
+    {
+        if (await Run(() => Api.PostAsync($"sessions/{Session.Id}/cancel", new CancelSessionRequest(_cancelReason, _cancelSeries)), "Session cancelled."))
+        { _cancelOpen = false; await OnChanged.InvokeAsync(); }
+    }
+
+    private async Task SetStatus(SessionStatus status)
+    {
+        if (await Run(() => Api.PostAsync($"sessions/{Session.Id}/status", new SetSessionStatusRequest(status)), "Status updated.")) await OnChanged.InvokeAsync();
+    }
+
+    private async Task Add()
+    {
+        if (_addStudent is { } id && await Run(() => Api.PostAsync($"sessions/{Session.Id}/participants", new AddParticipantRequest(id)), "Student added."))
+        { _addStudent = null; await OnChanged.InvokeAsync(); }
+    }
+
+    private async Task Remove()
+    {
+        if (_removing is { } p && await Run(() => Api.PostAsync($"sessions/{Session.Id}/participants/{p.StudentId}/remove", new RemoveParticipantRequest(_removeReason)), "Student removed."))
+        { _removing = null; _removeReason = ""; await OnChanged.InvokeAsync(); }
+    }
+}

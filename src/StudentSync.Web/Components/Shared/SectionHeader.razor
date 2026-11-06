@@ -1,0 +1,29 @@
+@* SectionHeader: optional icon tile + title (an h2 by default) + optional count pill + optional trailing link
+   ("See all ›") or custom Trailing content. Used to stack sections on one page instead of tabs. *@
+<div class="section-head @Class">
+    @if (Icon is not null) { <IconTile Icon="@Icon" Tone="@Tone" Size="sm" /> }
+    <div class="section-title">
+        @if (Level == 3) { <h3 id="@Id">@Title</h3> } else { <h2 id="@Id">@Title</h2> }
+        @if (Count is { } n) { <span class="count-pill">@n</span> }
+    </div>
+    @if (LinkHref is not null)
+    {
+        <a class="see-all" href="@LinkHref" aria-label="@(LinkLabel) — @Title">@LinkLabel<Icon Name="chevron-right" /></a>
+    }
+    @Trailing
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public string Tone { get; set; } = "blue";
+    [Parameter] public int? Count { get; set; }
+    [Parameter] public string? LinkHref { get; set; }
+    [Parameter] public string LinkLabel { get; set; } = "See all";
+    [Parameter] public RenderFragment? Trailing { get; set; }
+    /// <summary>Heading level: 2 (default) or 3.</summary>
+    [Parameter] public int Level { get; set; } = 2;
+    /// <summary>Optional id on the heading (for aria-labelledby and #anchors).</summary>
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public string? Class { get; set; }
+}

@@ -1,0 +1,8 @@
+@* InlineEmpty: a quiet one-line "nothing here" inside a section (use DataView/StateView for a whole region). *@
+<div class="inline-empty @Class"><Icon Name="@Icon" /><span>@Text</span></div>
+
+@code {
+    [Parameter, EditorRequired] public string Text { get; set; } = "";
+    [Parameter] public string Icon { get; set; } = "inbox";
+    [Parameter] public string? Class { get; set; }
+}

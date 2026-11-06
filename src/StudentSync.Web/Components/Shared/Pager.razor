@@ -1,0 +1,18 @@
+@if (TotalPages > 1)
+{
+    <nav class="row-between" style="margin-top:16px" aria-label="Pagination">
+        <span class="small muted">Page @Page of @TotalPages · @Total items</span>
+        <div class="btn-group">
+            <button class="btn btn-secondary btn-sm" disabled="@(Page <= 1)" @onclick="() => Go(Page - 1)"><Icon Name="chevron-left" /> Previous</button>
+            <button class="btn btn-secondary btn-sm" disabled="@(Page >= TotalPages)" @onclick="() => Go(Page + 1)">Next <Icon Name="chevron-right" /></button>
+        </div>
+    </nav>
+}
+
+@code {
+    [Parameter] public int Page { get; set; }
+    [Parameter] public int TotalPages { get; set; }
+    [Parameter] public int Total { get; set; }
+    [Parameter] public EventCallback<int> OnPage { get; set; }
+    private Task Go(int p) => OnPage.InvokeAsync(p);
+}

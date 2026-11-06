@@ -1,0 +1,76 @@
+@inherits AppComponent
+
+<div class="card">
+    <div class="card-head"><h2>Materials</h2>
+        @if (Session.CanManage) { <button class="btn btn-primary btn-sm" @onclick="() => _open = true"><Icon Name="plus" /> Add material</button> }</div>
+    <DataView Loading="_items is null && _error is null" Error="_error" OnRetry="Load" IsEmpty="_items?.Count == 0" EmptyTitle="No materials yet" EmptyIcon="file">
+        <ul class="list">
+            @foreach (var m in _items ?? [])
+            {
+                <li class="row-between">
+                    <div class="row"><Icon Name="@(m.Kind == MaterialKind.Link ? "link" : "file")" /><div><strong>@m.Title</strong>@if (m.Description is not null) { <div class="caption">@m.Description</div> }</div></div>
+                    <div class="row">
+                        @if (m.Kind == MaterialKind.Link && m.Url is not null) { <a class="btn btn-secondary btn-sm" href="@m.Url" target="_blank" rel="noopener noreferrer">Open link</a> }
+                        @if (m.File is { } f) { <FileButton FileId="f.Id" Label="@($"{f.FileName} ({f.SizeBytes / 1024:N0} KB)")" /> }
+                        @if (Session.CanManage) { <button class="btn btn-ghost btn-sm" @onclick="() => Delete(m)">Remove</button> }
+                    </div>
+                </li>
+            }
+        </ul>
+    </DataView>
+</div>
+
+<Modal @bind-Open="_open" Title="Add material">
+    <div class="stack">
+        <div class="segmented" role="group" aria-label="Material type">
+            <button aria-pressed="@(Aria.Bool(!_isFile))" @onclick="() => _isFile = false">Link</button>
+            <button aria-pressed="@(Aria.Bool(_isFile))" @onclick="() => _isFile = true">File upload</button>
+        </div>
+        <div class="field"><label for="mt">Title *</label><input id="mt" class="input" @bind="_title" /></div>
+        <div class="field"><label for="md">Description</label><input id="md" class="input" @bind="_description" /></div>
+        @if (_isFile)
+        {
+            <div class="field"><label for="mf">File (PDF, image, Word, PowerPoint, Excel, text; up to 50 MB)</label><InputFile id="mf" OnChange="e => _file = e.File" /></div>
+            <label class="check"><input type="checkbox" @bind="_offline" /> Students may keep this for offline use</label>
+        }
+        else { <div class="field"><label for="mu">Link *</label><input id="mu" class="input" type="url" @bind="_url" placeholder="https://" /></div> }
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _open = false">Cancel</button><button class="btn btn-primary" @onclick="Add" disabled="@Busy">Add</button></div>
+    </div>
+</Modal>
+
+@code {
+    [Parameter, EditorRequired] public SessionDetailDto Session { get; set; } = default!;
+    private List<MaterialDto>? _items;
+    private ApiException? _error;
+    private bool _open, _isFile, _offline;
+    private string _title = "";
+    private string? _description, _url;
+    private IBrowserFile? _file;
+
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load() { var (v, e) = await Fetch(() => Api.GetAsync<PagedResult<MaterialDto>>($"sessions/{Session.Id}/materials")); _items = v?.Items.ToList(); _error = e; }
+
+    private async Task Add()
+    {
+        var ok = await Run(async () =>
+        {
+            if (!_isFile) { await Api.PostAsync("materials/link", new CreateLinkMaterialRequest(_title, _description, _url ?? "", Session.Id, null, null, null, false)); return; }
+            if (_file is null) throw new ApiException(400, "validation_failed", "Choose a file.", null, null);
+            using var form = new MultipartFormDataContent();
+            var content = new StreamContent(_file.OpenReadStream(50_000_000));
+            content.Headers.ContentType = new(string.IsNullOrEmpty(_file.ContentType) ? "application/octet-stream" : _file.ContentType);
+            form.Add(content, "file", _file.Name);
+            form.Add(new StringContent(_title), "title");
+            if (_description is not null) form.Add(new StringContent(_description), "description");
+            form.Add(new StringContent(Session.Id.ToString()), "sessionId");
+            form.Add(new StringContent(_offline ? "true" : "false"), "availableOffline");
+            await Api.PostFormAsync("materials/file", form);
+        }, "Material added.");
+        if (ok) { _open = false; _title = ""; _description = _url = null; _file = null; await Load(); }
+    }
+
+    private async Task Delete(MaterialDto m)
+    {
+        if (await Run(() => Api.DeleteAsync($"materials/{m.Id}"), "Material removed.")) await Load();
+    }
+}

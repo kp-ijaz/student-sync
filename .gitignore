@@ -1,0 +1,27 @@
+# Build output
+bin/
+obj/
+*.user
+.vs/
+.idea/
+TestResults/
+# Secrets / local config
+.env
+*.local.json
+App_Data/
+.storage/
+# Node / Playwright
+node_modules/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+tests/e2e/.auth/
+tests/e2e/puppeteer/screenshots/
+# Flutter
+mobile/**/.dart_tool/
+mobile/**/build/
+mobile/**/.flutter-plugins*
+mobile/**/ios/Pods/
+mobile/**/ios/Flutter/ephemeral/
+mobile/**/.packages
+# OS
+.DS_Store

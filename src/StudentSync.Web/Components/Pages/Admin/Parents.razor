@@ -1,0 +1,60 @@
+@page "/admin/parents"
+@attribute [Authorize(Roles = "InstitutionAdmin")]
+@inherits AppPage
+
+<PageHeader Title="Parents &amp; guardians" Subtitle="Parents only ever see children whose relationship you have verified.">
+    <Actions><button class="btn btn-primary" @onclick="() => { _name = _email = string.Empty; _open = true; }"><Icon Name="plus" /> Add parent</button></Actions>
+</PageHeader>
+<div class="card">
+    <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="LoadAsync" IsEmpty="_page?.Items.Count == 0" EmptyTitle="No parents yet" EmptyIcon="heart">
+        <ul class="list">
+            @foreach (var p in _page?.Items ?? [])
+            {
+                <li>
+                    <div class="row-between"><div><strong>@p.FullName</strong><div class="caption">@p.Email</div></div><button class="btn btn-secondary btn-sm" @onclick="() => OpenLink(p)">Link child</button></div>
+                    <div class="pill-list" style="margin-top:8px">
+                        @foreach (var c in p.Children)
+                        {
+                            <span class="badge removable @(c.IsVerified ? "green" : "amber")"><span>@c.StudentName · @c.Relationship @(c.IsVerified ? "· verified" : "· unverified")</span>
+                                <button type="button" class="chip-remove" aria-label="Unlink @c.StudentName" title="Unlink" @onclick="() => Unlink(p, c)"><Icon Name="x" /></button></span>
+                        }
+                        @if (p.Children.Count == 0) { <span class="caption">No children linked.</span> }
+                    </div>
+                </li>
+            }
+        </ul>
+    </DataView>
+</div>
+<Modal @bind-Open="_open" Title="Add parent">
+    <div class="stack">
+        <div class="field"><label for="pn">Full name *</label><input id="pn" class="input" @bind="_name" /></div>
+        <div class="field"><label for="pe">Email *</label><input id="pe" type="email" class="input" @bind="_email" /></div>
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _open = false">Cancel</button><button class="btn btn-primary" @onclick="Create" disabled="@Busy">Create</button></div>
+    </div>
+</Modal>
+<Modal Open="_linking is not null" OpenChanged="_ => _linking = null" Title="@($"Link a child to {_linking?.FullName}")">
+    <div class="stack">
+        <div class="field"><label for="lc">Student</label><select id="lc" class="select" @bind="_student"><option value="">Choose…</option>@foreach (var s in _students) { <option value="@s.Id">@s.Name (@s.Detail)</option> }</select></div>
+        <div class="field"><label for="lr">Relationship</label><select id="lr" class="select" @bind="_rel">@foreach (var r in Enum.GetValues<GuardianRelationship>()) { <option value="@r">@r</option> }</select></div>
+        <label class="check"><input type="checkbox" @bind="_verified" /> I have verified this relationship (e.g. ID or enrolment record checked)</label>
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _linking = null">Cancel</button><button class="btn btn-primary" @onclick="Link" disabled="@(Busy || _student is null)">Link</button></div>
+    </div>
+</Modal>
+<TempPasswordDialog @bind-Password="_tempPassword" />
+
+@code {
+    private PagedResult<ParentDto>? _page;
+    private ApiException? _error;
+    private bool _open, _verified = true;
+    private string _name = "", _email = "";
+    private string? _tempPassword;
+    private ParentDto? _linking;
+    private Guid? _student;
+    private GuardianRelationship _rel;
+    private List<LookupItem> _students = [];
+    protected override async Task LoadAsync() => (_page, _error) = await Fetch(() => Api.GetAsync<PagedResult<ParentDto>>("parents?pageSize=100"));
+    private async Task Create() { if (await Run(async () => _tempPassword = (await Api.PostAsync<CreatedPersonResponse>("parents", new CreateParentRequest(_name, _email, Tz))).TemporaryPassword, "Parent created.")) { _open = false; await LoadAsync(); } }
+    private async Task OpenLink(ParentDto p) { _linking = p; _student = null; _students = (await Fetch(() => Api.GetAsync<List<LookupItem>>("students/lookup"))).Value ?? []; }
+    private async Task Link() { if (await Run(() => Api.PostAsync($"parents/{_linking!.Id}/children", new LinkChildRequest(_student!.Value, _rel, _verified)), "Child linked.")) { _linking = null; await LoadAsync(); } }
+    private async Task Unlink(ParentDto p, ChildLinkDto c) { if (await Run(() => Api.DeleteAsync($"parents/{p.Id}/children/{c.LinkId}"), "Link removed.")) await LoadAsync(); }
+}

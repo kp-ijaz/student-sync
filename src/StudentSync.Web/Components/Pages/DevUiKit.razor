@@ -1,0 +1,112 @@
+@page "/dev/ui"
+@attribute [Authorize]
+@inject IWebHostEnvironment Env
+@* Development-only gallery of the shared components (DESIGN.md §5), with fictional sample content. Stage 2 uses it as
+   a reference; in any other environment the route shows the 404 state. *@
+@if (!Env.IsDevelopment())
+{
+    <StateView Page="true" Illustration="@Illustrations.NotFound" Title="We couldn't find that page"><a class="btn btn-primary btn-pill" href="/"><Icon Name="home" /> Go to home</a></StateView>
+}
+else
+{
+    <PageHeader Title="UI kit" Subtitle="Shared components for the unified web + mobile look (development only)." />
+
+    <SectionHeader Title="HeroCard, GlassPill, TagPill, StatusBadge" Icon="sparkle" />
+    <div class="grid grid-2">
+        <HeroCard>
+            <div class="row" style="margin-bottom:12px"><GlassPill Live="true" Label="NEXT CLASS" /><GlassPill Icon="calendar" Label="Today" /></div>
+            <h2>Good evening, Sample</h2>
+            <p class="muted" style="margin:4px 0 0">The gradient is reserved for heroes, the profile header and selected pills.</p>
+        </HeroCard>
+        <div class="card stack-sm">
+            <div class="row"><Badge Style="StatusStyles.For(SessionStatus.Scheduled)" /><Badge Style="StatusStyles.For(SessionStatus.Live)" /><Badge Style="StatusStyles.For(SessionStatus.Completed)" /><Badge Style="StatusStyles.For(AttendanceStatus.Absent)" /></div>
+            <div class="row"><TagPill Label="Batch class" Icon="users" /><TagPill Label="MATH10" /></div>
+            <div class="row"><IconTile Icon="calendar" /><IconTile Icon="clipboard" Tone="green" /><IconTile Icon="video" Tone="violet" /><IconTile Icon="chart-line" Tone="orange" /><IconTile Icon="help" Tone="red" Size="lg" /></div>
+            <div class="row"><Avatar Name="Sample Student (Demo)" Size="sm" /><Avatar Name="Sample Student" Size="md" Ring="true" /><Avatar Name="Sample" Size="lg" /></div>
+        </div>
+    </div>
+
+    <SectionHeader Title="Class covers" Icon="book-open" Count="4" LinkHref="/dev/ui#covers" Id="covers" />
+    <div class="grid grid-4">
+        @foreach (var (subject, title) in new[] { ("Mathematics", "Class 10 — Mathematics"), ("Social Science", "Class 10"), ("Hindi", "Second language"), (null as string, "Weekend revision") })
+        {
+            <ClassCover Subject="@subject" Title="@title" Height="160px">
+                <div class="row"><GlassPill Icon="calendar" Label="Tue 3 Nov" /></div>
+                <span class="cover-title" style="margin-top:auto">@(subject ?? title)</span>
+            </ClassCover>
+        }
+    </div>
+
+    <SectionHeader Title="Teachers" Icon="users" Tone="navy" />
+    <div class="grid grid-4">
+        <TeacherPhotoCard Name="Sample Teacher (Demo Teacher)" Subtitle="Mathematics" Href="/dev/ui" />
+        <TeacherPhotoCard Name="Another Teacher" Subtitle="English" />
+    </div>
+
+    <div class="grid grid-2" style="margin-top:24px">
+        <div class="stack">
+            <SectionHeader Title="Segmented" Icon="layers" />
+            <Segmented TValue="string" Label="Show classes" Options="_segOptions" @bind-Value="_seg" />
+            <p class="small muted" style="margin:0">Selected: @_seg</p>
+            <SectionHeader Title="PillTabs" Icon="graduation" />
+            <PillTabs TKey="string" Label="Learning" Tabs="_tabs" @bind-Active="_tab">
+                <InlineEmpty Icon="inbox" Text="@($"Nothing in {_tab} (sample panel).")" />
+            </PillTabs>
+            <SectionHeader Title="Existing classes restyled" Icon="settings" Tone="slate" />
+            <div class="segmented" role="group" aria-label="Sample filter"><button type="button" aria-pressed="true">Open</button><button type="button" aria-pressed="false">Resolved</button></div>
+        </div>
+        <div class="stack">
+            <SectionHeader Title="ShortcutGrid" Icon="grid" />
+            <ShortcutGrid Items="_shortcuts" />
+            <SectionHeader Title="ListGroup" Icon="list" />
+            <ListGroup>
+                <ListRow Icon="chart-line" Tone="green" Title="My progress" Subtitle="Attendance, assignments, exams and more" Href="/progress" />
+                <ListRow Icon="building" Tone="navy" Title="Institution" Subtitle="Sample Academy" />
+                <ListRow Icon="refresh" Title="Button row" Subtitle="Runs an action" OnClick="() => _clicks++"><Trailing><span class="count-pill">@_clicks</span></Trailing></ListRow>
+            </ListGroup>
+        </div>
+    </div>
+
+    <SectionHeader Title="StatCard in a stat-grid" Icon="bar-chart" />
+    <div class="stat-grid" style="margin-bottom:24px">
+        <StatCard Label="Active students" Value="12" Icon="users" />
+        <StatCard Label="Active teachers" Value="5" Icon="graduation" Tone="violet" />
+        <StatCard Label="Active courses" Value="17" Hint="Batches: 2 · private arrangements: 3" Icon="layers" Tone="navy" />
+        <StatCard Label="Sessions next 7 days" Value="23" Icon="calendar" Tone="info" />
+        <StatCard Label="Without icon" Value="13" />
+    </div>
+
+    <SectionHeader Title="Stacked table (cards below 768 px)" Icon="list" Tone="slate" />
+    <div class="card" style="margin-bottom:24px">
+        <div class="table-wrap"><table class="table stack-mobile">
+            <thead><tr><th>Name</th><th>Code</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+                <tr><td data-label="Name"><a href="/dev/ui"><strong>Sample Student (Demo)</strong></a><div class="caption">sample.student.with.a.long.address@example.test</div></td><td data-label="Code">DEMO-001</td>
+                    <td data-label="Status"><span class="badge green dot">Active</span></td><td><button class="btn btn-ghost btn-sm" @onclick="() => _clicks++">Edit</button><button class="btn btn-ghost btn-sm" @onclick="() => _clicks++">Schedule 1:1</button></td></tr>
+            </tbody>
+        </table></div>
+        <div class="pill-list" style="margin-top:12px"><span class="badge removable blue"><span>Removable chip</span><button type="button" class="chip-remove" aria-label="Remove sample chip" @onclick="() => _clicks++"><Icon Name="x" /></button></span></div>
+    </div>
+
+    <SectionHeader Title="States" Icon="alert" Tone="red" />
+    <div class="grid grid-3">
+        <div class="card"><LoadingView /></div>
+        <div class="card"><DataView IsEmpty="true" EmptyTitle="No doubts yet" EmptyText="Questions you ask appear here." EmptyIcon="help" /></div>
+        <div class="card"><DataView Error="_offline" OnRetry="() => _clicks++" /></div>
+        <div class="card"><DataView Error="_forbidden" /></div>
+        <div class="card"><DataView IsEmpty="true" Compact="true" EmptyTitle="All done" EmptyIcon="check" /></div>
+        <div class="card"><MetricTile Metric="_metric" /></div>
+    </div>
+}
+
+@code {
+    private string _seg = "upcoming", _tab = "assignments";
+    private int _clicks;
+    private readonly IReadOnlyList<Segmented<string>.Option> _segOptions = [new("calendar", "Calendar", "calendar"), new("upcoming", "Upcoming (24)"), new("past", "Past (18)")];
+    private readonly IReadOnlyList<PillTabs<string>.Tab> _tabs = [new("assignments", "Assignments", 2), new("exams", "Exams"), new("videos", "Videos", 5)];
+    private readonly IReadOnlyList<ShortcutItem> _shortcuts =
+        [new("Timetable", "/timetable", "calendar"), new("Videos", "/videos", "video", "violet"), new("Homework", "/learning", "clipboard", "green"), new("My progress", "/progress", "chart-line", "orange")];
+    private readonly ApiException _offline = new(503, "unavailable", "The Student Sync service is unreachable. Check your connection and try again.", null, null);
+    private readonly ApiException _forbidden = new(403, "forbidden", "You do not have permission to do that.", null, null);
+    private readonly MetricDto _metric = new("Attendance", "82%", "Present or late ÷ marked sessions in the last 90 days.", 82);
+}

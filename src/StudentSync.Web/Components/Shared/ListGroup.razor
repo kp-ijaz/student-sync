@@ -1,0 +1,8 @@
+@* ListGroup: inset grouped rows in one card (settings style). Children are ListRow components. *@
+<ul class="list-group @Class" aria-label="@AriaLabel">@ChildContent</ul>
+
+@code {
+    [Parameter] public string? AriaLabel { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

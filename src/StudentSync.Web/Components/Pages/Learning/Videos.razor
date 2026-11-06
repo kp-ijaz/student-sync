@@ -1,0 +1,9 @@
+@page "/videos"
+@attribute [Authorize(Roles = "Student,Teacher,InstitutionAdmin")]
+@inherits AppPage
+
+<PageHeader Title="Pre-recorded videos" Subtitle="@(IsStudent ? "Videos for your classes. Locked videos open automatically before or after the live class." : "Add videos to classes and control when students can watch them.")" />
+@if (Me is not null)
+{
+    <VideoList Me="Me" CanUpload="!IsStudent" />
+}

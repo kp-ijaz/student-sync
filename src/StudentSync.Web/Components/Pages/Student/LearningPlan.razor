@@ -1,0 +1,112 @@
+@page "/learning-plan"
+@attribute [Authorize(Roles = "Student")]
+@inherits AppPage
+
+@* The student's own learning plan (addendum C, J): syllabus and class, the subjects they find hard (which they can add
+   or withdraw themselves), and the goals their teachers set. Staff observations are never shown here. *@
+<PageHeader Title="My learning plan" Subtitle="Tell your teachers which subjects you find hard, and see the goals they have set with you.">
+    <Breadcrumb><a href="/profile">Profile</a> ›</Breadcrumb>
+</PageHeader>
+
+<DataView Loading="_plan is null && _error is null" Error="_error" OnRetry="LoadAsync" LoadingLabel="Loading your plan">
+    @if (_plan is not null)
+    {
+        <div class="grid grid-2" style="align-items:start">
+            <div class="stack">
+                <section class="card" aria-labelledby="syllabus-h">
+                    <div class="card-head"><h2 id="syllabus-h">Your syllabus</h2></div>
+                    <dl class="kv">
+                        <dt>Syllabus</dt><dd>@(_plan.CurriculumName ?? "Not set yet")</dd>
+                        <dt>Class</dt><dd>@(_plan.GradeLevelName ?? "Not set yet")</dd>
+                        <dt>Academic year</dt><dd>@(_plan.AcademicYearName ?? "Not set yet")</dd>
+                    </dl>
+                    @if (_plan.CurriculumName is null || _plan.GradeLevelName is null) { <p class="help" style="margin:12px 0 0">Ask the institute office if your syllabus or class is missing.</p> }
+                </section>
+
+                <section class="card" aria-labelledby="goals-h">
+                    <div class="card-head"><h2 id="goals-h">Goals</h2></div>
+                    @if (_plan.Goals.Count == 0) { <InlineEmpty Icon="check-circle" Text="No goals yet. Your teacher can set one with you." /> }
+                    else
+                    {
+                        <ul class="list">
+                            @foreach (var g in _plan.Goals)
+                            {
+                                <li><div style="overflow-wrap:anywhere">@g.Text</div><div class="caption" style="margin-top:4px">@(g.SubjectName is null ? "" : $"{g.SubjectName} · ")Set by @g.AuthorName · <LocalTime Utc="g.CreatedAtUtc" Tz="@Tz" Format="date" /></div></li>
+                            }
+                        </ul>
+                    }
+                </section>
+            </div>
+
+            <section class="card" aria-labelledby="weak-h">
+                <div class="card-head"><div><h2 id="weak-h">Subjects I find hard</h2><div class="caption">Your teachers use this to plan your classes. You can remove anything you added yourself.</div></div></div>
+                @if (_plan.Needs.Count == 0) { <InlineEmpty Icon="target" Text="Nothing recorded. Add a subject below if something feels hard." /> }
+                else
+                {
+                    <ul class="list">
+                        @foreach (var n in _plan.Needs)
+                        {
+                            <li class="row-between" style="align-items:flex-start;gap:12px">
+                                <div style="min-width:0">
+                                    <div><strong>@n.SubjectName</strong>@if (n.ChapterTitle is not null) { <span class="caption"> · @n.ChapterTitle</span> }
+                                        <span class="badge slate" style="margin-left:8px">@(n.Source == LearningNeedSource.Student ? "Added by you" : n.Source == LearningNeedSource.Parent ? "Added by your parent" : "Added by the institute")</span></div>
+                                    @if (!string.IsNullOrWhiteSpace(n.Note)) { <div class="small" style="margin-top:4px;overflow-wrap:anywhere">@n.Note</div> }
+                                    <div class="caption" style="margin-top:4px"><LocalTime Utc="n.RecordedAtUtc" Tz="@Tz" Format="date" /></div>
+                                </div>
+                                @if (n.Source == LearningNeedSource.Student) { <button class="btn btn-ghost btn-sm" @onclick="() => Withdraw(n)" disabled="@Busy" aria-label="Remove @n.SubjectName">Remove</button> }
+                            </li>
+                        }
+                    </ul>
+                }
+
+                <div class="form-grid" style="margin-top:16px" aria-label="Add a subject you find hard">
+                    <div class="field"><label for="lp-subject">Subject</label>
+                        <select id="lp-subject" class="select" @bind="_subjectId" @bind:after="SubjectChanged"><option value="">Choose…</option>@foreach (var s in _plan.Subjects) { <option value="@s.Id">@s.Name</option> }</select>
+                        @if (_plan.Subjects.Count == 0) { <span class="help">You have no subjects yet; the office sets them up.</span> }</div>
+                    <div class="field"><label for="lp-chapter">Chapter (optional)</label>
+                        <select id="lp-chapter" class="select" @bind="_chapterId" disabled="@(_chapters.Count == 0)"><option value="">Whole subject</option>@foreach (var c in _chapters) { <option value="@c.Id">@c.Title</option> }</select></div>
+                    <div class="field full"><label for="lp-note">What is hard about it? (optional)</label><input id="lp-note" class="input" maxlength="1000" @bind="_note" /></div>
+                    <div class="field full form-actions" style="margin-top:0"><button class="btn btn-primary" @onclick="Add" disabled="@(Busy || _subjectId is null)"><Icon Name="plus" /> Add subject</button></div>
+                </div>
+            </section>
+        </div>
+    }
+</DataView>
+
+@code {
+    private LearningPlanDto? _plan;
+    private ApiException? _error;
+    private Guid? _subjectId, _chapterId;
+    private string? _note;
+    private List<(Guid Id, string Title)> _chapters = [];
+
+    protected override async Task LoadAsync()
+    {
+        _error = null;
+        (_plan, _error) = await Fetch(() => Api.GetAsync<LearningPlanDto>("my/learning-plan"));
+    }
+
+    // Chapters come from the student's own syllabus view, so only chapters they are allowed to see are offered.
+    private async Task SubjectChanged()
+    {
+        _chapterId = null; _chapters = [];
+        if (_subjectId is not { } id) return;
+        var syllabus = (await Fetch(() => Api.GetAsync<SubjectSyllabusDto>($"my/subjects/{id}"))).Value;
+        _chapters = syllabus?.Chapters.Where(c => c.ChapterId is not null).OrderBy(c => c.SortOrder).Select(c => (c.ChapterId!.Value, c.Title)).ToList() ?? [];
+    }
+
+    private async Task Add()
+    {
+        if (_subjectId is not { } s) return;
+        if (await Run(() => Api.PostAsync<LearningNeedDto>("my/learning-needs", new AddLearningNeedRequest(s, _chapterId, null, _note)), "Added. Your teachers can see it now."))
+        {
+            (_subjectId, _chapterId, _note, _chapters) = (null, null, null, []);
+            await LoadAsync();
+        }
+    }
+
+    private async Task Withdraw(LearningNeedDto n)
+    {
+        if (await Run(() => Api.DeleteAsync($"my/learning-needs/{n.Id}"), "Removed.")) await LoadAsync();
+    }
+}

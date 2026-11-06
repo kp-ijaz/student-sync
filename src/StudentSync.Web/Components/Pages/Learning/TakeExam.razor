@@ -1,0 +1,129 @@
+@page "/exams/{Id:guid}/take"
+@attribute [Authorize(Roles = "Student")]
+@inherits AppPage
+@implements IDisposable
+
+<DataView Loading="_a is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_a is not null)
+    {
+        <PageHeader Title="@_a.ExamTitle" Subtitle="@($"Attempt {_a.AttemptNumber} · {_a.Questions.Count} questions. Answers save automatically.")" />
+        <div class="card accent-card row-between" style="margin-bottom:16px;position:sticky;top:72px;z-index:5">
+            <div><span class="caption">TIME REMAINING</span><div class="num" style="font-size:24px;font-weight:700" aria-live="off">@Remaining</div></div>
+            <div class="small muted">@_saveState</div>
+            <button class="btn btn-primary" @onclick="() => _confirm = true" disabled="@Busy">Submit exam</button>
+        </div>
+        <div class="stack">
+            @for (var i = 0; i < _a.Questions.Count; i++)
+            {
+                var q = _a.Questions[i];
+                var n = i + 1;
+                <fieldset class="card" style="border:1px solid var(--ss-border)">
+                    <legend class="sr-only">Question @n</legend>
+                    <div class="row-between" style="margin-bottom:8px"><strong>Question @n</strong><span class="caption">@q.Marks mark(s)</span></div>
+                    <p style="white-space:pre-wrap">@q.Stem</p>
+                    <QuestionImage FileId="q.ImageFileId" />
+                    @switch (q.Type)
+                    {
+                        case QuestionType.SingleChoice or QuestionType.TrueFalse:
+                            @foreach (var o in q.Options) { <label class="check" style="display:flex;padding:6px 0"><input type="radio" name="q@(n)" checked="@Picked(q, o.Id)" @onchange="() => SetOptions(q, [o.Id])" /> @o.Text</label> }
+                            break;
+                        case QuestionType.MultipleChoice:
+                            @foreach (var o in q.Options) { <label class="check" style="display:flex;padding:6px 0"><input type="checkbox" checked="@Picked(q, o.Id)" @onchange="e => ToggleOption(q, o.Id, e.Value is true)" /> @o.Text</label> }
+                            break;
+                        case QuestionType.Numerical:
+                            <input type="number" step="any" class="input" style="max-width:240px" aria-label="Answer to question @n" value="@_responses[q.ExamQuestionId].Number" @onchange="e => SetNumber(q, e.Value?.ToString())" />
+                            break;
+                        case QuestionType.Matching:
+                            @foreach (var o in q.Options)
+                            {
+                                <div class="row" style="margin-bottom:6px"><span class="grow">@o.Text</span>
+                                    <select class="select" style="max-width:260px" aria-label="Match for @o.Text" value="@(_responses[q.ExamQuestionId].Matches?.GetValueOrDefault(o.Id))" @onchange="e => SetMatch(q, o.Id, e.Value?.ToString())">
+                                        <option value="">Choose…</option>@foreach (var c in q.MatchChoices ?? []) { <option value="@c">@c</option> }
+                                    </select></div>
+                            }
+                            break;
+                        default:
+                            <textarea class="textarea" style="min-height:@(q.Type == QuestionType.LongAnswer ? "180px" : "64px")" aria-label="Answer to question @n" value="@_responses[q.ExamQuestionId].Text" @onchange="e => SetText(q, e.Value?.ToString())"></textarea>
+                            break;
+                    }
+                </fieldset>
+            }
+        </div>
+    }
+</DataView>
+
+<Modal @bind-Open="_confirm" Title="Submit exam?">
+    <p>You've answered @_responses.Count(r => IsAnswered(r.Value)) of @(_a?.Questions.Count ?? 0) questions. You can't change answers after submitting.</p>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _confirm = false">Keep working</button><button class="btn btn-primary" @onclick="Submit" disabled="@Busy">Submit</button></div>
+</Modal>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private AttemptDto? _a;
+    private ApiException? _error;
+    private Dictionary<Guid, ExamResponse> _responses = [];
+    private Timer? _timer;
+    private bool _confirm, _submitting;
+    private string _saveState = "";
+
+    private string Remaining
+    {
+        get
+        {
+            var left = (_a?.DeadlineUtc ?? DateTime.UtcNow) - DateTime.UtcNow;
+            return left <= TimeSpan.Zero ? "Time's up" : left.ToString(left.TotalHours >= 1 ? @"h\:mm\:ss" : @"mm\:ss");
+        }
+    }
+
+    protected override async Task LoadAsync()
+    {
+        (_a, _error) = await Fetch(() => Api.PostAsync<AttemptDto>($"exams/{Id}/attempts", new { }));
+        if (_a is null) return;
+        _responses = _a.Questions.ToDictionary(q => q.ExamQuestionId, q => q.SavedResponse ?? new ExamResponse());
+        _timer = new Timer(_ => InvokeAsync(Tick), null, 1000, 1000);
+    }
+
+    private async Task Tick()
+    {
+        StateHasChanged();
+        if (_a is not null && DateTime.UtcNow >= _a.DeadlineUtc && !_submitting) await Submit();
+    }
+
+    private bool Picked(AttemptQuestionDto q, Guid o) => _responses[q.ExamQuestionId].OptionIds?.Contains(o) == true;
+    private static bool IsAnswered(ExamResponse r) => r.OptionIds is { Count: > 0 } || !string.IsNullOrWhiteSpace(r.Text) || r.Number is not null || r.Matches is { Count: > 0 };
+
+    private Task SetOptions(AttemptQuestionDto q, List<Guid> ids) => Save(q, _responses[q.ExamQuestionId] with { OptionIds = ids });
+    private Task ToggleOption(AttemptQuestionDto q, Guid id, bool on)
+    {
+        var list = (_responses[q.ExamQuestionId].OptionIds ?? []).ToList();
+        if (on) list.Add(id); else list.Remove(id);
+        return SetOptions(q, list.Distinct().ToList());
+    }
+    private Task SetText(AttemptQuestionDto q, string? text) => Save(q, _responses[q.ExamQuestionId] with { Text = text });
+    private Task SetNumber(AttemptQuestionDto q, string? v) => Save(q, _responses[q.ExamQuestionId] with { Number = decimal.TryParse(v, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : null });
+    private Task SetMatch(AttemptQuestionDto q, Guid option, string? value)
+    {
+        var m = new Dictionary<Guid, string>(_responses[q.ExamQuestionId].Matches ?? []);
+        if (string.IsNullOrEmpty(value)) m.Remove(option); else m[option] = value;
+        return Save(q, _responses[q.ExamQuestionId] with { Matches = m });
+    }
+
+    private async Task Save(AttemptQuestionDto q, ExamResponse r)
+    {
+        _responses[q.ExamQuestionId] = r;
+        _saveState = "Saving…";
+        try { await Api.PutAsync($"attempts/{_a!.AttemptId}/answers", new SaveAnswerRequest(q.ExamQuestionId, r)); _saveState = $"All answers saved at {Time.Clock(DateTime.UtcNow, Tz)}"; }
+        catch (ApiException ex) { _saveState = "Not saved: " + ex.Describe(); Toasts.Show(ex.Describe(), ToastKind.Error); }
+    }
+
+    private async Task Submit()
+    {
+        if (_a is null || _submitting) return;
+        _submitting = true;
+        _timer?.Dispose();
+        if (await Run(() => Api.PostAsync($"attempts/{_a.AttemptId}/submit"), "Exam submitted.")) Nav.NavigateTo($"/attempts/{_a.AttemptId}/result");
+        else _submitting = false;
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

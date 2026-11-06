@@ -1,0 +1,37 @@
+@* ClassCover: the subject's cover photo (ClassCovers.For: subject first, then title) with a navy fade at the bottom
+   and a slot for overlaid content (title, GlassPills). Height is any CSS length; Href makes the whole cover a link.
+   The photo is decorative; put the class/subject name in ChildContent (or Title) so it stays readable text. *@
+@if (Href is not null)
+{
+    <a class="cover @(Shade ? "shade" : "") @Class" href="@Href" style="height:@Height">@Inner</a>
+}
+else
+{
+    <div class="cover @(Shade ? "shade" : "") @Class" style="height:@Height">@Inner</div>
+}
+
+@code {
+    [Parameter] public string? Subject { get; set; }
+    /// <summary>Class or course title; used for the photo only when the subject gives no hint.</summary>
+    [Parameter] public string? Title { get; set; }
+    /// <summary>When set (and no ChildContent), shown as the cover's title at the bottom.</summary>
+    [Parameter] public bool ShowTitle { get; set; }
+    [Parameter] public string Height { get; set; } = "180px";
+    [Parameter] public bool Shade { get; set; } = true;
+    [Parameter] public string? Href { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private RenderFragment Inner => __builder =>
+    {
+        <img class="cover-img" src="@ClassCovers.For(Subject, Title)" alt="" loading="lazy" decoding="async" />
+        @if (ChildContent is not null)
+        {
+            <div class="cover-content">@ChildContent</div>
+        }
+        else if (ShowTitle)
+        {
+            <div class="cover-content" style="justify-content:flex-end"><span class="cover-title">@(Subject ?? Title)</span></div>
+        }
+    };
+}

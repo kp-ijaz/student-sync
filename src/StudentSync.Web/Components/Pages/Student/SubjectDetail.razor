@@ -1,0 +1,238 @@
+@page "/subjects/{Id:guid}"
+@attribute [Authorize(Roles = "Student")]
+@inherits AppPage
+
+@* One subject — mirrors subject_detail_screen.dart: cover header, three counts, the next class, then pill tabs
+   Videos · Classes · Syllabus. There is no subject-wide Notes tab: notes belong to each class (owner decision). *@
+<DataView Loading="_s is null && _error is null" Error="_error" OnRetry="LoadAsync" LoadingLabel="Loading subject">
+    @if (_s is { } s)
+    {
+        var media = Syllabus.Media(s.Chapters);
+        var (upcoming, past) = Syllabus.Classes(s.Chapters, DateTime.UtcNow);
+        <PageTitle>@s.Name · Student Sync</PageTitle>
+        <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/subjects">My subjects</a> ›</nav>
+        <ClassCover Subject="@s.Name" Title="@s.CourseName" Height="clamp(170px, 20vw, 230px)" Class="st-subject-hero">
+            <div class="row-between" style="flex-wrap:nowrap">
+                <span class="avatar-stack lg">@foreach (var t in s.Teachers.Take(3)) { <Avatar Name="@t.Name" PhotoUrl="@t.PhotoUrl" Size="md" Ring="true" Decorative="false" /> }</span>
+                <GlassPill Label="@(s.Group ?? s.Code)" />
+            </div>
+            <div style="margin-top:auto">
+                <div class="st-eyebrow">@s.CourseName</div>
+                <h1 class="st-hero-title" tabindex="-1">@s.Name</h1>
+            </div>
+        </ClassCover>
+        @if (s.Teachers.Count > 0)
+        {
+            <p class="small muted st-subject-teachers">Taught by @string.Join(", ", s.Teachers.Select(t => People.ShortName(t.Name)))</p>
+        }
+        @if (!string.IsNullOrWhiteSpace(s.Description)) { <p class="muted">@s.Description</p> }
+
+        <div class="st-stats" role="list" aria-label="Subject counts">
+            <div class="card tight st-stat" role="listitem"><Icon Name="play-circle" /><span class="v">@s.UnlockedVideoCount/@s.VideoCount</span><span class="l">Videos unlocked</span></div>
+            <div class="card tight st-stat" role="listitem"><Icon Name="presentation" /><span class="v">@s.CompletedClassCount/@s.ClassCount</span><span class="l">Classes completed</span></div>
+            <div class="card tight st-stat" role="listitem"><Icon Name="book-open" /><span class="v">@s.CompletedChapterCount/@s.ChapterCount</span><span class="l">Chapters completed</span></div>
+        </div>
+
+        @if (s.NextSession is { } next)
+        {
+            <div class="card tight st-next-strip">
+                <IconTile Icon="calendar-clock" Tone="orange" />
+                <div class="grow">
+                    <div class="caption">Next class</div>
+                    <a class="stretched st-next-strip-when" href="/sessions/@next.Id">@ClassTimes.Range(next.StartUtc, next.EndUtc, Tz)</a>
+                </div>
+                @if (JoinRules.JoinableNow(next, DateTime.UtcNow)) { <JoinButton SessionId="next.Id" Live="@(next.Status == SessionStatus.Live)" Title="@next.Title" Small="true" /> }
+                else { <Icon Name="chevron-right" Class="chev" /> }
+            </div>
+        }
+
+        <PillTabs TKey="string" Tabs="Tabs()" @bind-Active="_tab" Label="@($"{s.Name} content")" Class="st-subject-tabs">
+            @switch (_tab)
+            {
+                case "classes":
+                    if (upcoming.Count + past.Count == 0)
+                    {
+                        <StateView Title="No classes yet" Message="Live classes for this subject will appear here." Illustration="@Illustrations.Empty" />
+                    }
+                    else
+                    {
+                        var when = _when ?? (upcoming.Count > 0 ? "upcoming" : "past");
+                        var items = when == "upcoming" ? upcoming : past;
+                        <Segmented TValue="string" Label="Which classes" Options="@([new("upcoming", $"Upcoming ({upcoming.Count})"), new("past", $"Past classes ({past.Count})")])"
+                                   Value="when" ValueChanged="v => _when = v" Class="st-seg" />
+                        @if (when == "past" && past.Count > 0) { <p class="small muted" style="margin:12px 0 0">Open a past class for its notes, assignments and recording.</p> }
+                        @if (items.Count == 0)
+                        {
+                            <InlineEmpty Icon="calendar" Text="@(when == "upcoming" ? "No upcoming classes." : "No past classes yet.")" Class="st-gap" />
+                        }
+                        else
+                        {
+                            <div class="st-row-grid st-gap">@foreach (var c in items) { <ClassRow Session="c" Tz="@Tz" /> }</div>
+                        }
+                    }
+                    break;
+                case "syllabus":
+                    if (s.Chapters.Count == 0)
+                    {
+                        <StateView Title="Syllabus not added yet" Message="Your institute will add the chapters for this subject." Illustration="@Illustrations.Empty" />
+                    }
+                    else
+                    {
+                        var focus = Syllabus.FocusIndex(s.Chapters);
+                        <div class="card tight st-syllabus-progress">
+                            <div class="row-between"><strong>Syllabus</strong><span class="caption">@(s.ChapterCount == 0 ? "Not set yet" : $"{s.CompletedChapterCount} of {s.ChapterCount} chapters done")</span></div>
+                            <span class="progress-bar" role="progressbar" aria-label="Syllabus progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@((int)Math.Round(SubjectGroups.Progress(s) * 100))"><span style="width:@((SubjectGroups.Progress(s) * 100).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></span></span>
+                        </div>
+                        <ol class="st-chapters">
+                            @for (var i = 0; i < s.Chapters.Count; i++)
+                            {
+                                var c = s.Chapters[i];
+                                var number = c.ChapterId is null ? (int?)null : i + 1;
+                                var (label, tone) = Syllabus.Status(c.Status);
+                                var watchable = c.Videos.Count + c.Recordings.Count;
+                                var counts = $"{c.Sessions.Count} {(c.Sessions.Count == 1 ? "class" : "classes")}" + (watchable > 0 ? $" · {watchable} {(watchable == 1 ? "video" : "videos")}" : "");
+                                var empty = c.Sessions.Count == 0 && watchable == 0;
+                                <li class="card st-chapter st-ch-@c.Status">
+                                    @if (empty)
+                                    {
+                                        <div class="st-chapter-head">@ChapterHead(c, number, label, tone, label)</div>
+                                    }
+                                    else
+                                    {
+                                        <details open="@(i == focus)">
+                                            <summary class="st-chapter-head">@ChapterHead(c, number, label, tone, $"{label} · {counts}")<Icon Name="chevron-down" Class="chev" /></summary>
+                                            <div class="st-chapter-body">
+                                                @if (c.Sessions.Count > 0)
+                                                {
+                                                    <h4 class="st-subhead">Live classes</h4>
+                                                    <div class="stack-sm">@foreach (var x in c.Sessions) { <ClassRow Session="x" Tz="@Tz" /> }</div>
+                                                }
+                                                @if (watchable > 0)
+                                                {
+                                                    <h4 class="st-subhead">Videos</h4>
+                                                    <div class="stack-sm">
+                                                        @foreach (var v in c.Videos) { @VideoRow(v, null) }
+                                                        @foreach (var r in c.Recordings) { @RecordingRow(r, null) }
+                                                    </div>
+                                                }
+                                            </div>
+                                        </details>
+                                    }
+                                </li>
+                            }
+                        </ol>
+                    }
+                    break;
+                default:
+                    if (media.IsEmpty)
+                    {
+                        <StateView Title="No videos yet" Message="Videos for this subject unlock before or after each class, as your teacher sets them." Illustration="@Illustrations.Empty" />
+                    }
+                    else
+                    {
+                        @if (media.Ready.Count > 0)
+                        {
+                            <SectionHeader Title="Ready to watch" Count="media.Ready.Count" Level="3" Icon="play-circle" />
+                            <div class="st-row-grid">@foreach (var (v, ch) in media.Ready) { @VideoRow(v, ch) }</div>
+                        }
+                        @if (media.Recordings.Count > 0)
+                        {
+                            <SectionHeader Title="Class recordings" Count="media.Recordings.Count" Level="3" Icon="clapperboard" Tone="navy" />
+                            <div class="st-row-grid">@foreach (var (r, ch) in media.Recordings) { @RecordingRow(r, ch) }</div>
+                        }
+                        @if (media.Later.Count > 0)
+                        {
+                            <SectionHeader Title="Unlocks later" Count="media.Later.Count" Level="3" Icon="lock" Tone="slate" />
+                            <div class="st-row-grid">@foreach (var (v, ch) in media.Later) { @VideoRow(v, ch) }</div>
+                        }
+                    }
+                    break;
+            }
+        </PillTabs>
+        <MediaPlayer @bind-Item="_playing" SaveRecordingProgress="true" />
+    }
+</DataView>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [SupplyParameterFromQuery(Name = "tab")] public string? TabParam { get; set; }
+
+    private SubjectSyllabusDto? _s;
+    private ApiException? _error;
+    private string _tab = "videos";
+    private string? _when;
+    private MediaPlayer.Playable? _playing;
+    private Guid _loadedId;
+
+    // Counts live in the section headers and the Upcoming | Past switch, so the tab labels stay short on phones (as on mobile).
+    private static IReadOnlyList<PillTabs<string>.Tab> Tabs() =>
+        [new("videos", "Videos"), new("classes", "Classes"), new("syllabus", "Syllabus")];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Me is not null && _loadedId != Id) await LoadAsync();
+    }
+
+    protected override async Task LoadAsync()
+    {
+        _loadedId = Id;
+        if (TabParam is "videos" or "classes" or "syllabus") _tab = TabParam;
+        _error = null; _s = null; _when = null;
+        (_s, _error) = await Fetch(() => Api.GetAsync<SubjectSyllabusDto>($"my/subjects/{Id}"));
+    }
+
+    private string LockDetail(PrerecordedVideoDto v)
+    {
+        if (v.UnlocksAtUtc is { } at) return $"Unlocks {ClassTimes.DateTime(at, Tz)}";
+        if (v.SessionCancelled) return "Class cancelled";
+        if (v.AccessOverride == VideoAccessOverride.Locked) return "Locked by your teacher";
+        return v.AccessOverride == VideoAccessOverride.Automatic ? VideoRules.RuleText(v.UnlockRule, v.UnlockOffsetMinutes) : "Locked until around the class";
+    }
+
+    private RenderFragment ChapterHead(SyllabusChapterDto c, int? number, string label, string tone, string detail) => __builder =>
+    {
+        <span class="st-marker" aria-hidden="true">
+            @if (c.Status == "completed") { <Icon Name="check" /> }
+            else if (number is null) { <Icon Name="layers" /> }
+            else { @number }
+        </span>
+        <span class="grow">
+            <span class="st-chapter-title">@c.Title</span>
+            <span class="st-chapter-status"><i class="dot tone-@tone" aria-hidden="true"></i><span class="sr-only">Status: </span>@detail</span>
+        </span>
+    };
+
+    private RenderFragment VideoRow(PrerecordedVideoDto v, string? chapter) => __builder =>
+    {
+        var playable = VideoRules.CanPlay(v);
+        var detail = v.IsUnlocked ? (v.DurationSeconds is { } d ? VideoRules.Length(d) : "Pre-recorded video") : LockDetail(v);
+        <div class="media-row">
+            <IconTile Icon="@(v.IsUnlocked ? "play-circle" : "lock")" Tone="@(v.IsUnlocked ? "blue" : "slate")" Size="md" Class="on-fill" />
+            <div class="grow">
+                <div class="media-title">@v.Title</div>
+                <div class="caption">@string.Join(" · ", new[] { chapter, detail }.Where(x => !string.IsNullOrEmpty(x)))</div>
+            </div>
+            @if (playable)
+            {
+                <button type="button" class="btn btn-secondary btn-sm btn-pill" @onclick="() => _playing = new(v.Title, v.FileId!.Value)" aria-label="@($"Watch {v.Title}")"><Icon Name="video" /> Watch</button>
+            }
+            else { <span class="caption st-locked"><Icon Name="lock" /> Locked</span> }
+        </div>
+    };
+
+    private RenderFragment RecordingRow(RecordingDto r, string? chapter) => __builder =>
+    {
+        var parts = new List<string?> { chapter, "Class recording", r.DurationSeconds is { } d ? VideoRules.Length(d) : null, r.Completed ? "Watched" : null };
+        <div class="media-row">
+            <IconTile Icon="clapperboard" Tone="navy" Size="md" Class="on-fill" />
+            <div class="grow">
+                <div class="media-title">@r.Title</div>
+                <div class="caption">@string.Join(" · ", parts.Where(x => !string.IsNullOrEmpty(x)))</div>
+            </div>
+            @if (r.Status == RecordingStatus.Available && r.FileId is { } f)
+            {
+                <button type="button" class="btn btn-secondary btn-sm btn-pill" @onclick="() => _playing = new(r.Title, f, r.Id, r.Completed ? null : r.ResumePositionSeconds)" aria-label="@($"Watch {r.Title}")"><Icon Name="video" /> Watch</button>
+            }
+        </div>
+    };
+}

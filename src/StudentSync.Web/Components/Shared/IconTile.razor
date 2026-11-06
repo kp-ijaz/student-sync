@@ -1,0 +1,10 @@
+@* IconTile: an icon on a tinted rounded square that leads rows, tiles and section headers.
+   Tone: blue | navy | green | orange | amber | red | slate | violet | info. Size: "sm" (32), "md" (38), "" (40), "lg" (48). *@
+<span class="icon-tile tone-@Tone @Size @Class" aria-hidden="true"><Icon Name="@Icon" /></span>
+
+@code {
+    [Parameter, EditorRequired] public string Icon { get; set; } = "";
+    [Parameter] public string Tone { get; set; } = "blue";
+    [Parameter] public string Size { get; set; } = "";
+    [Parameter] public string? Class { get; set; }
+}

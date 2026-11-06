@@ -1,0 +1,77 @@
+@inherits AppComponent
+
+@* Learning goals (the student sees these on their learning plan) and staff-only observations (addendum C, I). *@
+<section class="card" aria-labelledby="notes-h">
+    <div class="card-head">
+        <div><h2 id="notes-h">Goals &amp; observations</h2><div class="caption">Goals are shown to the student. Observations stay between staff.</div></div>
+    </div>
+    <DataView Loading="_notes is null && _error is null" Error="_error" OnRetry="LoadAsync" Compact="true">
+        @if (_notes is not null)
+        {
+            <div class="stack">
+                @if (_notes.Count == 0) { <InlineEmpty Icon="check-circle" Text="No goals or observations yet." /> }
+                else
+                {
+                    <ul class="list">
+                        @foreach (var n in _notes)
+                        {
+                            <li class="row-between" style="align-items:flex-start;gap:12px">
+                                <div style="min-width:0">
+                                    <div><span class="badge @(n.Kind == StudentNoteKind.Goal ? "green" : "violet")">@(n.Kind == StudentNoteKind.Goal ? "Goal" : "Observation")</span>@if (n.SubjectName is not null) { <span class="caption" style="margin-left:8px">@n.SubjectName</span> }</div>
+                                    <div style="margin-top:4px;overflow-wrap:anywhere">@n.Text</div>
+                                    <div class="caption" style="margin-top:4px">@n.AuthorName · <LocalTime Utc="n.CreatedAtUtc" Tz="@Tz" Format="date" /></div>
+                                </div>
+                                @if (n.CanDelete) { <button class="btn btn-ghost btn-sm" @onclick="() => Delete(n)" aria-label="Delete this @(n.Kind == StudentNoteKind.Goal ? "goal" : "observation")">Delete</button> }
+                            </li>
+                        }
+                    </ul>
+                }
+                <div class="form-grid" aria-label="Add a goal or observation">
+                    <div class="field"><label for="sn-kind">Type</label>
+                        <select id="sn-kind" class="select" @bind="_kind"><option value="@StudentNoteKind.Goal">Goal (visible to the student)</option><option value="@StudentNoteKind.Observation">Observation (staff only)</option></select></div>
+                    <div class="field"><label for="sn-subject">Subject (optional)</label>
+                        <select id="sn-subject" class="select" @bind="_subjectId"><option value="">Any subject</option>@foreach (var s in _catalogue.Where(s => s.Status == CatalogStatus.Active).OrderBy(s => s.CourseName).ThenBy(s => s.Name)) { <option value="@s.Id">@s.Name (@s.CourseName)</option> }</select></div>
+                    <div class="field full"><label for="sn-text">Text</label><textarea id="sn-text" class="textarea" rows="2" maxlength="2000" @bind="_text"></textarea></div>
+                    <div class="field full form-actions" style="margin-top:0"><button class="btn btn-primary" @onclick="Add" disabled="@(Busy || string.IsNullOrWhiteSpace(_text))"><Icon Name="plus" /> Add</button></div>
+                </div>
+            </div>
+        }
+    </DataView>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public Guid StudentId { get; set; }
+
+    private List<StudentNoteDto>? _notes;
+    private ApiException? _error;
+    private List<SubjectDto> _catalogue = [];
+    private StudentNoteKind _kind = StudentNoteKind.Goal;
+    private Guid? _subjectId;
+    private string? _text;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _catalogue = (await Fetch(() => Api.GetAsync<List<SubjectDto>>("academics/subjects"))).Value ?? [];
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        (_notes, _error) = await Fetch(() => Api.GetAsync<List<StudentNoteDto>>($"students/{StudentId}/notes"));
+    }
+
+    private async Task Add()
+    {
+        if (await Run(() => Api.PostAsync<StudentNoteDto>($"students/{StudentId}/notes", new AddStudentNoteRequest(_kind, _text ?? "", _subjectId)), _kind == StudentNoteKind.Goal ? "Goal added." : "Observation added."))
+        {
+            (_text, _subjectId) = (null, null);
+            await LoadAsync();
+        }
+    }
+
+    private async Task Delete(StudentNoteDto n)
+    {
+        if (await Run(() => Api.DeleteAsync($"students/{StudentId}/notes/{n.Id}"), "Deleted.")) await LoadAsync();
+    }
+}

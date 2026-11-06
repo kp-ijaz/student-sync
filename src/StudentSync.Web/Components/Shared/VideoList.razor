@@ -1,0 +1,242 @@
+@inherits AppComponent
+@inject IConfiguration Config
+
+@* Pre-recorded class videos, for one class (SessionId set) or every class the user can see. *@
+<div class="stack">
+    @if (_playing is not null)
+    {
+        <div class="card">
+            <div class="card-head"><h2>@_playing.Title</h2><button class="btn btn-ghost btn-sm" @onclick="() => _playing = null">Close player</button></div>
+            <video src="@_src" controls controlslist="nodownload" preload="metadata" class="video-player"></video>
+            <p class="caption">Playback links expire after 30 minutes.</p>
+        </div>
+    }
+    <div class="card">
+        <div class="card-head">
+            <h2>Pre-recorded videos</h2>
+            @if (CanUpload) { <button class="btn btn-primary btn-sm" @onclick="OpenUpload"><Icon Name="upload" /> Add video</button> }
+        </div>
+        @if (SessionId is null)
+        {
+            <div class="row" style="margin-bottom:12px">
+                <input class="input" style="max-width:320px" placeholder="Search videos or classes" aria-label="Search videos" @bind="_search" @bind:after="() => Load(1)" />
+            </div>
+        }
+        <DataView Loading="_items is null && _error is null" Error="_error" OnRetry="() => Load(_page)" IsEmpty="_items?.Count == 0" EmptyTitle="No pre-recorded videos"
+                  EmptyText="@(CanUpload ? "Add a video to a class and choose when students can watch it." : "Videos your teachers add to your classes will appear here.")" EmptyIcon="video">
+            <ul class="list">
+                @foreach (var v in _items ?? [])
+                {
+                    <li class="video-row">
+                        <div class="video-icon @(v.IsUnlocked ? "open" : "")" aria-hidden="true"><Icon Name="@(v.IsUnlocked ? "video" : "lock")" /></div>
+                        <div class="grow">
+                            <strong>@v.Title</strong>
+                            <div class="caption">
+                                @if (SessionId is null) { <a href="/sessions/@v.SessionId?tab=videos">@v.SessionTitle</a><span> · </span><LocalTime Utc="v.SessionStartUtc" Tz="@Tz" /> }
+                                @if (v.DurationSeconds is { } d) { <span>@(SessionId is null ? " · " : "")@TimeSpan.FromSeconds(d).ToString(@"h\:mm\:ss")</span> }
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(v.Description)) { <div class="small muted">@v.Description</div> }
+                            <div class="row" style="margin-top:6px;gap:8px">
+                                <Badge Style="LockBadge(v)" />
+                                <span class="caption">@LockDetail(v)</span>
+                            </div>
+                        </div>
+                        <div class="video-actions">
+                            @if (v.FileId is not null) { <button class="btn btn-secondary btn-sm" @onclick="() => Play(v)"><Icon Name="video" /> @(v.IsUnlocked ? "Watch" : "Preview")</button> }
+                            @if (v.CanManage)
+                            {
+                                <label class="sr-only" for="acc-@v.Id">Access for @v.Title</label>
+                                <select id="acc-@v.Id" class="select select-sm" value="@v.AccessOverride" @onchange="e => SetAccess(v, e.Value?.ToString())">
+                                    <option value="@VideoAccessOverride.Automatic">Automatic</option>
+                                    <option value="@VideoAccessOverride.Unlocked">Unlocked now</option>
+                                    <option value="@VideoAccessOverride.Locked">Locked</option>
+                                </select>
+                                <button class="btn btn-ghost btn-sm" @onclick="() => OpenEdit(v)">Edit</button>
+                                <button class="btn btn-ghost btn-sm" @onclick="() => _deleting = v">Delete</button>
+                            }
+                        </div>
+                    </li>
+                }
+            </ul>
+            @if (SessionId is null && _paged is not null) { <Pager Page="_paged.Page" TotalPages="_paged.TotalPages" Total="_paged.TotalCount" OnPage="Load" /> }
+        </DataView>
+    </div>
+</div>
+
+<Modal @bind-Open="_formOpen" Title="@(_editing is null ? "Add pre-recorded video" : "Edit video")">
+    <div class="stack">
+        @if (_editing is null && SessionId is null)
+        {
+            <div class="field">
+                <label for="vs">Class *</label>
+                <select id="vs" class="select" @bind="_sessionId">
+                    <option value="">Choose a class</option>
+                    <optgroup label="Upcoming classes">
+                        @foreach (var s in _sessions.Where(s => s.EndUtc >= DateTime.UtcNow)) { <option value="@s.Id">@Time.Short(s.StartUtc, Tz) · @s.Title</option> }
+                    </optgroup>
+                    <optgroup label="Past classes (last 30 days)">
+                        @foreach (var s in _sessions.Where(s => s.EndUtc < DateTime.UtcNow).Reverse()) { <option value="@s.Id">@Time.Short(s.StartUtc, Tz) · @s.Title</option> }
+                    </optgroup>
+                </select>
+            </div>
+        }
+        <div class="field"><label for="vt">Title *</label><input id="vt" class="input" maxlength="200" @bind="_title" /></div>
+        <div class="field"><label for="vd">Description</label><textarea id="vd" class="input" rows="2" maxlength="2000" @bind="_description"></textarea></div>
+        <fieldset class="field">
+            <legend>When can students watch it? *</legend>
+            <div class="segmented" role="group" aria-label="Unlock rule">
+                <button type="button" aria-pressed="@(Aria.Bool(_rule == VideoUnlockRule.BeforeClass))" @onclick="() => _rule = VideoUnlockRule.BeforeClass">Before the class</button>
+                <button type="button" aria-pressed="@(Aria.Bool(_rule == VideoUnlockRule.AfterClass))" @onclick="() => _rule = VideoUnlockRule.AfterClass">After the class</button>
+            </div>
+        </fieldset>
+        <div class="field">
+            <label for="vo">@(_rule == VideoUnlockRule.BeforeClass ? "Unlock this long before the class starts" : "Unlock this long after the class ends")</label>
+            <select id="vo" class="select" @bind="_offset">
+                @foreach (var (minutes, label) in Offsets) { <option value="@minutes">@label</option> }
+            </select>
+            <span class="help">Until then students see it as locked. You can always unlock or lock it by hand.</span>
+        </div>
+        @if (_editing is null)
+        {
+            <div class="field"><label for="vm">Duration in minutes (optional)</label><input id="vm" type="number" min="0" class="input" @bind="_minutes" /></div>
+            <div class="field"><label for="vf">Video file (MP4, MOV or WebM) *</label><InputFile id="vf" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" OnChange="e => _file = e.File" /></div>
+        }
+        <div class="form-actions">
+            <button class="btn btn-secondary" @onclick="() => _formOpen = false">Cancel</button>
+            <button class="btn btn-primary" @onclick="Save" disabled="@Busy">@(Busy ? "Saving…" : _editing is null ? "Upload video" : "Save changes")</button>
+        </div>
+    </div>
+</Modal>
+
+<Modal Open="_deleting is not null" OpenChanged="o => { if (!o) _deleting = null; }" Title="Delete video?">
+    <div class="stack">
+        <p>“@_deleting?.Title” will be removed for everyone. This cannot be undone.</p>
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleting = null">Cancel</button><button class="btn btn-danger" @onclick="Delete" disabled="@Busy">Delete</button></div>
+    </div>
+</Modal>
+
+@code {
+    [Parameter] public Guid? SessionId { get; set; }
+    [Parameter] public bool CanUpload { get; set; }
+
+    private static readonly (int Minutes, string Label)[] Offsets =
+        [(0, "Immediately"), (30, "30 minutes"), (60, "1 hour"), (120, "2 hours"), (360, "6 hours"), (720, "12 hours"), (1440, "1 day"), (2880, "2 days"), (4320, "3 days"), (10080, "1 week")];
+
+    private List<PrerecordedVideoDto>? _items;
+    private PagedResult<PrerecordedVideoDto>? _paged;
+    private ApiException? _error;
+    private int _page = 1;
+    private string _search = "";
+    private PrerecordedVideoDto? _playing, _editing, _deleting;
+    private string? _src;
+    private bool _formOpen;
+    private string _title = "", _sessionId = "";
+    private string? _description;
+    private VideoUnlockRule _rule = VideoUnlockRule.AfterClass;
+    private int _offset;
+    private int? _minutes;
+    private IBrowserFile? _file;
+    private List<SessionListItemDto> _sessions = [];
+
+    protected override Task OnParametersSetAsync() => Load(1);
+
+    private async Task Load(int page)
+    {
+        _page = page;
+        if (SessionId is { } id)
+        {
+            (_items, _error) = await Fetch(() => Api.GetAsync<List<PrerecordedVideoDto>>($"sessions/{id}/videos"));
+            return;
+        }
+        (_paged, _error) = await Fetch(() => Api.GetAsync<PagedResult<PrerecordedVideoDto>>($"videos?page={page}&pageSize=20&search={Uri.EscapeDataString(_search)}"));
+        _items = _paged?.Items.ToList();
+    }
+
+    private StatusStyle LockBadge(PrerecordedVideoDto v) => v switch
+    {
+        { IsUnlocked: true, AccessOverride: VideoAccessOverride.Unlocked } => new("Unlocked by teacher", "green"),
+        { IsUnlocked: true } => new("Unlocked", "green"),
+        { AccessOverride: VideoAccessOverride.Locked } => new("Locked by teacher", "red"),
+        _ => new("Locked", "slate"),
+    };
+
+    private string LockDetail(PrerecordedVideoDto v)
+    {
+        if (v.UnlocksAtUtc is { } at) return $"Unlocks {Time.Short(at, Tz)}";
+        if (v.AccessOverride != VideoAccessOverride.Automatic) return v.CanManage ? "Manual setting — choose Automatic to follow the class time again" : "";
+        if (!v.IsUnlocked && v.SessionCancelled) return "Class cancelled";
+        if (!v.CanManage) return "";
+        var when = v.UnlockOffsetMinutes == 0 ? "" : Offsets.FirstOrDefault(o => o.Minutes == v.UnlockOffsetMinutes).Label ?? $"{v.UnlockOffsetMinutes} min";
+        return v.UnlockRule == VideoUnlockRule.BeforeClass
+            ? (when == "" ? "Opens when the class starts" : $"Opens {when} before the class")
+            : (when == "" ? "Opens when the class ends" : $"Opens {when} after the class");
+    }
+
+    private async Task Play(PrerecordedVideoDto v) => await Run(async () =>
+    {
+        _src = await Api.FileUrlAsync(v.FileId!.Value, Config["Api:PublicBaseUrl"]!);
+        _playing = v;
+    });
+
+    private async Task SetAccess(PrerecordedVideoDto v, string? value)
+    {
+        if (!Enum.TryParse<VideoAccessOverride>(value, out var access)) return;
+        var message = access switch { VideoAccessOverride.Unlocked => "Video unlocked for students.", VideoAccessOverride.Locked => "Video locked.", _ => "Video follows the class time again." };
+        await Run(() => Api.PostAsync($"videos/{v.Id}/access", new SetVideoAccessRequest(access)), message);
+        await Load(_page);
+    }
+
+    private async Task OpenUpload()
+    {
+        _editing = null; _title = ""; _description = null; _rule = VideoUnlockRule.AfterClass; _offset = 0; _minutes = null; _file = null; _sessionId = "";
+        if (SessionId is null && _sessions.Count == 0)
+        {
+            var from = DateTime.UtcNow.AddDays(-30).ToString("O");
+            _sessions = (await Fetch(() => Api.GetAsync<List<SessionListItemDto>>($"sessions?fromUtc={Uri.EscapeDataString(from)}&limit=200"))).Value?
+                .Where(s => s.Status != SessionStatus.Cancelled).OrderBy(s => s.StartUtc).ToList() ?? [];
+        }
+        _formOpen = true;
+    }
+
+    private void OpenEdit(PrerecordedVideoDto v)
+    {
+        _editing = v; _title = v.Title; _description = v.Description; _rule = v.UnlockRule; _offset = v.UnlockOffsetMinutes;
+        _formOpen = true;
+    }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_title)) { Toasts.Show("Enter a title.", ToastKind.Error); return; }
+        bool ok;
+        if (_editing is { } v)
+        {
+            ok = await Run(() => Api.PutAsync($"videos/{v.Id}", new UpdatePrerecordedVideoRequest(_title, _description, _rule, _offset, v.RowVersion)), "Video updated.");
+        }
+        else
+        {
+            var target = SessionId?.ToString() ?? _sessionId;
+            if (target == "") { Toasts.Show("Choose a class.", ToastKind.Error); return; }
+            if (_file is null) { Toasts.Show("Choose a video file.", ToastKind.Error); return; }
+            ok = await Run(async () =>
+            {
+                using var form = new MultipartFormDataContent();
+                var content = new StreamContent(_file.OpenReadStream(2_000_000_000));
+                var type = string.IsNullOrEmpty(_file.ContentType) && _file.Name.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) ? "video/quicktime" : _file.ContentType;
+                content.Headers.ContentType = new(string.IsNullOrEmpty(type) ? "application/octet-stream" : type);
+                form.Add(content, "file", _file.Name);
+                form.Add(new StringContent(_title), "title");
+                if (!string.IsNullOrWhiteSpace(_description)) form.Add(new StringContent(_description), "description");
+                form.Add(new StringContent(_rule.ToString()), "unlockRule");
+                form.Add(new StringContent(_offset.ToString()), "unlockOffsetMinutes");
+                if (_minutes is { } m) form.Add(new StringContent((m * 60).ToString()), "durationSeconds");
+                await Api.PostFormAsync($"sessions/{target}/videos", form);
+            }, "Video uploaded.");
+        }
+        if (ok) { _formOpen = false; await Load(_page); }
+    }
+
+    private async Task Delete()
+    {
+        if (_deleting is { } v && await Run(() => Api.DeleteAsync($"videos/{v.Id}"), "Video deleted.")) { _deleting = null; await Load(_page); }
+    }
+}

@@ -1,0 +1,19 @@
+@* ShortcutGrid: exactly four compact pill links in a 2×2 grid (chip-sized; never a horizontal scroller).
+   Items: four ShortcutItem(Label, Href, Icon, Tone). *@
+<nav class="shortcut-grid @Class" aria-label="@AriaLabel">
+    @foreach (var item in Items)
+    {
+        <a class="shortcut" href="@item.Href"><IconTile Icon="@item.Icon" Tone="@item.Tone" Size="sm" /><span>@item.Label</span></a>
+    }
+</nav>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ShortcutItem> Items { get; set; } = [];
+    [Parameter] public string AriaLabel { get; set; } = "Shortcuts";
+    [Parameter] public string? Class { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (Items.Count != 4) throw new ArgumentException("ShortcutGrid holds exactly four shortcuts.", nameof(Items));
+    }
+}

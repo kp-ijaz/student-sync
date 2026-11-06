@@ -1,0 +1,103 @@
+@inherits AppComponent
+
+<DataView Loading="_s is null && _error is null" Error="_error" OnRetry="Load">
+    @if (_s is not null)
+    {
+        <div class="grid grid-main">
+            <div class="stack">
+                <div class="card">
+                    <div class="card-head"><h2>AI Class Assistant</h2><Badge Style="StatusStyles.For(_s.Status)" /></div>
+                    <p>@_s.StatusDetail</p>
+                    <div class="stack-sm">
+                        <Check Ok="_s.InstitutionAiEnabled" Text="AI assistant enabled by your institution" />
+                        <Check Ok="_s.AllParticipantsConsented" Text="Every participant consented to AI processing (see Consent tab)" />
+                        <Check Ok="_s.LatestTranscriptId is not null" Text="A transcript is available" />
+                        <Check Ok="_s.LanguageModelConfigured" Text="@(_s.LanguageModelConfigured ? "AI provider configured" : "No AI provider configured for this deployment — drafts cannot be generated; manual notes still work")" />
+                    </div>
+                    <div class="btn-group" style="margin-top:16px">
+                        <button class="btn btn-primary" @onclick="Generate" disabled="@(Busy || _s.LatestTranscriptId is null || !_s.LanguageModelConfigured)"><Icon Name="sparkle" /> Generate AI draft</button>
+                    </div>
+                    <p class="caption" style="margin-top:8px">Drafts are never shown to students until you review, approve and publish them.</p>
+                </div>
+                <div class="card">
+                    <div class="card-head"><h2>Transcript</h2></div>
+                    @if (!_s.TranscriptionConfigured) { <p class="small muted">No automatic transcription provider is configured. Upload the transcript exported from your meeting tool (WebVTT .vtt, SubRip .srt or plain .txt).</p> }
+                    <div class="row">
+                        <InputFile accept=".vtt,.srt,.txt,text/vtt,text/plain" OnChange="e => _file = e.File" aria-label="Transcript file" />
+                        <select class="select" style="width:auto" @bind="_lang" aria-label="Transcript language"><option value="en">English</option><option value="ar">Arabic</option><option value="ml">Malayalam</option><option value="hi">Hindi</option></select>
+                        <button class="btn btn-secondary" @onclick="Upload" disabled="@(Busy || _file is null)"><Icon Name="upload" /> Upload transcript</button>
+                    </div>
+                    @if (_transcript is not null)
+                    {
+                        <div style="margin-top:16px;max-height:320px;overflow-y:auto" class="card tight">
+                            @if (_transcript.LowConfidenceSegments > 0) { <div class="warn-panel" style="margin-bottom:8px">@_transcript.LowConfidenceSegments segment(s) flagged as low confidence.</div> }
+                            @foreach (var seg in _transcript.Segments)
+                            {
+                                <p class="small" style="margin-bottom:6px"><span class="caption num">@TimeSpan.FromSeconds(seg.StartSeconds).ToString(@"mm\:ss")</span> <strong>@seg.Speaker</strong> @seg.Text</p>
+                            }
+                        </div>
+                        <p class="caption">@(_transcript.IsOriginal ? "Original transcript (kept unchanged)." : "Teacher-corrected copy; the original is preserved.")</p>
+                    }
+                </div>
+            </div>
+            <div class="stack">
+                <div class="card">
+                    <div class="card-head"><h2>Drafts</h2></div>
+                    <DataView IsEmpty="_s.Drafts.Count == 0" EmptyTitle="No drafts yet" EmptyIcon="sparkle">
+                        <ul class="list">@foreach (var d in _s.Drafts) { <li class="row-between"><div><a href="/ai/drafts/@d.Id">Draft v@(d.CurrentVersion)</a>@if (d.IsDemo) { <span class="badge slate">Demo content</span> }<div class="caption"><LocalTime Utc="d.CreatedAtUtc" Tz="@Tz" Format="relative" /></div></div><Badge Style="StatusStyles.For(d.Status)" /></li> }</ul>
+                    </DataView>
+                </div>
+                <div class="card">
+                    <div class="card-head"><h2>Processing jobs</h2></div>
+                    <DataView IsEmpty="_s.Jobs.Count == 0" EmptyTitle="No AI jobs yet" EmptyIcon="clock">
+                        <ul class="list">@foreach (var j in _s.Jobs) { <li><div class="row-between"><span class="small">@j.Kind · attempt @j.Attempts</span><span class="badge @(j.Status == AiJobStatus.Succeeded ? "green" : j.Status is AiJobStatus.Failed or AiJobStatus.Blocked ? "red" : "info")">@j.Status</span></div>
+                            @if (j.FailureReason is not null) { <div class="caption">@j.FailureReason</div> }</li> }</ul>
+                    </DataView>
+                </div>
+            </div>
+        </div>
+    }
+</DataView>
+
+@code {
+    [Parameter, EditorRequired] public SessionDetailDto Session { get; set; } = default!;
+    private AiSessionStatusDto? _s;
+    private TranscriptDto? _transcript;
+    private ApiException? _error;
+    private IBrowserFile? _file;
+    private string _lang = "en";
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load()
+    {
+        (_s, _error) = await Fetch(() => Api.GetAsync<AiSessionStatusDto>($"sessions/{Session.Id}/ai"));
+        if (_s?.LatestTranscriptId is { } tid) _transcript = (await Fetch(() => Api.GetAsync<TranscriptDto>($"transcripts/{tid}"))).Value;
+    }
+
+    private async Task Upload()
+    {
+        if (_file is null) return;
+        var ok = await Run(async () =>
+        {
+            using var form = new MultipartFormDataContent();
+            var content = new StreamContent(_file.OpenReadStream(5_000_000));
+            content.Headers.ContentType = new("text/plain");
+            form.Add(content, "file", _file.Name);
+            form.Add(new StringContent(_lang), "language");
+            await Api.PostFormAsync($"sessions/{Session.Id}/transcripts", form);
+        }, "Transcript uploaded.");
+        if (ok) { _file = null; await Load(); }
+    }
+
+    private async Task Generate()
+    {
+        AiJobDto? job = null;
+        if (await Run(async () => job = await Api.PostAsync<AiJobDto>($"sessions/{Session.Id}/ai/drafts", new GenerateDraftRequest(null))))
+        {
+            Toasts.Show(job!.Status == AiJobStatus.Blocked ? job.FailureReason ?? "AI processing is not available." : "AI processing started. You'll be notified when the draft is ready.",
+                job.Status == AiJobStatus.Blocked ? ToastKind.Error : ToastKind.Success);
+            await Load();
+        }
+    }
+}

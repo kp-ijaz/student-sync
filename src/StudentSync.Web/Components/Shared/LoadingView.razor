@@ -1,0 +1,10 @@
+@* LoadingView: BrandSpinner with a short label, for a whole region (Page="true" centres it in the viewport). *@
+<div class="loading-view @(Page ? "page" : "")" aria-busy="true">
+    <BrandSpinner Size="@(Page ? 64 : 48)" Label="@Label" />
+    <span aria-hidden="true">@Label…</span>
+</div>
+
+@code {
+    [Parameter] public string Label { get; set; } = "Loading";
+    [Parameter] public bool Page { get; set; }
+}

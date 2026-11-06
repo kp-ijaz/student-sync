@@ -1,0 +1,76 @@
+@page "/doubts/new"
+@attribute [Authorize(Roles = "Student")]
+@inherits AppPage
+
+<PageHeader Title="Ask a doubt" Subtitle="Your question goes to your teacher. If it isn't resolved, it's added to the agenda of your next relevant class."><Breadcrumb><a href="/doubts">Doubt Centre</a> /</Breadcrumb></PageHeader>
+<DataView Loading="_loading" Error="_error">
+<div class="card" style="max-width:820px">
+    <div class="form-grid">
+        <div class="field full"><label for="dt">Question title *</label><input id="dt" class="input" @bind="_title" maxlength="200" /></div>
+        <div class="field full"><label for="dd">Describe what you don't understand *</label><textarea id="dd" class="textarea" style="min-height:140px" @bind="_description"></textarea></div>
+        <div class="field"><label for="ds">Subject</label><select id="ds" class="select" @bind="_subjectId" @bind:after="() => _chapterId = null"><option value="">Choose…</option>@foreach (var s in _subjects) { <option value="@s.Id">@s.Name</option> }</select></div>
+        <div class="field"><label for="dc">Chapter</label><select id="dc" class="select" @bind="_chapterId"><option value="">Any</option>@foreach (var c in _subjects.FirstOrDefault(s => s.Id == _subjectId)?.Chapters ?? []) { <option value="@c.Id">@c.Title</option> }</select></div>
+        <div class="field"><label for="dsess">From which class? (optional)</label><select id="dsess" class="select" @bind="_sessionId"><option value="">Not linked to a class</option>@foreach (var s in _sessions) { <option value="@s.Id">@s.Title — @Time.Short(s.StartUtc, Tz)</option> }</select></div>
+        <div class="field"><label for="dts">Recording timestamp (mm:ss, optional)</label><input id="dts" class="input" placeholder="12:30" @bind="_timestamp" /></div>
+        <div class="field full"><label for="df">Attach a photo, PDF or voice note (optional)</label><InputFile id="df" multiple accept="image/*,application/pdf,audio/*" OnChange="Upload" />
+            @if (_files.Count > 0) { <div class="pill-list" style="margin-top:8px">@foreach (var f in _files) { <span class="badge slate">@f.FileName</span> }</div> }</div>
+        <div class="field full"><label class="check"><input type="checkbox" @bind="_private" /> Keep private (only you, your teacher and administrators can see it)</label></div>
+    </div>
+    <div class="form-actions"><a class="btn btn-secondary" href="/doubts">Cancel</a><button class="btn btn-primary" @onclick="Submit" disabled="@Busy">Send to teacher</button></div>
+</div>
+</DataView>
+
+@code {
+    [SupplyParameterFromQuery(Name = "sessionId")] public Guid? SessionParam { get; set; }
+    private bool _loading = true, _private = true;
+    private ApiException? _error;
+    private string _title = "", _description = "";
+    private string? _timestamp;
+    private Guid? _subjectId, _chapterId, _sessionId;
+    private List<SubjectDto> _subjects = [];
+    private List<SessionListItemDto> _sessions = [];
+    private readonly List<FileDto> _files = [];
+
+    protected override async Task LoadAsync()
+    {
+        try
+        {
+            _subjects = await Api.GetAsync<List<SubjectDto>>("academics/subjects");
+            _sessions = await Api.GetAsync<List<SessionListItemDto>>($"sessions?fromUtc={DateTime.UtcNow.AddDays(-60):O}&toUtc={DateTime.UtcNow.AddDays(1):O}&limit=100");
+            _sessionId = SessionParam;
+            if (_sessions.FirstOrDefault(s => s.Id == SessionParam) is { } s) _title = $"Question about {s.Title}";
+        }
+        catch (ApiException ex) { _error = ex; }
+        _loading = false;
+    }
+
+    private async Task Upload(InputFileChangeEventArgs e)
+    {
+        await Run(async () =>
+        {
+            foreach (var file in e.GetMultipleFiles(5))
+            {
+                using var form = new MultipartFormDataContent();
+                var c = new StreamContent(file.OpenReadStream(15_000_000));
+                c.Headers.ContentType = new(string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType);
+                form.Add(c, "file", file.Name);
+                form.Add(new StringContent("DoubtAttachment"), "purpose");
+                _files.Add(await Api.PostFormAsync<FileDto>("files", form));
+            }
+        });
+    }
+
+    private async Task Submit()
+    {
+        int? seconds = null;
+        if (!string.IsNullOrWhiteSpace(_timestamp))
+        {
+            var parts = _timestamp.Split(':');
+            if (parts.Length == 2 && int.TryParse(parts[0], out var m) && int.TryParse(parts[1], out var s)) seconds = m * 60 + s;
+            else { Toasts.Show("Use mm:ss for the timestamp.", ToastKind.Error); return; }
+        }
+        Guid id = default;
+        if (await Run(async () => id = (await Api.PostAsync<IdResponse>("doubts", new CreateDoubtRequest(_title, _description, _subjectId, _chapterId, _sessionId, null, seconds, _private, _files.Select(f => f.Id).ToList()))).Id, "Your doubt was sent."))
+            Nav.NavigateTo($"/doubts/{id}");
+    }
+}

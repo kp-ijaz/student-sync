@@ -1,0 +1,13 @@
+@* BrandSpinner: the Student Sync mark with its star turning and pulsing over the still book — the loading indicator
+   everywhere (DataView, route authorisation, pages). Under prefers-reduced-motion the whole mark is still. *@
+<span class="brand-spinner @Class" style="height:@(Size)px;width:@(Size * 409 / 340)px" role="status" aria-label="@Label" aria-live="polite">
+    <img src="images/brand/book.png" alt="" />
+    <img class="star" src="images/brand/star.png" alt="" />
+</span>
+
+@code {
+    /// <summary>Height of the mark in pixels.</summary>
+    [Parameter] public int Size { get; set; } = 48;
+    [Parameter] public string Label { get; set; } = "Loading";
+    [Parameter] public string? Class { get; set; }
+}

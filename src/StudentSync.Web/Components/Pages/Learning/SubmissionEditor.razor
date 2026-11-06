@@ -1,0 +1,71 @@
+@inherits AppComponent
+
+<div class="card">
+    <div class="card-head"><h2>Your submission</h2>@if (_sub is not null) { <Badge Style="StatusStyles.For(_sub.Status)" /> }</div>
+    @if (_sub?.Status == SubmissionStatus.Graded || _sub?.Status == SubmissionStatus.ReturnedForCorrection)
+    {
+        <div class="@(_sub.Status == SubmissionStatus.Graded ? "ok-panel" : "warn-panel")" style="margin-bottom:12px">
+            <strong>@(_sub.Marks) / @_sub.MaxMarks</strong> @if (_sub.Feedback is not null) { <span>— @_sub.Feedback</span> }
+        </div>
+    }
+    @if (Locked)
+    {
+        @if (!string.IsNullOrWhiteSpace(_sub?.TextAnswer)) { <p style="white-space:pre-wrap">@_sub.TextAnswer</p> }
+        @foreach (var f in _sub?.Files ?? []) { <FileButton FileId="f.Id" Label="@f.FileName" /> }
+        <p class="caption">Submitted @(_sub?.SubmittedAtUtc is { } at ? Time.Short(at, Tz) : "") @(_sub?.IsLate == true ? "(late)" : "")</p>
+    }
+    else
+    {
+        <div class="stack">
+            @if (Assignment.Status != AssignmentStatus.Published) { <div class="warn-panel">This assignment is closed.</div> }
+            else if (Assignment.DueAtUtc < DateTime.UtcNow) { <div class="warn-panel">The deadline has passed. @(Assignment.AllowLateSubmission ? "Late submissions are accepted and will be marked late." : "Late submissions are not accepted.")</div> }
+            <div class="field"><label for="ans">Answer</label><textarea id="ans" class="textarea" style="min-height:160px" @bind="_text"></textarea></div>
+            <div class="field"><label for="att">Attach files (PDF, images, Word, audio)</label><InputFile id="att" multiple OnChange="Upload" /></div>
+            @if (_files.Count > 0) { <div class="pill-list">@foreach (var f in _files) { <span class="badge removable slate"><span>@f.FileName</span><button type="button" class="chip-remove" aria-label="Remove @f.FileName" title="Remove" @onclick="() => _files.Remove(f)"><Icon Name="x" /></button></span> }</div> }
+            <div class="form-actions">
+                <button class="btn btn-secondary" @onclick="() => Save(false)" disabled="@Busy">Save draft</button>
+                <button class="btn btn-primary" @onclick="() => Save(true)" disabled="@(Busy || Assignment.Status != AssignmentStatus.Published)">Submit</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public AssignmentDetailDto Assignment { get; set; } = default!;
+    private SubmissionDto? _sub;
+    private string? _text;
+    private List<FileDto> _files = [];
+    private bool Locked => _sub is not null && (_sub.Status == SubmissionStatus.Graded || (_sub.Status == SubmissionStatus.Submitted && !Assignment.AllowResubmission));
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load()
+    {
+        _sub = (await Fetch(() => Api.GetOrDefaultAsync<SubmissionDto>($"assignments/{Assignment.Id}/my-submission"))).Value;
+        _text = _sub?.TextAnswer;
+        _files = _sub?.Files.ToList() ?? [];
+    }
+
+    private async Task Upload(InputFileChangeEventArgs e)
+    {
+        await Run(async () =>
+        {
+            foreach (var file in e.GetMultipleFiles(5))
+            {
+                using var form = new MultipartFormDataContent();
+                var c = new StreamContent(file.OpenReadStream(25_000_000));
+                c.Headers.ContentType = new(string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType);
+                form.Add(c, "file", file.Name);
+                form.Add(new StringContent("Submission"), "purpose");
+                _files.Add(await Api.PostFormAsync<FileDto>("files", form));
+            }
+        });
+    }
+
+    private async Task Save(bool submit)
+    {
+        if (await Run(() => Api.PutAsync($"assignments/{Assignment.Id}/my-submission", new SaveSubmissionRequest(_text, _files.Select(f => f.Id).ToList(), submit, _sub?.RowVersion)),
+            submit ? "Submitted. Your teacher has been notified." : "Draft saved."))
+            await Load();
+    }
+}

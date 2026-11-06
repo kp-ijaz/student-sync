@@ -1,0 +1,89 @@
+@page "/sessions/{Id:guid}"
+@attribute [Authorize]
+@inherits AppPage
+
+<DataView Loading="_s is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_s is not null && Me is not null && IsStudent)
+    {
+        @* Students: one scrolling page with the class's notes, assignments, videos and the rest (no tabs). *@
+        <PageTitle>@_s.Title · Student Sync</PageTitle>
+        <StudentClassView @key="_s.Id" Me="Me" Session="_s" Section="@TabParam" />
+    }
+    else if (_s is not null && Me is not null)
+    {
+        <PageHeader Title="@_s.Title">
+            <Breadcrumb><a href="/sessions">Sessions</a> /</Breadcrumb>
+            <Actions>
+                @if (_s.CanManage && _s.Status == SessionStatus.Scheduled) { <a class="btn btn-secondary" href="/sessions/@Id/prepare">Prepare class</a> }
+                @if (!string.IsNullOrEmpty(_s.MeetingUrl) && _s.Status is SessionStatus.Scheduled or SessionStatus.Live)
+                {
+                    <a class="btn btn-accent" href="@_s.MeetingUrl" target="_blank" rel="noopener noreferrer"><Icon Name="video" /> Join class</a>
+                }
+            </Actions>
+        </PageHeader>
+        <div class="row" style="margin:-12px 0 20px">
+            <Badge Style="StatusStyles.For(_s.SessionType)" /><Badge Style="StatusStyles.For(_s.Status)" />
+            <span class="small"><strong><LocalTime Utc="_s.StartUtc" Tz="@Tz" />–@Time.Clock(_s.EndUtc, Tz)</strong> (@Tz)</span>
+            @if (_s.TimeZoneId != Tz) { <span class="small muted">Organiser time: @Time.Short(_s.StartUtc, _s.TimeZoneId) (@_s.TimeZoneId)</span> }
+        </div>
+        @if (_s.Status == SessionStatus.Cancelled) { <div class="warn-panel" style="margin-bottom:16px">This session was cancelled. @_s.CancellationReason</div> }
+
+        <div class="tabs" role="tablist">
+            @foreach (var (key, label) in Tabs)
+            {
+                <button role="tab" aria-selected="@(Aria.Bool(_tab == key))" @onclick="() => _tab = key">@label</button>
+            }
+        </div>
+        @switch (_tab)
+        {
+            case "overview": <OverviewTab Me="Me" Session="_s" OnChanged="LoadAsync" />; break;
+            case "attendance": <AttendanceTab Me="Me" Session="_s" OnChanged="LoadAsync" />; break;
+            case "notes": <NotesTab Me="Me" Session="_s" />; break;
+            case "materials": <MaterialsTab Me="Me" Session="_s" />; break;
+            case "videos": <VideoList Me="Me" SessionId="_s.Id" CanUpload="_s.CanManage" />; break;
+            case "recordings": <RecordingsTab Me="Me" Session="_s" />; break;
+            case "work": <WorkTab Me="Me" Session="_s" />; break;
+            case "ai": <AiTab Me="Me" Session="_s" />; break;
+            case "consent": <ConsentTab Me="Me" Session="_s" />; break;
+            case "history": <HistoryTab Me="Me" Session="_s" />; break;
+        }
+    }
+</DataView>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [SupplyParameterFromQuery(Name = "tab")] public string? TabParam { get; set; }
+    private SessionDetailDto? _s;
+    private ApiException? _error;
+    private string _tab = "overview";
+
+    private IEnumerable<(string, string)> Tabs
+    {
+        get
+        {
+            yield return ("overview", "Overview");
+            yield return ("videos", "Videos");
+            yield return ("attendance", "Attendance");
+            yield return ("notes", "Notes");
+            yield return ("materials", "Materials");
+            yield return ("recordings", "Recordings");
+            yield return ("work", "Assignments & doubts");
+            if (_s?.CanManage == true) yield return ("ai", "AI recap");
+            yield return ("consent", "Consent");
+            yield return ("history", "History");
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (TabParam is { Length: > 0 }) _tab = TabParam;
+        if (Me is not null && _loadedId != Id) await LoadAsync();
+    }
+
+    private Guid _loadedId;
+    protected override async Task LoadAsync()
+    {
+        _loadedId = Id;
+        (_s, _error) = await Fetch(() => Api.GetAsync<SessionDetailDto>($"sessions/{Id}"));
+    }
+}

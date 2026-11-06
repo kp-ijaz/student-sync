@@ -1,0 +1,10 @@
+<div class="bar-row" style="grid-template-columns:160px 1fr 110px">
+    <span class="small">@Label</span>
+    <div class="progress-bar"><span style="width:@(Limit == 0 ? 0 : Math.Min(100, 100.0 * Used / Limit))%;background:@(Limit > 0 && Used >= Limit * 0.9 ? "var(--ss-warning)" : "var(--ss-blue)")"></span></div>
+    <span class="small num" style="text-align:end">@Used / @Limit</span>
+</div>
+@code {
+    [Parameter] public string Label { get; set; } = "";
+    [Parameter] public int Used { get; set; }
+    [Parameter] public int Limit { get; set; }
+}

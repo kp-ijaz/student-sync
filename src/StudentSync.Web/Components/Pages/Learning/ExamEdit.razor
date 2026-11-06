@@ -1,0 +1,142 @@
+@page "/exams/new"
+@page "/exams/{Id:guid}/edit"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher")]
+@inherits AppPage
+
+<PageHeader Title="@(Id is null ? (_purpose == ExamPurpose.Diagnostic ? "New diagnostic assessment" : "New exam") : "Edit exam")" Subtitle="@(_purpose == ExamPurpose.Diagnostic ? "A short entry test to find the subjects and chapters a student needs help with. Results feed the student's learning plan." : null)"><Breadcrumb><a href="/exams">Exams</a> /</Breadcrumb></PageHeader>
+<DataView Loading="_loading" Error="_error">
+<div class="grid grid-main">
+    <div class="card">
+        <div class="form-grid">
+            <div class="field full"><label for="et">Title *</label><input id="et" class="input" @bind="_title" /></div>
+            <div class="field"><label for="ep">Purpose</label><select id="ep" class="select" @bind="_purpose"><option value="@ExamPurpose.Regular">Exam or quiz</option><option value="@ExamPurpose.Diagnostic">Diagnostic (entry assessment)</option></select>
+                <span class="help">@(_purpose == ExamPurpose.Diagnostic ? "Questions may come from several subjects; answers can be entered from a paper sheet." : "A timed exam taken online.")</span></div>
+            <div class="field"><label for="es">@(_purpose == ExamPurpose.Diagnostic ? "Main subject *" : "Subject *")</label><select id="es" class="select" @bind="_subjectId" @bind:after="SubjectChanged"><option value="">Choose…</option>@foreach (var s in _subjects.OrderBy(s => s.CourseName).ThenBy(s => s.Name)) { <option value="@s.Id">@s.Name (@s.CourseName)</option> }</select></div>
+            @if (_purpose == ExamPurpose.Diagnostic)
+            {
+                <div class="field"><label for="eg">Class</label><select id="eg" class="select" @bind="_gradeId"><option value="">—</option>@foreach (var g in _grades) { <option value="@g.Id">@g.Name</option> }</select></div>
+                <div class="field"><label for="ecu">Syllabus</label><select id="ecu" class="select" @bind="_curriculumId"><option value="">—</option>@foreach (var c in _curricula) { <option value="@c.Id">@c.Name</option> }</select></div>
+            }
+            @if (IsAdmin)
+            {
+                <div class="field"><label for="etc">Teacher who runs it @(_purpose == ExamPurpose.Diagnostic ? "*" : "")</label><select id="etc" class="select" @bind="_teacherId"><option value="">From the linked session or batch</option>@foreach (var t in _teachers) { <option value="@t.Id">@t.FullName</option> }</select></div>
+            }
+            <div class="field full"><span class="label">Students</span>
+                <input class="input" style="max-width:320px;margin-bottom:8px" placeholder="Search students to add" aria-label="Search students" @bind="_studentSearch" @bind:after="SearchStudents" />
+                @if (_studentIds.Count > 0) { <div class="pill-list" style="margin-bottom:8px">@foreach (var s in _studentIds) { <span class="badge removable blue"><span>@(_studentNames.GetValueOrDefault(s, "Student"))</span><button type="button" class="chip-remove" aria-label="Remove @(_studentNames.GetValueOrDefault(s, "student"))" title="Remove" @onclick="() => _studentIds.Remove(s)"><Icon Name="x" /></button></span> }</div> }
+                @if (_studentHits.Count > 0) { <ul class="list" style="max-height:180px;overflow:auto">@foreach (var s in _studentHits.Where(h => !_studentIds.Contains(h.Id)).Take(20)) { <li class="row-between"><span>@s.Name <span class="caption">@s.Detail</span></span><button type="button" class="btn btn-ghost btn-sm" @onclick="() => AddStudent(s)">Add</button></li> }</ul> }
+                <span class="help">Chosen students receive it directly. Otherwise a batch or session below decides who receives it.</span></div>
+            <div class="field"><label for="eb">Batch (recipients)</label><select id="eb" class="select" @bind="_batchId"><option value="">None</option>@foreach (var b in _batches) { <option value="@b.Id">@b.Name</option> }</select>
+                <span class="help">Or link a session below; its participants receive the exam.</span></div>
+            <div class="field"><label for="ess">Session</label><select id="ess" class="select" @bind="_sessionId"><option value="">None</option>@foreach (var s in _sessions) { <option value="@s.Id">@s.Title — @Time.Short(s.StartUtc, Tz)</option> }</select></div>
+            <div class="field"><label for="eo">Opens (@Tz)</label><input id="eo" type="datetime-local" class="input" @bind="_opens" /></div>
+            <div class="field"><label for="ec">Closes (@Tz)</label><input id="ec" type="datetime-local" class="input" @bind="_closes" /></div>
+            <div class="field"><label for="ed">Duration (minutes)</label><input id="ed" type="number" min="1" class="input" @bind="_duration" /></div>
+            <div class="field"><label for="ea">Attempts allowed</label><input id="ea" type="number" min="1" max="10" class="input" @bind="_attempts" /></div>
+            <div class="field full"><label class="check"><input type="checkbox" @bind="_shuffle" /> Shuffle question order for each student</label></div>
+            <div class="field full"><label for="ei">Instructions</label><textarea id="ei" class="textarea" @bind="_instructions"></textarea></div>
+        </div>
+        <div class="form-actions"><a class="btn btn-secondary" href="/exams">Cancel</a><button class="btn btn-primary" @onclick="Save" disabled="@Busy">Save draft</button></div>
+    </div>
+    <div class="card">
+        <div class="card-head"><div><h2>Questions (@_picked.Count · @_pickedMarks.Values.Sum() marks)</h2>@if (_purpose == ExamPurpose.Diagnostic) { <div class="caption">Pick a few basic questions per subject and chapter; the breakdown follows the question's chapter.</div> }</div></div>
+        @if (_purpose == ExamPurpose.Diagnostic)
+        {
+            <div class="field" style="margin-bottom:12px"><label for="ebs">Show questions from</label><select id="ebs" class="select" @bind="_bankSubject" @bind:after="LoadQuestions"><option value="">Choose a subject…</option>@foreach (var s in _subjects.OrderBy(s => s.CourseName).ThenBy(s => s.Name)) { <option value="@s.Id">@s.Name (@s.CourseName)</option> }</select></div>
+        }
+        <DataView IsEmpty="_bank.Count == 0" EmptyTitle="No questions for this subject" EmptyText="Add questions in the question bank first." EmptyIcon="database">
+            <ul class="list">@foreach (var q in _bank) { <li><label class="check" style="align-items:flex-start"><input type="checkbox" checked="@_picked.Contains(q.Id)" @onchange="e => Pick(q, e.Value is true)" /> <span>@q.Stem <span class="caption">(@q.Type, @q.DefaultMarks@(q.ChapterTitle is null ? "" : $", {q.ChapterTitle}"))</span></span></label></li> }</ul>
+        </DataView>
+        @if (_picked.Any(p => _bank.All(b => b.Id != p))) { <p class="caption" style="margin-top:8px">@_picked.Count(p => _bank.All(b => b.Id != p)) chosen question(s) from other subjects are kept.</p> }
+    </div>
+</div>
+</DataView>
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+    [SupplyParameterFromQuery(Name = "purpose")] public string? PurposeQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "studentId")] public Guid? StudentQuery { get; set; }
+    private bool _loading = true, _shuffle;
+    private ExamPurpose _purpose = ExamPurpose.Regular;
+    private Guid? _gradeId, _curriculumId, _teacherId, _bankSubject;
+    private List<GradeLevelDto> _grades = [];
+    private List<CurriculumDto> _curricula = [];
+    private List<TeacherDto> _teachers = [];
+    private string _studentSearch = "";
+    private List<LookupItem> _studentHits = [];
+    private readonly List<Guid> _studentIds = [];
+    private readonly Dictionary<Guid, string> _studentNames = [];
+    private readonly Dictionary<Guid, decimal> _pickedMarks = [];
+    private ApiException? _error;
+    private string _title = "";
+    private string? _instructions;
+    private Guid? _subjectId, _batchId, _sessionId;
+    private DateTime _opens = DateTime.Now.Date.AddDays(1).AddHours(17), _closes = DateTime.Now.Date.AddDays(8).AddHours(17);
+    private int _duration = 30, _attempts = 1;
+    private List<SubjectDto> _subjects = [];
+    private List<BatchDto> _batches = [];
+    private List<SessionListItemDto> _sessions = [];
+    private List<QuestionDto> _bank = [];
+    private readonly List<Guid> _picked = [];
+
+    protected override async Task LoadAsync()
+    {
+        try
+        {
+            _subjects = await Api.GetAsync<List<SubjectDto>>("academics/subjects");
+            _batches = await Api.GetAsync<List<BatchDto>>("academics/batches");
+            _sessions = await Api.GetAsync<List<SessionListItemDto>>($"sessions?fromUtc={DateTime.UtcNow.AddDays(-7):O}&toUtc={DateTime.UtcNow.AddDays(60):O}&limit=200");
+            _grades = await Api.GetAsync<List<GradeLevelDto>>("academics/grades");
+            _curricula = await Api.GetAsync<List<CurriculumDto>>("academics/curricula");
+            if (IsAdmin) _teachers = (await Api.GetAsync<PagedResult<TeacherDto>>("teachers?pageSize=100&status=Active")).Items.ToList();
+            if (Id is null)
+            {
+                if (string.Equals(PurposeQuery, "Diagnostic", StringComparison.OrdinalIgnoreCase)) { _purpose = ExamPurpose.Diagnostic; _duration = 60; _closes = DateTime.Now.Date.AddDays(30).AddHours(17); }
+                if (StudentQuery is { } sq)
+                {
+                    var s = (await Fetch(() => Api.GetAsync<StudentProfileDto>($"students/{sq}"))).Value;
+                    if (s is not null) { _studentIds.Add(sq); _studentNames[sq] = s.Student.FullName; if (_title.Length == 0 && _purpose == ExamPurpose.Diagnostic) _title = $"Entry diagnostic — {s.Student.FullName}"; }
+                }
+            }
+            if (Id is { } id)
+            {
+                var e = await Api.GetAsync<ExamDetailDto>($"exams/{id}");
+                (_title, _instructions, _subjectId, _batchId, _sessionId, _duration, _attempts, _shuffle) = (e.Title, e.Instructions, e.SubjectId, e.BatchId, e.SessionId, e.DurationMinutes, e.MaxAttempts, e.ShuffleQuestions);
+                (_purpose, _gradeId, _curriculumId, _teacherId) = (e.Purpose, e.GradeLevelId, e.CurriculumId, e.TeacherId);
+                (_opens, _closes) = (Time.ToLocal(e.OpensAtUtc, Tz), Time.ToLocal(e.ClosesAtUtc, Tz));
+                foreach (var q in e.Questions.OrderBy(q => q.SortOrder)) { _picked.Add(q.QuestionId); _pickedMarks[q.QuestionId] = q.Marks; }
+                if (e.BatchId is null && e.SessionId is null) foreach (var r in e.Recipients) { _studentIds.Add(r.Id); _studentNames[r.Id] = r.Name; }
+                _bankSubject = _subjectId;
+                await LoadQuestions();
+            }
+        }
+        catch (ApiException ex) { _error = ex; }
+        _loading = false;
+    }
+
+    private async Task SubjectChanged() { _bankSubject = _subjectId; await LoadQuestions(); }
+    private async Task LoadQuestions()
+    {
+        var subject = _purpose == ExamPurpose.Diagnostic ? _bankSubject : _subjectId;
+        _bank = subject is null ? [] : (await Fetch(() => Api.GetAsync<PagedResult<QuestionDto>>($"questions?subjectId={subject}&pageSize=100"))).Value?.Items.ToList() ?? [];
+    }
+    private void Pick(QuestionDto q, bool on)
+    {
+        if (on) { if (!_picked.Contains(q.Id)) _picked.Add(q.Id); _pickedMarks[q.Id] = q.DefaultMarks; }
+        else { _picked.Remove(q.Id); _pickedMarks.Remove(q.Id); }
+    }
+    private async Task SearchStudents() => _studentHits = string.IsNullOrWhiteSpace(_studentSearch) ? [] : (await Fetch(() => Api.GetAsync<List<LookupItem>>($"students/lookup?search={Uri.EscapeDataString(_studentSearch)}"))).Value ?? [];
+    private void AddStudent(LookupItem s) { if (!_studentIds.Contains(s.Id)) _studentIds.Add(s.Id); _studentNames[s.Id] = s.Name; }
+
+    private DateTime Utc(DateTime local) => TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), TimeZoneInfo.FindSystemTimeZoneById(Tz));
+
+    private async Task Save()
+    {
+        if (_subjectId is not { } subject) { Toasts.Show("Choose a subject.", ToastKind.Error); return; }
+        var req = new SaveExamRequest(_title, _instructions, subject, _sessionId, _batchId, Utc(_opens), Utc(_closes), _duration, _attempts, _shuffle, _picked.Select(p => new ExamQuestionSelection(p, null)).ToList(),
+            _studentIds.Count > 0 ? _studentIds.ToList() : null, _purpose, _purpose == ExamPurpose.Diagnostic ? _gradeId : null, _purpose == ExamPurpose.Diagnostic ? _curriculumId : null, IsAdmin ? _teacherId : null);
+        Guid id = Id ?? Guid.Empty;
+        if (await Run(async () => id = Id is null ? (await Api.PostAsync<IdResponse>("exams", req)).Id : (await Api.PutAsync<IdResponse>($"exams/{Id}", req)).Id, "Exam saved as draft."))
+            Nav.NavigateTo($"/exams/{id}");
+    }
+}

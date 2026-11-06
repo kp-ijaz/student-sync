@@ -1,0 +1,99 @@
+@inherits AppComponent
+@inject IJSRuntime JS
+@inject IConfiguration Config
+
+<div class="stack">
+    @if (_playing is not null)
+    {
+        <div class="card">
+            <div class="card-head"><h2>@_playing.Title</h2><button class="btn btn-ghost btn-sm" @onclick="() => _playing = null">Close player</button></div>
+            <video @ref="_video" src="@_src" controls preload="metadata" style="width:100%;max-height:520px;border-radius:12px;background:#000" @onpause="() => SaveProgress(false)" @onended="() => SaveProgress(true)"></video>
+            <p class="caption">Playback links expire after 30 minutes. Your position is saved so you can resume later; viewing data is never used to rank students.</p>
+        </div>
+    }
+    <div class="card">
+        <div class="card-head"><h2>Recordings</h2>
+            @if (Session.CanManage) { <button class="btn btn-primary btn-sm" @onclick="() => _upload = true"><Icon Name="upload" /> Upload recording</button> }</div>
+        <DataView Loading="_items is null && _error is null" Error="_error" OnRetry="Load" IsEmpty="_items?.Count == 0" EmptyTitle="No recordings" EmptyText="Recordings appear here only when one has been uploaded with the participants' consent." EmptyIcon="video">
+            <ul class="list">
+                @foreach (var r in _items ?? [])
+                {
+                    <li class="row-between">
+                        <div><strong>@r.Title</strong>
+                            <div class="caption">@(r.DurationSeconds is { } d ? TimeSpan.FromSeconds(d).ToString(@"h\:mm\:ss") : "Duration unknown") · added <LocalTime Utc="r.CreatedAtUtc" Tz="@Tz" Format="date" /> · kept until <LocalTime Utc="r.RetainUntilUtc" Tz="@Tz" Format="date" />
+                                @if (r.Completed) { <span> · watched</span> } else if (r.ResumePositionSeconds is > 0) { <span> · resume at @TimeSpan.FromSeconds(r.ResumePositionSeconds.Value).ToString(@"m\:ss")</span> }</div></div>
+                        <div class="row">
+                            @if (r.Status == RecordingStatus.Available && r.FileId is not null) { <button class="btn btn-secondary btn-sm" @onclick="() => Play(r)"><Icon Name="video" /> Play</button> }
+                            else { <Badge Style='new StatusStyle(r.Status == RecordingStatus.Pending ? "Media not available" : r.Status.ToString(), "slate")' /> }
+                            @if (Session.CanManage) { <button class="btn btn-ghost btn-sm" @onclick="() => Delete(r)">Delete</button> }
+                        </div>
+                    </li>
+                }
+            </ul>
+        </DataView>
+    </div>
+</div>
+
+<Modal @bind-Open="_upload" Title="Upload recording">
+    <div class="stack">
+        <div class="info-panel">Recording uploads require your institution to allow recording and every participant (or their guardian) to have consented. Check the Consent tab first.</div>
+        <div class="field"><label for="rt">Title *</label><input id="rt" class="input" @bind="_title" /></div>
+        <div class="field"><label for="rd">Duration in minutes (optional)</label><input id="rd" type="number" class="input" @bind="_minutes" /></div>
+        <div class="field"><label for="rf">Video or audio file (MP4, WebM, MP3, M4A, WAV)</label><InputFile id="rf" accept="video/*,audio/*" OnChange="e => _file = e.File" /></div>
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _upload = false">Cancel</button><button class="btn btn-primary" @onclick="Upload" disabled="@Busy">@(Busy ? "Uploading…" : "Upload")</button></div>
+    </div>
+</Modal>
+
+@code {
+    [Parameter, EditorRequired] public SessionDetailDto Session { get; set; } = default!;
+    private List<RecordingDto>? _items;
+    private ApiException? _error;
+    private RecordingDto? _playing;
+    private string? _src;
+    private ElementReference _video;
+    private bool _upload;
+    private string _title = "";
+    private int? _minutes;
+    private IBrowserFile? _file;
+
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load() { var (v, e) = await Fetch(() => Api.GetAsync<List<RecordingDto>>($"sessions/{Session.Id}/recordings")); _items = v; _error = e; }
+
+    private async Task Play(RecordingDto r)
+    {
+        await Run(async () =>
+        {
+            var link = await Api.GetAsync<FileLinkDto>($"files/{r.FileId}/link");
+            _src = Config["Api:PublicBaseUrl"]!.TrimEnd('/') + link.Url + (r.ResumePositionSeconds is > 0 && !r.Completed ? $"#t={r.ResumePositionSeconds}" : "");
+            _playing = r;
+        });
+    }
+
+    private async Task SaveProgress(bool completed = false)
+    {
+        if (_playing is null || Me.Role != UserRole.Student) return;
+        var position = await JS.InvokeAsync<double>("ss.currentTime", _video);
+        try { await Api.PostAsync($"recordings/{_playing.Id}/progress", new RecordingProgressRequest((int)position, completed)); } catch (ApiException) { }
+    }
+
+    private async Task Upload()
+    {
+        if (_file is null) { Toasts.Show("Choose a file.", ToastKind.Error); return; }
+        var ok = await Run(async () =>
+        {
+            using var form = new MultipartFormDataContent();
+            var content = new StreamContent(_file.OpenReadStream(2_000_000_000));
+            content.Headers.ContentType = new(string.IsNullOrEmpty(_file.ContentType) ? "application/octet-stream" : _file.ContentType);
+            form.Add(content, "file", _file.Name);
+            form.Add(new StringContent(_title), "title");
+            if (_minutes is { } m) form.Add(new StringContent((m * 60).ToString()), "durationSeconds");
+            await Api.PostFormAsync($"sessions/{Session.Id}/recordings", form);
+        }, "Recording uploaded. Participants have been notified.");
+        if (ok) { _upload = false; await Load(); }
+    }
+
+    private async Task Delete(RecordingDto r)
+    {
+        if (await Run(() => Api.DeleteAsync($"recordings/{r.Id}"), "Recording deleted.")) await Load();
+    }
+}

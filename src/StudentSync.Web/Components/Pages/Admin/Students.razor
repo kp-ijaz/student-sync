@@ -1,0 +1,101 @@
+@page "/admin/students"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher")]
+@inherits AppPage
+
+<PageHeader Title="Students" Subtitle="@(IsAdmin ? "Everyone enrolled at your institution." : "Students you teach in any session, batch or private arrangement.")">
+    <Actions>@if (IsAdmin) { <button class="btn btn-primary" @onclick="New"><Icon Name="plus" /> Add student</button> }</Actions>
+</PageHeader>
+<div class="card">
+    <div class="row" style="margin-bottom:16px">
+        <input class="input" style="max-width:320px" placeholder="Search name, email or code" aria-label="Search students" @bind="_search" @bind:after="() => Load(1)" />
+        <select class="select" style="max-width:180px" @bind="_status" @bind:after="() => Load(1)" aria-label="Status"><option value="">Any status</option>@foreach (var s in Enum.GetValues<PersonStatus>()) { <option value="@s">@StatusStyles.For(s).Label</option> }</select>
+    </div>
+    <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0" EmptyTitle="No students found" EmptyIcon="users">
+        <div class="table-wrap"><table class="table stack-mobile">
+            <thead><tr><th>Name</th><th>Code</th><th>Class</th><th>Syllabus</th><th>Status</th><th></th></tr></thead>
+            <tbody>@foreach (var s in _page?.Items ?? [])
+            {
+                <tr><td data-label="Name"><a href="/students/@s.Id"><strong>@s.FullName</strong></a><div class="caption">@s.Email</div></td><td data-label="Code">@s.StudentCode</td><td data-label="Class">@(s.GradeLevelName ?? "—")</td>
+                    <td data-label="Syllabus" class="small">@(s.CurriculumName ?? "—")</td><td data-label="Status"><Badge Style="StatusStyles.For(s.Status)" /></td>
+                    <td>@if (IsAdmin) { <button class="btn btn-ghost btn-sm" @onclick="() => Edit(s)">Edit</button> }<a class="btn btn-ghost btn-sm" href="/sessions/new?type=OneToOne&studentId=@s.Id">Schedule 1:1</a></td></tr>
+            }</tbody>
+        </table></div>
+        @if (_page is not null) { <Pager Page="_page.Page" TotalPages="_page.TotalPages" Total="_page.TotalCount" OnPage="Load" /> }
+    </DataView>
+</div>
+
+<Modal @bind-Open="_open" Title="@(_editId is null ? "Add student" : "Edit student")">
+    <div class="form-grid">
+        @if (_editId is not null)
+        {
+            <div class="field full"><span class="label">Profile photo</span>
+                <PhotoEditor Name="@_name" PhotoUrl="@_photoUrl" Upload="UploadPhoto" Remove="RemovePhoto" OnChanged="PhotoChanged" /></div>
+        }
+        <div class="field full"><label for="sn">Full name *</label><input id="sn" class="input" @bind="_name" /></div>
+        @if (_editId is null) { <div class="field full"><label for="se">Email *</label><input id="se" type="email" class="input" @bind="_email" /></div> }
+        <div class="field"><label for="sc">Student code *</label><input id="sc" class="input" @bind="_code" /></div>
+        <div class="field"><label for="sg">Class / grade</label><select id="sg" class="select" @bind="_grade"><option value="">—</option>@foreach (var g in _grades) { <option value="@g.Id">@g.Name</option> }</select></div>
+        <div class="field"><label for="scu">Syllabus</label><select id="scu" class="select" @bind="_curriculum"><option value="">—</option>@foreach (var c in _curricula.Where(c => c.Status == CatalogStatus.Active || c.Id == _curriculum)) { <option value="@c.Id">@c.Name</option> }</select>@if (_curricula.Count == 0) { <span class="help">Add syllabi (NCERT, Kerala State…) under <a href="/admin/academics">Academics ▸ Syllabi</a>.</span> }</div>
+        <div class="field"><label for="say">Academic year</label><select id="say" class="select" @bind="_year"><option value="">—</option>@foreach (var y in _years) { <option value="@y.Id">@y.Name@(y.IsCurrent ? " (current)" : "")</option> }</select></div>
+        <div class="field"><label for="ss">School (optional)</label><input id="ss" class="input" @bind="_school" /></div>
+        <div class="field"><label for="stz">Time zone</label><TimeZoneSelect Id="stz" @bind-Value="_tz" /></div>
+        @if (_editId is not null) { <div class="field"><label for="sst">Status</label><select id="sst" class="select" @bind="_pstatus">@foreach (var s in Enum.GetValues<PersonStatus>()) { <option value="@s">@StatusStyles.For(s).Label</option> }</select></div> }
+        <div class="field full"><span class="help">Collect only what tuition needs. No date of birth or home address is stored.</span></div>
+    </div>
+    <div class="form-actions">
+        @if (_editId is not null) { <button class="btn btn-ghost" style="margin-right:auto" @onclick="ResetPassword" disabled="@Busy"><Icon Name="key" /> Reset password</button> }
+        <button class="btn btn-secondary" @onclick="() => _open = false">Cancel</button><button class="btn btn-primary" @onclick="Save" disabled="@Busy">Save</button></div>
+</Modal>
+<TempPasswordDialog @bind-Password="_tempPassword" Title="@_tempTitle" />
+
+@code {
+    private PagedResult<StudentDto>? _page;
+    private ApiException? _error;
+    private List<GradeLevelDto> _grades = [];
+    private List<CurriculumDto> _curricula = [];
+    private List<AcademicYearDto> _years = [];
+    private string _search = "", _status = "", _name = "", _email = "", _code = "", _tz = "UTC";
+    private string? _school, _tempPassword, _photoUrl;
+    private string _tempTitle = "Account created";
+    private Guid? _editId, _grade, _curriculum, _year;
+    private PersonStatus _pstatus;
+    private bool _open;
+
+    protected override async Task LoadAsync()
+    {
+        _grades = (await Fetch(() => Api.GetAsync<List<GradeLevelDto>>("academics/grades"))).Value ?? [];
+        _curricula = (await Fetch(() => Api.GetAsync<List<CurriculumDto>>("academics/curricula"))).Value ?? [];
+        _years = (await Fetch(() => Api.GetAsync<List<AcademicYearDto>>("academics/years"))).Value ?? [];
+        await Load(1);
+    }
+    private async Task Load(int p) => (_page, _error) = await Fetch(() => Api.GetAsync<PagedResult<StudentDto>>($"students?page={p}&pageSize=25&search={Uri.EscapeDataString(_search)}" + (_status == "" ? "" : $"&status={_status}")));
+    private void New()
+    {
+        (_editId, _name, _email, _code, _grade, _school, _tz) = (null, "", "", "", null, null, Tz);
+        (_curriculum, _year) = (null, _years.FirstOrDefault(y => y.IsCurrent)?.Id);
+        _tempTitle = "Account created"; _open = true;
+    }
+    private void Edit(StudentDto s) { (_editId, _name, _code, _grade, _school, _tz, _pstatus, _photoUrl) = (s.Id, s.FullName, s.StudentCode, s.GradeLevelId, s.SchoolName, s.TimeZoneId, s.Status, s.PhotoUrl); (_curriculum, _year) = (s.CurriculumId, s.AcademicYearId); _open = true; }
+    private Task UploadPhoto(MultipartFormDataContent form) => Api.PutFormAsync($"students/{_editId}/photo", form);
+    private Task RemovePhoto() => Api.DeleteAsync($"students/{_editId}/photo");
+    // The photo is saved immediately (separately from the form); refresh the list to show the stored result.
+    private async Task PhotoChanged(bool _)
+    {
+        await Load(_page?.Page ?? 1);
+        _photoUrl = _page?.Items.FirstOrDefault(x => x.Id == _editId)?.PhotoUrl;
+    }
+    // The new temporary password is shown once in the dialog and never stored on the client.
+    private async Task ResetPassword()
+    {
+        if (await Run(async () => { _tempTitle = "Temporary password issued"; _tempPassword = (await Api.PostAsync<TemporaryPasswordResponse>($"students/{_editId}/password-reset", null)).TemporaryPassword; })) _open = false;
+    }
+    private async Task Save()
+    {
+        var ok = await Run(async () =>
+        {
+            if (_editId is null) _tempPassword = (await Api.PostAsync<CreatedPersonResponse>("students", new CreateStudentRequest(_name, _email, _code, _grade, _school, _tz, _curriculum, _year))).TemporaryPassword;
+            else await Api.PutAsync($"students/{_editId}", new UpdateStudentRequest(_name, _code, _grade, _school, _pstatus, _tz, _curriculum, _year));
+        }, "Student saved.");
+        if (ok) { _open = false; await Load(_page?.Page ?? 1); }
+    }
+}

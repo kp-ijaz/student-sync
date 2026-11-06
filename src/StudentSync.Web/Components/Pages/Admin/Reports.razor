@@ -1,0 +1,51 @@
+@page "/admin/reports"
+@attribute [Authorize(Roles = "InstitutionAdmin")]
+@inherits AppPage
+@inject IJSRuntime JS
+
+<PageHeader Title="Reports" Subtitle="All figures are calculated from recorded sessions, attendance, doubts and assignments.">
+    <Actions><button class="btn btn-secondary" @onclick="ExportCsv"><Icon Name="download" /> Attendance CSV</button></Actions>
+</PageHeader>
+<div class="card" style="margin-bottom:16px">
+    <div class="row">
+        <div class="field"><label for="rf">From</label><input id="rf" type="date" class="input" @bind="_from" /></div>
+        <div class="field"><label for="rt">To</label><input id="rt" type="date" class="input" @bind="_to" /></div>
+        <div class="field"><label for="rm">Teaching mode</label><select id="rm" class="select" @bind="_type"><option value="">All</option>@foreach (var t in Enum.GetValues<SessionType>()) { <option value="@t">@StatusStyles.For(t).Label</option> }</select></div>
+        <div class="field" style="align-self:flex-end"><button class="btn btn-primary" @onclick="LoadAsync">Apply</button></div>
+    </div>
+</div>
+<DataView Loading="_r is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_r is not null)
+    {
+        <div class="stat-grid" style="margin-bottom:16px">
+            <StatCard Icon="calendar" Tone="info" Label="Sessions held" Value="@_r.SessionsByType.Sum(x => x.Sessions).ToString()" Hint="Excludes cancelled" />
+            <StatCard Icon="user-check" Tone="green" Label="Attendance rate" Value="@(_r.Attendance.AttendanceRatePercent is { } rate ? $"{rate:0.#}%" : "—")" />
+            <StatCard Icon="help" Tone="orange" Label="Doubts resolved" Value="@($"{_r.Doubts.Resolved} / {_r.Doubts.Raised}")" Hint="@(_r.Doubts.AvgResolutionHours is { } hours ? $"avg {hours:0.#} h to resolve" : null)" />
+            <StatCard Icon="clipboard" Tone="blue" Label="Assignments submitted" Value="@($"{_r.Assignments.Submitted} / {_r.Assignments.ExpectedSubmissions}")" Hint="@($"{_r.Assignments.Late} late · {_r.Assignments.Graded} graded")" />
+        </div>
+        <div class="grid grid-2" style="margin-bottom:16px">
+            <div class="card"><div class="card-head"><h2>By teaching mode</h2></div>
+                <div class="table-wrap"><table class="table"><thead><tr><th>Mode</th><th>Sessions</th><th>Student places</th></tr></thead>
+                    <tbody>@foreach (var t in _r.SessionsByType) { <tr><td>@StatusStyles.For(t.SessionType).Label</td><td class="num">@t.Sessions</td><td class="num">@t.StudentPlaces</td></tr> }</tbody></table></div>
+                <p class="caption">Each session counts once under its own mode, so totals never double-count.</p></div>
+            <div class="card"><div class="card-head"><h2>Attendance</h2></div><AttendanceBars Summary="_r.Attendance" /></div>
+        </div>
+        <div class="card" style="margin-bottom:16px"><div class="card-head"><h2>Teachers</h2></div>
+            <div class="table-wrap"><table class="table stack-mobile"><thead><tr><th>Teacher</th><th>Delivered</th><th>Cancelled</th><th>Attendance</th><th>Doubts resolved</th><th>Avg resolution</th><th>Graded</th></tr></thead>
+                <tbody>@foreach (var t in _r.Teachers) { <tr><td data-label="Teacher">@t.TeacherName</td><td data-label="Delivered" class="num">@t.SessionsDelivered</td><td data-label="Cancelled" class="num">@t.SessionsCancelled</td>
+                    <td data-label="Attendance" class="num">@(t.AttendanceRatePercent is { } a ? $"{a:0.#}%" : "—")</td><td data-label="Doubts" class="num">@t.DoubtsResolved</td><td data-label="Avg resolution" class="num">@(t.AvgDoubtResolutionHours is { } h ? $"{h:0.#} h" : "—")</td><td data-label="Graded" class="num">@t.SubmissionsGraded</td></tr> }</tbody></table></div></div>
+        <div class="card"><div class="card-head"><h2>Batches</h2></div>
+            <div class="table-wrap"><table class="table stack-mobile"><thead><tr><th>Batch</th><th>Students</th><th>Sessions</th><th>Attendance</th></tr></thead>
+                <tbody>@foreach (var b in _r.Batches) { <tr><td data-label="Batch">@b.BatchName</td><td data-label="Students" class="num">@b.Students</td><td data-label="Sessions" class="num">@b.Sessions</td><td data-label="Attendance" class="num">@(b.AttendanceRatePercent is { } a ? $"{a:0.#}%" : "—")</td></tr> }</tbody></table></div></div>
+    }
+</DataView>
+
+@code {
+    private InstitutionReportDto? _r;
+    private ApiException? _error;
+    private DateOnly _from = DateOnly.FromDateTime(DateTime.Today.AddDays(-30)), _to = DateOnly.FromDateTime(DateTime.Today);
+    private string _type = "";
+    private string Query => $"from={_from:yyyy-MM-dd}&to={_to:yyyy-MM-dd}" + (_type == "" ? "" : $"&sessionType={_type}");
+    protected override async Task LoadAsync() { _r = null; (_r, _error) = await Fetch(() => Api.GetAsync<InstitutionReportDto>($"reports/institution?{Query}")); }
+    private Task ExportCsv() => Run(async () => await JS.InvokeVoidAsync("ss.download", "attendance.csv", await Api.GetStringAsync($"reports/attendance.csv?{Query}"), "text/csv"), "Attendance exported.");
+}

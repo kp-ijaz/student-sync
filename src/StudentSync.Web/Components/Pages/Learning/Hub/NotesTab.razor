@@ -1,0 +1,91 @@
+@inherits AppComponent
+@inject IJSRuntime JS
+@inject MarkdownRenderer Renderer
+
+<div class="stack">
+    @if (Session.CanManage)
+    {
+        var ended = JoinRules.HasEnded(Session.Status, Session.EndUtc, DateTime.UtcNow);
+        <div class="row-between"><p class="muted small" style="margin:0">Notes support Markdown: headings, lists, tables, links and formulas in $…$.</p>
+            <button class="btn btn-primary" @onclick="New" disabled="@(!ended)" aria-describedby="@(ended ? null : "notes-locked")"><Icon Name="plus" /> New note</button></div>
+        @if (!ended) { <p id="notes-locked" class="info-panel small" style="margin:0">Notes and assignments open once the class has ended.</p> }
+    }
+    <DataView Loading="_notes is null && _error is null" Error="_error" OnRetry="Load" IsEmpty="_notes?.Count == 0"
+              EmptyTitle="No notes yet" EmptyText="@(Session.CanManage ? "Write lesson notes, or publish an approved AI recap from the AI tab." : "Your teacher hasn't published notes for this class yet.")" EmptyIcon="book">
+        @foreach (var n in _notes ?? [])
+        {
+            <article class="card">
+                <div class="row-between" style="margin-bottom:8px">
+                    <div><h2>@n.Title</h2>
+                        <div class="caption">@n.AuthorName · updated <LocalTime Utc="n.UpdatedAtUtc" Tz="@Tz" Format="relative" />
+                            @if (n.Source == ContentSource.AiApproved) { <span> · AI-assisted, teacher approved</span> }</div></div>
+                    <div class="row">
+                        @if (Session.CanManage)
+                        {
+                            <span class="badge @(n.Status == PublicationStatus.Published ? "green" : "slate")">@(n.Status == PublicationStatus.Published ? "Published" : "Draft")</span>
+                            <span class="badge slate">@(n.Visibility == NoteVisibility.TeacherOnly ? "Teacher only" : "Participants")</span>
+                            <button class="btn btn-secondary btn-sm" @onclick="() => Edit(n)">Edit</button>
+                            <button class="btn btn-secondary btn-sm" @onclick="() => TogglePublish(n)">@(n.Status == PublicationStatus.Published ? "Unpublish" : "Publish")</button>
+                        }
+                        else if (n.AvailableOffline)
+                        {
+                            <button class="btn btn-secondary btn-sm" @onclick="() => SaveOffline(n)"><Icon Name="download" /> Save for offline</button>
+                        }
+                    </div>
+                </div>
+                <MarkdownView Markdown="@n.BodyMarkdown" />
+            </article>
+        }
+    </DataView>
+</div>
+
+<Modal @bind-Open="_editorOpen" Title="@(_editing is null ? "New note" : "Edit note")" Wide="true">
+    <div class="stack">
+        <div class="field"><label for="nt">Title</label><input id="nt" class="input" @bind="_title" /></div>
+        <div class="grid grid-2">
+            <div class="field"><label for="nb">Content (Markdown)</label><textarea id="nb" class="textarea" style="min-height:320px;font-family:ui-monospace,monospace" @bind="_body" @bind:event="oninput"></textarea></div>
+            <div class="field"><span class="label">Preview</span><div class="card tight" style="min-height:320px;overflow:auto"><MarkdownView Markdown="@_body" /></div></div>
+        </div>
+        <div class="row">
+            <label class="check"><input type="radio" name="vis" checked="@(_visibility == NoteVisibility.Participants)" @onchange="() => _visibility = NoteVisibility.Participants" /> Visible to participants when published</label>
+            <label class="check"><input type="radio" name="vis" checked="@(_visibility == NoteVisibility.TeacherOnly)" @onchange="() => _visibility = NoteVisibility.TeacherOnly" /> Teacher only</label>
+            <label class="check"><input type="checkbox" @bind="_offline" /> Students may save offline</label>
+        </div>
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _editorOpen = false">Cancel</button><button class="btn btn-primary" @onclick="Save" disabled="@Busy">Save draft</button></div>
+    </div>
+</Modal>
+
+@code {
+    [Parameter, EditorRequired] public SessionDetailDto Session { get; set; } = default!;
+    private List<NoteDto>? _notes;
+    private ApiException? _error;
+    private bool _editorOpen, _offline;
+    private NoteDto? _editing;
+    private string _title = "", _body = "";
+    private NoteVisibility _visibility = NoteVisibility.Participants;
+
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load() { var (v, e) = await Fetch(() => Api.GetAsync<List<NoteDto>>($"sessions/{Session.Id}/notes")); _notes = v; _error = e; }
+
+    private void New() { _editing = null; _title = ""; _body = ""; _visibility = NoteVisibility.Participants; _offline = false; _editorOpen = true; }
+    private void Edit(NoteDto n) { _editing = n; _title = n.Title; _body = n.BodyMarkdown; _visibility = n.Visibility; _offline = n.AvailableOffline; _editorOpen = true; }
+
+    private async Task Save()
+    {
+        var req = new SaveNoteRequest(_title, _body, _visibility, _offline, _editing?.RowVersion);
+        if (await Run(() => _editing is null ? Api.PostAsync($"sessions/{Session.Id}/notes", req) : Api.PutAsync($"notes/{_editing.Id}", req), "Note saved."))
+        { _editorOpen = false; await Load(); }
+    }
+
+    private async Task TogglePublish(NoteDto n)
+    {
+        var publish = n.Status != PublicationStatus.Published;
+        if (await Run(() => Api.PostAsync($"notes/{n.Id}/{(publish ? "publish" : "unpublish")}"), publish ? "Note published to participants." : "Note unpublished.")) await Load();
+    }
+
+    private async Task SaveOffline(NoteDto n)
+    {
+        await JS.InvokeVoidAsync("ss.saveOfflineNote", Me.Id.ToString(), n.Id.ToString(), n.Title, Renderer.ToHtml(n.BodyMarkdown));
+        Toasts.Show("Saved on this device. It's removed when you sign out.");
+    }
+}

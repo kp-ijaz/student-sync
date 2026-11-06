@@ -1,0 +1,35 @@
+@inject IConfiguration Config
+
+@* Avatar: a person's photo in a circle, with their initials on the brand gradient as the fallback (no photo, or the
+   image fails to load). Size: "sm" (28), "" (32), "md" (40), "lg" (48), "xl" (96). Ring="true" adds a white ring
+   for avatars on photos, gradients and the top bar. *@
+@if (Src is { } src && !_failed)
+{
+    <img class="avatar @Size @(Ring ? "ring" : "") @Class" src="@src" alt="@(Decorative ? "" : $"Photo of {People.ShortName(Name)}")" loading="lazy" referrerpolicy="no-referrer" @onerror="() => _failed = true" />
+}
+else
+{
+    <span class="avatar @Size @(Ring ? "ring" : "") @Class" role="@(Decorative ? null : "img")" aria-label="@(Decorative ? null : People.ShortName(Name))" aria-hidden="@(Decorative ? "true" : null)">@People.Initials(Name)</span>
+}
+
+@code {
+    [Parameter] public string? Name { get; set; }
+    /// <summary>API-relative photo URL as returned by the API (photoUrl / teacherPhotoUrl), or null.</summary>
+    [Parameter] public string? PhotoUrl { get; set; }
+    /// <summary>"sm" (28px), "" (32px), "md" (40px), "lg" (48px) or "xl" (96px).</summary>
+    [Parameter] public string Size { get; set; } = "";
+    /// <summary>True when the person's name is already shown next to the avatar.</summary>
+    [Parameter] public bool Decorative { get; set; } = true;
+    [Parameter] public bool Ring { get; set; }
+    [Parameter] public string? Class { get; set; }
+
+    private bool _failed;
+    private string? _lastUrl;
+    private string? Src => ApiClient.PublicUrl(PhotoUrl, Config["Api:PublicBaseUrl"]);
+
+    protected override void OnParametersSet()
+    {
+        // A new photo gets a fresh chance to load.
+        if (PhotoUrl != _lastUrl) { _failed = false; _lastUrl = PhotoUrl; }
+    }
+}

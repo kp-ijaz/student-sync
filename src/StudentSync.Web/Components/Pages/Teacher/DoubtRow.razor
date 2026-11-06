@@ -1,0 +1,9 @@
+@* DoubtRow: one student doubt in a ListGroup — orange help tile, title, who/subject/replies, status badge, → detail. *@
+<ListRow Icon="help" Tone="orange" Title="@Doubt.Title" Subtitle="@TeacherText.DoubtLine(Doubt, Tz)" Href="@($"/doubts/{Doubt.Id}")" ShowChevron="true">
+    <Trailing><Badge Style="StatusStyles.For(Doubt.Status)" /></Trailing>
+</ListRow>
+
+@code {
+    [Parameter, EditorRequired] public DoubtListItemDto Doubt { get; set; } = default!;
+    [Parameter] public string Tz { get; set; } = "UTC";
+}

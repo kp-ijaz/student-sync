@@ -1,0 +1,13 @@
+@{ var total = Summary.Present + Summary.Late + Summary.Absent + Summary.Excused; }
+<div class="row-between" style="margin-bottom:12px">
+    <div class="stat"><span class="label">Attendance rate</span><span class="value">@(Summary.AttendanceRatePercent is { } r ? $"{r:0.#}%" : "—")</span></div>
+    <span class="caption" style="max-width:180px">Present or late ÷ marked (excused not counted). @Summary.Unmarked unmarked place(s).</span>
+</div>
+@foreach (var (label, value, tone) in new[] { ("Present", Summary.Present, "var(--ss-success)"), ("Late", Summary.Late, "var(--ss-warning)"), ("Absent", Summary.Absent, "var(--ss-error)"), ("Excused", Summary.Excused, "var(--ss-slate)") })
+{
+    <div class="bar-row"><span class="small">@label</span><div class="progress-bar"><span style="width:@(total == 0 ? 0 : 100.0 * value / total)%;background:@tone"></span></div><span class="small num" style="text-align:end">@value</span></div>
+}
+
+@code {
+    [Parameter, EditorRequired] public AttendanceSummaryDto Summary { get; set; } = default!;
+}

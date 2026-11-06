@@ -1,0 +1,43 @@
+@typeparam TKey
+@* PillTabs: a fully rounded pill tab bar (ARIA tablist) with a sliding gradient pill, plus the tab panel (ChildContent)
+   for the active tab. Arrow keys / Home / End move between tabs (handled in wwwroot/js/app.js for every role=tablist).
+   Use only where the content is parallel lists (e.g. Learning: Assignments · Exams · Videos); up to four tabs.
+   Usage: <PillTabs TKey="string" Tabs="_tabs" @bind-Active="_tab" Label="Learning">…panel for _tab…</PillTabs> *@
+<div class="seg pill-tabs @Class" role="tablist" aria-label="@Label" style="--n:@Tabs.Count;--i:@ActiveIndex">
+    <span class="seg-thumb" aria-hidden="true"></span>
+    @for (var i = 0; i < Tabs.Count; i++)
+    {
+        var tab = Tabs[i];
+        var selected = i == ActiveIndex;
+        <button type="button" role="tab" id="@TabId(i)" aria-selected="@Aria.Bool(selected)" aria-controls="@PanelId" tabindex="@(selected ? 0 : -1)" @onclick="() => Select(tab.Key)">
+            @if (tab.Icon is not null) { <Icon Name="@tab.Icon" /> }
+            <span>@tab.Label</span>
+            @if (tab.Count is { } n) { <span class="tab-count">(@n)</span> }
+        </button>
+    }
+</div>
+<div role="tabpanel" id="@PanelId" aria-labelledby="@TabId(ActiveIndex)" class="pill-tabs-panel" tabindex="0">
+    @ChildContent
+</div>
+
+@code {
+    public sealed record Tab(TKey Key, string Label, int? Count = null, string? Icon = null);
+
+    [Parameter, EditorRequired] public IReadOnlyList<Tab> Tabs { get; set; } = [];
+    [Parameter] public TKey? Active { get; set; }
+    [Parameter] public EventCallback<TKey> ActiveChanged { get; set; }
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private readonly string _id = "tabs-" + Guid.NewGuid().ToString("N")[..8];
+    private string PanelId => _id + "-panel";
+    private string TabId(int i) => $"{_id}-tab-{i}";
+    private int ActiveIndex => Math.Max(0, Tabs.ToList().FindIndex(t => EqualityComparer<TKey>.Default.Equals(t.Key, Active)));
+
+    private async Task Select(TKey key)
+    {
+        Active = key;
+        await ActiveChanged.InvokeAsync(key);
+    }
+}

@@ -1,0 +1,53 @@
+@* NextClassHero: the next class on the student's home — its cover photo with NEXT CLASS / LIVE and the day over it, the
+   title and subject, then the teacher's photo and name, the start time and mode, and Join only while it can be joined
+   (JoinRules.JoinableNow). With no class it is a gradient HeroCard saying so. Port of session_card.dart NextClassHero. *@
+@if (Session is not { } s)
+{
+    <HeroCard AriaLabel="Next class">
+        <div class="row" style="flex-wrap:nowrap">
+            <span class="icon-tile lg hero-tile" aria-hidden="true"><Icon Name="check-circle" /></span>
+            <div class="grow">
+                <h2 class="next-empty-title">No classes scheduled</h2>
+                <p class="muted" style="margin:0">New classes will appear here.</p>
+            </div>
+        </div>
+    </HeroCard>
+}
+else
+{
+    var live = s.Status == SessionStatus.Live;
+    var organiser = ClassTimes.Organiser(s.StartUtc, s.EndUtc, s.TimeZoneId, Tz);
+    <section class="card next-hero" aria-labelledby="next-hero-title">
+        <ClassCover Subject="@s.SubjectName" Title="@s.Title" Height="clamp(180px, 22vw, 240px)" Href="@($"/sessions/{s.Id}")" Class="next-hero-cover">
+            <div class="row-between" style="flex-wrap:nowrap">
+                <GlassPill Live="true" Class="eyebrow-pill"><span>@(live ? "LIVE" : "NEXT CLASS")</span></GlassPill>
+                <GlassPill Icon="calendar" Label="@(live ? "Happening now" : ClassTimes.DayLabel(s.StartUtc, Tz))" />
+            </div>
+            <div style="margin-top:auto">
+                <h2 id="next-hero-title" class="next-hero-title"><span class="sr-only">Next class: </span>@s.Title</h2>
+                @if (s.SubjectName is not null) { <div class="next-hero-subject">@s.SubjectName</div> }
+            </div>
+        </ClassCover>
+        <div class="next-hero-foot">
+            <Avatar Name="@s.TeacherName" PhotoUrl="@s.TeacherPhotoUrl" Size="md" />
+            <div class="grow">
+                <div class="next-hero-teacher truncate">@s.TeacherName</div>
+                <div class="caption">Your teacher</div>
+            </div>
+            <div class="next-hero-when">
+                <div class="next-hero-time"><Icon Name="clock" /><time datetime="@s.StartUtc.ToString("O")">@Time.Clock(s.StartUtc, Tz)</time></div>
+                <div class="caption">@ClassTimes.Mode(s.DeliveryMode)</div>
+            </div>
+        </div>
+        @if (organiser is not null) { <p class="caption next-hero-org">Organiser time: @organiser</p> }
+        @if (JoinRules.JoinableNow(s, DateTime.UtcNow))
+        {
+            <div class="next-hero-action"><JoinButton SessionId="s.Id" Live="live" Title="@s.Title" Block="true" /></div>
+        }
+    </section>
+}
+
+@code {
+    [Parameter] public SessionListItemDto? Session { get; set; }
+    [Parameter, EditorRequired] public string Tz { get; set; } = "UTC";
+}

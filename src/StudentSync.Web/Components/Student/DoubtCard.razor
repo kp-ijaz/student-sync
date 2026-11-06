@@ -1,0 +1,22 @@
+@* DoubtCard: one doubt as a row card — title, subject/teacher/replies, follow-up class, priority and status. *@
+@{ var d = Doubt; }
+<div class="card tight doubt-card">
+    <div class="grow">
+        <a class="stretched doubt-title" href="/doubts/@d.Id">@d.Title</a>
+        <div class="caption">
+            @if (ShowStudent) { <span>@d.StudentName · </span> }
+            @(d.SubjectName ?? "No subject") · @(d.AssignedTeacherName ?? "Unassigned") · @d.ReplyCount repl@(d.ReplyCount == 1 ? "y" : "ies") · updated <LocalTime Utc="d.LastActivityAtUtc" Tz="@Tz" Format="relative" />
+        </div>
+        @if (d.FollowUpSessionStartUtc is { } f && TeachingRules.IsOpenDoubt(d.Status)) { <div class="caption doubt-agenda"><Icon Name="calendar-clock" /> On the agenda for @ClassTimes.DateTime(f, Tz)</div> }
+    </div>
+    <div class="row" style="gap:6px;flex-wrap:nowrap">
+        @if (d.Priority is DoubtPriority.High or DoubtPriority.Urgent) { <Badge Style="StatusStyles.For(d.Priority)" /> }
+        <Badge Style="StatusStyles.For(d.Status)" />
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public DoubtListItemDto Doubt { get; set; } = default!;
+    [Parameter, EditorRequired] public string Tz { get; set; } = "UTC";
+    [Parameter] public bool ShowStudent { get; set; }
+}

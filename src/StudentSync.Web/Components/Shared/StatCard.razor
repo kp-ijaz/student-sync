@@ -1,0 +1,15 @@
+<div class="card stat @(Icon is null ? "" : "has-icon")">
+    @if (Icon is not null) { <IconTile Icon="@Icon" Tone="@Tone" Size="md" /> }
+    <span class="label">@Label</span>
+    <span class="value">@Value</span>
+    @if (!string.IsNullOrEmpty(Hint)) { <span class="hint">@Hint</span> }
+</div>
+
+@code {
+    [Parameter] public string Label { get; set; } = "";
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public string? Hint { get; set; }
+    /// <summary>Optional leading icon tile (see <c>StatIcons.For</c> for dashboard stat keys).</summary>
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public string Tone { get; set; } = "blue";
+}

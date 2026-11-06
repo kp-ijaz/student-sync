@@ -1,0 +1,28 @@
+@page "/assistant"
+@attribute [Authorize(Roles = "Student")]
+@inherits AppPage
+
+<PageHeader Title="AI study assistant" Subtitle="Answers come only from notes your teachers have approved for your classes." />
+<div class="card" style="max-width:900px">
+    <div class="stack">
+        <div class="field"><label for="q">Your question</label><textarea id="q" class="textarea" @bind="_question" placeholder="e.g. How do I factorise x² + 5x + 6?"></textarea></div>
+        <div class="row-between"><span class="caption">AI explanations can be wrong. Not your teacher's words.</span><button class="btn btn-primary" @onclick="Ask" disabled="@(Busy || string.IsNullOrWhiteSpace(_question))"><Icon Name="sparkle" /> Ask</button></div>
+        @if (_answer is not null)
+        {
+            <div class="info-panel">@_answer.Disclaimer</div>
+            @if (_answer.Answer is not null) { <div class="card tight"><div class="caption" style="margin-bottom:6px">AI explanation</div><MarkdownView Markdown="@_answer.Answer" /></div> }
+            @if (_answer.Sources.Count > 0)
+            {
+                <h3>From your approved class notes</h3>
+                <ul class="list">@foreach (var s in _answer.Sources) { <li><a href="/sessions/@s.SessionId?tab=notes"><strong>@s.NoteTitle</strong></a><div class="caption">@s.SessionTitle</div><p class="small" style="margin:4px 0 0">@s.Excerpt</p></li> }</ul>
+            }
+            <div class="row"><span class="small">Still stuck?</span><a class="btn btn-secondary btn-sm" href="/doubts/new">Send this to your teacher as a doubt</a></div>
+        }
+    </div>
+</div>
+
+@code {
+    private string _question = "";
+    private AssistantAnswerDto? _answer;
+    private Task Ask() => Run(async () => _answer = await Api.PostAsync<AssistantAnswerDto>("ai/assistant", new AssistantAskRequest(_question, null)));
+}

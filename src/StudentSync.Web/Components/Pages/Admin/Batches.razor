@@ -1,0 +1,83 @@
+@page "/admin/batches"
+@attribute [Authorize(Roles = "InstitutionAdmin")]
+@inherits AppPage
+
+<PageHeader Title="Batches" Subtitle="Predefined cohorts for batch classes. Private and ad hoc teaching doesn't need a batch.">
+    <Actions><button class="btn btn-primary" @onclick="New"><Icon Name="plus" /> New batch</button></Actions>
+</PageHeader>
+<DataView Loading="_items is null && _error is null" Error="_error" OnRetry="LoadAsync" IsEmpty="_items?.Count == 0" EmptyTitle="No batches yet" EmptyIcon="layers">
+    <div class="grid grid-2">
+        @foreach (var b in _items ?? [])
+        {
+            <div class="card">
+                <div class="card-head"><div><h2>@b.Name</h2><div class="caption">@b.Code · @b.CourseName @(b.SubjectName is null ? "" : $"· {b.SubjectName}") · @b.TeacherName</div></div><span class="badge @(b.Status == CatalogStatus.Active ? "green" : "slate")">@b.Status</span></div>
+                <div class="bar-row"><span class="small">Capacity</span><div class="progress-bar"><span style="width:@(100.0 * b.ActiveStudents / Math.Max(1, b.Capacity))%"></span></div><span class="small num">@b.ActiveStudents/@b.Capacity</span></div>
+                <div class="btn-group" style="margin-top:12px"><button class="btn btn-secondary btn-sm" @onclick="() => OpenRoster(b)">Students</button><button class="btn btn-secondary btn-sm" @onclick="() => Edit(b)">Edit</button>
+                    <a class="btn btn-primary btn-sm" href="/sessions/new?type=Batch">Schedule batch class</a></div>
+            </div>
+        }
+    </div>
+</DataView>
+<Modal @bind-Open="_open" Title="@(_id is null ? "New batch" : "Edit batch")">
+    <div class="form-grid">
+        <div class="field"><label for="bc">Code *</label><input id="bc" class="input" @bind="_code" /></div>
+        <div class="field"><label for="bn">Name *</label><input id="bn" class="input" @bind="_name" /></div>
+        <div class="field"><label for="bco">Course *</label><select id="bco" class="select" @bind="_course"><option value="">Choose…</option>@foreach (var c in _courses) { <option value="@c.Id">@c.Name</option> }</select></div>
+        <div class="field"><label for="bs">Subject</label><select id="bs" class="select" @bind="_subject"><option value="">—</option>@foreach (var s in _subjects.Where(s => s.CourseId == _course)) { <option value="@s.Id">@s.Name</option> }</select></div>
+        <div class="field"><label for="bt">Teacher *</label><select id="bt" class="select" @bind="_teacher"><option value="">Choose…</option>@foreach (var t in _teachers) { <option value="@t.Id">@t.FullName</option> }</select></div>
+        <div class="field"><label for="bcap">Capacity *</label><input id="bcap" type="number" min="1" class="input" @bind="_capacity" /></div>
+        <div class="field"><label for="bsd">Start date</label><input id="bsd" type="date" class="input" @bind="_start" /></div>
+        <div class="field"><label for="bst">Status</label><select id="bst" class="select" @bind="_status">@foreach (var s in Enum.GetValues<CatalogStatus>()) { <option value="@s">@s</option> }</select></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _open = false">Cancel</button><button class="btn btn-primary" @onclick="Save" disabled="@Busy">Save</button></div>
+</Modal>
+<Modal Open="_roster is not null" OpenChanged="_ => _roster = null" Title="@($"Students — {_roster?.Name}")" Wide="true">
+    <div class="stack">
+        <div class="row"><select class="select grow" @bind="_add" aria-label="Student to add"><option value="">Add a student…</option>@foreach (var s in _lookup.Where(l => _members.All(m => m.StudentId != l.Id || m.Status != EnrolmentStatus.Active))) { <option value="@s.Id">@s.Name (@s.Detail)</option> }</select>
+            <button class="btn btn-primary" @onclick="AddMember" disabled="@(Busy || _add is null)">Add</button></div>
+        <div class="table-wrap"><table class="table stack-mobile"><thead><tr><th>Student</th><th>Code</th><th>Status</th><th></th></tr></thead>
+            <tbody>@foreach (var m in _members) { <tr><td data-label="Student">@m.StudentName</td><td data-label="Code">@m.StudentCode</td><td data-label="Status">@m.Status</td><td>@if (m.Status == EnrolmentStatus.Active) { <button class="btn btn-ghost btn-sm" @onclick="() => RemoveMember(m)">Remove</button> }</td></tr> }</tbody></table></div>
+        <p class="caption">Changes apply to future batch sessions you schedule; existing sessions keep their participant history.</p>
+    </div>
+</Modal>
+
+@code {
+    private List<BatchDto>? _items;
+    private ApiException? _error;
+    private List<CourseDto> _courses = [];
+    private List<SubjectDto> _subjects = [];
+    private List<TeacherDto> _teachers = [];
+    private List<LookupItem> _lookup = [];
+    private List<BatchStudentDto> _members = [];
+    private bool _open;
+    private Guid? _id, _course, _subject, _teacher, _add;
+    private string _code = "", _name = "";
+    private int _capacity = 20;
+    private DateOnly _start = DateOnly.FromDateTime(DateTime.Today);
+    private CatalogStatus _status = CatalogStatus.Active;
+    private BatchDto? _roster;
+
+    protected override async Task LoadAsync()
+    {
+        (_items, _error) = await Fetch(() => Api.GetAsync<List<BatchDto>>("academics/batches"));
+        _courses = (await Fetch(() => Api.GetAsync<List<CourseDto>>("academics/courses"))).Value ?? [];
+        _subjects = (await Fetch(() => Api.GetAsync<List<SubjectDto>>("academics/subjects"))).Value ?? [];
+        _teachers = (await Fetch(() => Api.GetAsync<PagedResult<TeacherDto>>("teachers?pageSize=100&status=Active"))).Value?.Items.ToList() ?? [];
+    }
+    private void New() { (_id, _code, _name, _course, _subject, _teacher, _capacity, _status) = (null, "", "", null, null, null, 20, CatalogStatus.Active); _open = true; }
+    private void Edit(BatchDto b) { (_id, _code, _name, _course, _subject, _teacher, _capacity, _start, _status) = (b.Id, b.Code, b.Name, b.CourseId, b.SubjectId, b.TeacherId, b.Capacity, b.StartDate, b.Status); _open = true; }
+    private async Task Save()
+    {
+        if (_course is not { } c || _teacher is not { } t) { Toasts.Show("Choose a course and a teacher.", ToastKind.Error); return; }
+        var req = new SaveBatchRequest(_code, _name, c, _subject, t, _capacity, _start, null, _status);
+        if (await Run(() => _id is null ? Api.PostAsync("academics/batches", req) : Api.PutAsync($"academics/batches/{_id}", req), "Batch saved.")) { _open = false; await LoadAsync(); }
+    }
+    private async Task OpenRoster(BatchDto b)
+    {
+        _roster = b; _add = null;
+        _members = (await Fetch(() => Api.GetAsync<List<BatchStudentDto>>($"academics/batches/{b.Id}/students"))).Value ?? [];
+        _lookup = (await Fetch(() => Api.GetAsync<List<LookupItem>>("students/lookup"))).Value ?? [];
+    }
+    private async Task AddMember() { if (await Run(() => Api.PostAsync($"academics/batches/{_roster!.Id}/students", new EnrolStudentRequest(_add!.Value)), "Student added to batch.")) { await OpenRoster(_roster!); await LoadAsync(); } }
+    private async Task RemoveMember(BatchStudentDto m) { if (await Run(() => Api.DeleteAsync($"academics/batches/{_roster!.Id}/students/{m.StudentId}"), "Student removed from batch.")) { await OpenRoster(_roster!); await LoadAsync(); } }
+}

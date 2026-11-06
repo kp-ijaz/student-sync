@@ -1,0 +1,45 @@
+@inject ApiClient Api
+@* JoinButton: "Join class" for a class from a list. Render it only when JoinRules.JoinableNow(...) is true. The list payload
+   only says a link exists, so the meeting URL is fetched once (server-side, with the user's token) and the button is a
+   real link that opens the meeting in a new tab. *@
+@if (_url is { } url)
+{
+    <a class="btn btn-primary @(Small ? "btn-sm" : "") @(Block ? "btn-block" : "") btn-pill join-btn" href="@url" target="_blank" rel="noopener noreferrer"
+       aria-label="@($"{Label} — {Title}") (opens in a new tab)"><Icon Name="video" /> @Label</a>
+}
+else if (_missing)
+{
+    <span class="caption">No meeting link yet</span>
+}
+else
+{
+    <button type="button" class="btn btn-primary @(Small ? "btn-sm" : "") @(Block ? "btn-block" : "") btn-pill join-btn" disabled aria-busy="true"><Icon Name="video" /> @Label</button>
+}
+
+@code {
+    [Parameter, EditorRequired] public Guid SessionId { get; set; }
+    [Parameter] public bool Live { get; set; }
+    /// <summary>The class title, for the accessible name ("Join class — Mathematics").</summary>
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public bool Small { get; set; }
+    [Parameter] public bool Block { get; set; }
+
+    private string? _url;
+    private bool _missing;
+    private Guid _loaded;
+    private string Label => Live ? "Join live class" : "Join class";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loaded == SessionId) return;
+        _loaded = SessionId;
+        _url = null; _missing = false;
+        try
+        {
+            var detail = await Api.GetAsync<SessionDetailDto>($"sessions/{SessionId}");
+            _url = string.IsNullOrWhiteSpace(detail.MeetingUrl) ? null : detail.MeetingUrl;
+            _missing = _url is null;
+        }
+        catch (ApiException) { _missing = true; }
+    }
+}

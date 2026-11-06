@@ -1,0 +1,77 @@
+@page "/admin/teachers"
+@attribute [Authorize(Roles = "InstitutionAdmin")]
+@inherits AppPage
+
+<PageHeader Title="Teachers"><Actions><button class="btn btn-primary" @onclick="New"><Icon Name="plus" /> Add teacher</button></Actions></PageHeader>
+<div class="card">
+    <input class="input" style="max-width:320px;margin-bottom:16px" placeholder="Search teachers" aria-label="Search teachers" @bind="_search" @bind:after="() => Load(1)" />
+    <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0" EmptyTitle="No teachers yet" EmptyIcon="user-check">
+        <div class="table-wrap"><table class="table stack-mobile">
+            <thead><tr><th>Name</th><th>Subjects</th><th>Specialisations</th><th>Status</th><th></th></tr></thead>
+            <tbody>@foreach (var t in _page?.Items ?? [])
+            {
+                <tr><td data-label="Name"><strong>@t.FullName</strong><div class="caption">@t.Email · @t.TimeZoneId</div></td>
+                    <td data-label="Subjects"><div class="pill-list">@foreach (var s in t.Subjects) { <span class="badge blue">@s.Name</span> }</div></td>
+                    <td data-label="Specialisations" class="small">@t.Specialisations</td>
+                    <td data-label="Status"><Badge Style="StatusStyles.For(t.Status)" /></td>
+                    <td><button class="btn btn-ghost btn-sm" @onclick="() => Edit(t)">Edit</button><a class="btn btn-ghost btn-sm" href="/teacher/availability?teacherId=@t.Id">Availability</a></td></tr>
+            }</tbody>
+        </table></div>
+        @if (_page is not null) { <Pager Page="_page.Page" TotalPages="_page.TotalPages" Total="_page.TotalCount" OnPage="Load" /> }
+    </DataView>
+</div>
+<Modal @bind-Open="_open" Title="@(_editId is null ? "Add teacher" : "Edit teacher")">
+    <div class="form-grid">
+        @if (_editId is not null)
+        {
+            <div class="field full"><span class="label">Profile photo</span>
+                <PhotoEditor Name="@_name" PhotoUrl="@_photoUrl" Upload="UploadPhoto" Remove="RemovePhoto" OnChanged="PhotoChanged" /></div>
+        }
+        <div class="field full"><label for="tn">Full name *</label><input id="tn" class="input" @bind="_name" /></div>
+        @if (_editId is null) { <div class="field full"><label for="te">Email *</label><input id="te" type="email" class="input" @bind="_email" /></div> }
+        <div class="field"><label for="tc">Employee code</label><input id="tc" class="input" @bind="_code" /></div>
+        <div class="field"><label for="ttz">Time zone</label><TimeZoneSelect Id="ttz" @bind-Value="_tz" /></div>
+        <div class="field full"><label for="tsp">Specialisations</label><input id="tsp" class="input" @bind="_spec" /></div>
+        <div class="field full"><label for="tb">Bio</label><textarea id="tb" class="textarea" @bind="_bio"></textarea></div>
+        @if (_editId is not null) { <div class="field"><label for="tst">Status</label><select id="tst" class="select" @bind="_status">@foreach (var s in Enum.GetValues<PersonStatus>()) { <option value="@s">@StatusStyles.For(s).Label</option> }</select></div> }
+    </div>
+    <div class="form-actions">
+        @if (_editId is not null) { <button class="btn btn-ghost" style="margin-right:auto" @onclick="ResetPassword" disabled="@Busy"><Icon Name="key" /> Reset password</button> }
+        <button class="btn btn-secondary" @onclick="() => _open = false">Cancel</button><button class="btn btn-primary" @onclick="Save" disabled="@Busy">Save</button></div>
+</Modal>
+<TempPasswordDialog @bind-Password="_tempPassword" Title="@_tempTitle" />
+
+@code {
+    private PagedResult<TeacherDto>? _page;
+    private ApiException? _error;
+    private bool _open;
+    private Guid? _editId;
+    private string _search = "", _name = "", _email = "", _tz = "UTC";
+    private string? _code, _spec, _bio, _tempPassword, _photoUrl;
+    private string _tempTitle = "Account created";
+    private PersonStatus _status;
+    protected override Task LoadAsync() => Load(1);
+    private async Task Load(int p) => (_page, _error) = await Fetch(() => Api.GetAsync<PagedResult<TeacherDto>>($"teachers?page={p}&pageSize=25&search={Uri.EscapeDataString(_search)}"));
+    private void New() { (_editId, _name, _email, _code, _spec, _bio, _tz) = (null, "", "", null, null, null, Tz); _tempTitle = "Account created"; _open = true; }
+    private void Edit(TeacherDto t) { (_editId, _name, _code, _spec, _bio, _tz, _status, _photoUrl) = (t.Id, t.FullName, t.EmployeeCode, t.Specialisations, t.Bio, t.TimeZoneId, t.Status, t.PhotoUrl); _open = true; }
+    private Task UploadPhoto(MultipartFormDataContent form) => Api.PutFormAsync($"teachers/{_editId}/photo", form);
+    private Task RemovePhoto() => Api.DeleteAsync($"teachers/{_editId}/photo");
+    // The photo is saved immediately (separately from the form); refresh the list to show the stored result.
+    private async Task PhotoChanged(bool _)
+    {
+        await Load(_page?.Page ?? 1);
+        _photoUrl = _page?.Items.FirstOrDefault(x => x.Id == _editId)?.PhotoUrl;
+    }
+    private async Task ResetPassword()
+    {
+        if (await Run(async () => { _tempTitle = "Temporary password issued"; _tempPassword = (await Api.PostAsync<TemporaryPasswordResponse>($"teachers/{_editId}/password-reset", null)).TemporaryPassword; })) _open = false;
+    }
+    private async Task Save()
+    {
+        if (await Run(async () =>
+        {
+            if (_editId is null) _tempPassword = (await Api.PostAsync<CreatedPersonResponse>("teachers", new CreateTeacherRequest(_name, _email, _code, _spec, _bio, _tz))).TemporaryPassword;
+            else await Api.PutAsync($"teachers/{_editId}", new UpdateTeacherRequest(_name, _code, _spec, _bio, _status, _tz));
+        }, "Teacher saved.")) { _open = false; await Load(_page?.Page ?? 1); }
+    }
+}

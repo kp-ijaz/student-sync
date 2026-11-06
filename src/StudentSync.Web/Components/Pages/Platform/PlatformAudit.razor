@@ -1,0 +1,18 @@
+@page "/platform/audit"
+@attribute [Authorize(Roles = "SuperAdmin")]
+@inherits AppPage
+
+<PageHeader Title="Platform audit log" Subtitle="Privileged platform actions (institution, plan and subscription changes)." />
+<div class="card">
+    <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0" EmptyTitle="No platform actions recorded" EmptyIcon="shield">
+        <div class="table-wrap"><table class="table stack-mobile"><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Details</th><th>IP</th></tr></thead>
+            <tbody>@foreach (var a in _page?.Items ?? []) { <tr><td data-label="When" class="small">@Time.Short(a.CreatedAtUtc, Tz)</td><td data-label="Who">@(a.UserName ?? "System")</td><td data-label="Action"><code>@a.Action</code></td><td data-label="Details" class="small">@a.Summary</td><td data-label="IP" class="small">@a.IpAddress</td></tr> }</tbody></table></div>
+        @if (_page is not null) { <Pager Page="_page.Page" TotalPages="_page.TotalPages" Total="_page.TotalCount" OnPage="Load" /> }
+    </DataView>
+</div>
+@code {
+    private PagedResult<AuditEntryDto>? _page;
+    private ApiException? _error;
+    protected override Task LoadAsync() => Load(1);
+    private async Task Load(int p) => (_page, _error) = await Fetch(() => Api.GetAsync<PagedResult<AuditEntryDto>>($"platform/audit?page={p}&pageSize=25"));
+}

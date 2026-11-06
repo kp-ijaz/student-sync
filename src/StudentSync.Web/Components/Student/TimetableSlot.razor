@@ -1,0 +1,38 @@
+@* TimetableSlot: one class in a day's timetable — start/end time on the left, a subject-coloured card on the right with
+   the cover thumbnail, subject (or title), teacher photo and name, and the status (or Join while it can be joined).
+   The whole card opens the class. Port of timetable_screen.dart TimetableSlot. *@
+@{
+    var s = Session;
+    var status = StatusStyles.For(s.Status);
+    var joinable = JoinRules.JoinableNow(s, DateTime.UtcNow);
+}
+<div class="st-slot" style="--subj:@SubjectColors.For(s.SubjectName ?? s.Title)">
+    <div class="st-slot-time" aria-hidden="true">
+        <span class="t1">@Time.Clock(s.StartUtc, Tz)</span>
+        <span class="t2">@Time.Clock(s.EndUtc, Tz)</span>
+    </div>
+    <div class="st-slot-card @(s.Status == SessionStatus.Cancelled ? "cancelled" : "")">
+        <div class="st-slot-main">
+            <ClassCover Subject="@s.SubjectName" Title="@s.Title" Height="48px" Shade="false" Class="st-thumb" />
+            <div class="grow">
+                <a class="st-slot-title stretched" href="/sessions/@s.Id">
+                    <span class="sr-only">@Time.Clock(s.StartUtc, Tz) to @Time.Clock(s.EndUtc, Tz), </span>@(s.SubjectName ?? s.Title)
+                </a>
+                <div class="st-slot-teacher">
+                    <Avatar Name="@s.TeacherName" PhotoUrl="@s.TeacherPhotoUrl" Size="sm" />
+                    <span class="truncate">@s.TeacherName</span>
+                </div>
+            </div>
+            @if (!joinable) { <Badge Style="status" /> }
+        </div>
+        @if (joinable)
+        {
+            <div class="st-slot-join"><JoinButton SessionId="s.Id" Live="@(s.Status == SessionStatus.Live)" Title="@(s.SubjectName ?? s.Title)" Block="true" /></div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SessionListItemDto Session { get; set; } = default!;
+    [Parameter, EditorRequired] public string Tz { get; set; } = "UTC";
+}

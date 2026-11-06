@@ -1,0 +1,59 @@
+@page "/subjects"
+@attribute [Authorize(Roles = "Student")]
+@inherits AppPage
+
+@* My subjects — mirrors the mobile Subjects tab (subjects_screen.dart): Core subjects, Languages (with the slot, e.g.
+   "Second language") and Additional subjects, each a grid of photo cards with teacher, syllabus progress and next class. *@
+<PageHeader Title="My subjects" Subtitle="Your subjects this year — open one for its videos, classes and syllabus.">
+    <Actions><a class="btn btn-secondary btn-pill" href="/timetable"><Icon Name="calendar" /> Timetable</a></Actions>
+</PageHeader>
+
+<DataView Loading="_items is null && _error is null" Error="_error" OnRetry="LoadAsync" LoadingLabel="Loading subjects"
+          IsEmpty="_items?.Count == 0" EmptyTitle="No subjects yet" EmptyIllustration="@Illustrations.Empty"
+          EmptyText="Your subjects appear here once the institute adds you to your class (standard).">
+    @foreach (var section in SubjectGroups.Group(_items ?? []))
+    {
+        <section aria-labelledby="sec-@section.Kind">
+            <SectionHeader Title="@section.Title" Id="@($"sec-{section.Kind}")" Icon="@section.Icon" Tone="@section.Tone" Count="section.Items.Count" />
+            <ul class="st-subject-grid" role="list">
+                @foreach (var s in section.Items)
+                {
+                    var next = s.NextSession;
+                    var pct = SubjectGroups.Progress(s) * 100;
+                    <li>
+                        <a class="card st-subject" href="/subjects/@s.SubjectId">
+                            <ClassCover Subject="@s.Name" Title="@s.CourseName" Height="auto" Class="st-subject-cover">
+                                @if (s.Group is not null) { <div class="row"><GlassPill Label="@s.Group" /></div> }
+                                <span class="cover-title" style="margin-top:auto">@s.Name</span>
+                            </ClassCover>
+                            <span class="st-subject-body">
+                                <span class="st-subject-teacher">
+                                    @if (s.Teachers.Count > 0)
+                                    {
+                                        <span class="avatar-stack" aria-hidden="true">@foreach (var t in s.Teachers.Take(3)) { <Avatar Name="@t.Name" PhotoUrl="@t.PhotoUrl" Size="sm" Ring="true" /> }</span>
+                                        <span class="truncate">@People.ShortName(s.Teachers[0].Name)@(s.Teachers.Count > 1 ? $" +{s.Teachers.Count - 1}" : "")</span>
+                                    }
+                                    else { <span class="truncate muted">Teacher to be assigned</span> }
+                                </span>
+                                <span class="progress-bar st-subject-bar" role="progressbar" aria-label="Syllabus progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@((int)Math.Round(pct))"
+                                      aria-valuetext="@(s.ChapterCount > 0 ? $"{s.CompletedChapterCount} of {s.ChapterCount} chapters done" : $"{(int)Math.Round(pct)}%")"><span style="width:@pct.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)%"></span></span>
+                                <span class="caption truncate">@(next is null ? "No class scheduled" : $"Next: {ClassTimes.DateTime(next.StartUtc, Tz)}")</span>
+                            </span>
+                        </a>
+                    </li>
+                }
+            </ul>
+        </section>
+    }
+</DataView>
+
+@code {
+    private List<MySubjectDto>? _items;
+    private ApiException? _error;
+
+    protected override async Task LoadAsync()
+    {
+        _error = null;
+        (_items, _error) = await Fetch(() => Api.GetAsync<List<MySubjectDto>>("my/subjects"));
+    }
+}

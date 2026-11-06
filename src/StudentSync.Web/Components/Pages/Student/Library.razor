@@ -1,0 +1,57 @@
+@page "/library"
+@attribute [Authorize(Roles = "Student,Teacher,InstitutionAdmin")]
+@inherits AppPage
+
+<PageHeader Title="Learning library" Subtitle="Published notes, recordings and materials from your classes." />
+<div class="tabs" role="tablist">
+    <button role="tab" aria-selected="@(Aria.Bool(_tab == "notes"))" @onclick='() => Switch("notes")'>Notes</button>
+    <button role="tab" aria-selected="@(Aria.Bool(_tab == "recordings"))" @onclick='() => Switch("recordings")'>Recordings</button>
+    <button role="tab" aria-selected="@(Aria.Bool(_tab == "materials"))" @onclick='() => Switch("materials")'>Materials</button>
+</div>
+<div class="row" style="margin-bottom:16px">
+    <input class="input" style="max-width:320px" placeholder="Search" aria-label="Search library" @bind="_search" @bind:after="Load" />
+    <select class="select" style="max-width:240px" @bind="_subject" @bind:after="Load" aria-label="Subject"><option value="">All subjects</option>@foreach (var s in _subjects) { <option value="@s.Id">@s.Name</option> }</select>
+</div>
+<div class="card">
+    <DataView Loading="_loading" Error="_error" OnRetry="Load" IsEmpty="Count == 0" EmptyTitle="Nothing here yet" EmptyIcon="book">
+        @if (_tab == "notes") { <ul class="list">@foreach (var n in _notes) { <li><a href="/sessions/@n.SessionId?tab=notes"><strong>@n.Title</strong></a><div class="caption">@n.AuthorName · <LocalTime Utc="n.PublishedAtUtc ?? n.UpdatedAtUtc" Tz="@Tz" Format="date" />@(n.Source == ContentSource.AiApproved ? " · AI-assisted, teacher approved" : "")</div></li> }</ul> }
+        @if (_tab == "recordings") { <ul class="list">@foreach (var r in _recordings) { <li class="row-between"><div><a href="/sessions/@r.SessionId?tab=recordings"><strong>@r.Title</strong></a><div class="caption">@r.SessionTitle</div></div>@if (r.Completed) { <span class="badge green">Watched</span> }</li> }</ul> }
+        @if (_tab == "materials") { <ul class="list">@foreach (var m in _materials) { <li class="row-between"><div><strong>@m.Title</strong><div class="caption">@(m.SessionTitle ?? m.SubjectName)</div></div>
+            @if (m.Url is not null) { <a class="btn btn-secondary btn-sm" href="@m.Url" target="_blank" rel="noopener noreferrer">Open</a> } else if (m.File is { } f) { <FileButton FileId="f.Id" Label="Download" /> }</li> }</ul> }
+    </DataView>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "tab")] public string? TabParam { get; set; }
+    private string _tab = "notes", _search = "", _subject = "";
+    private bool _loading = true;
+    private ApiException? _error;
+    private List<NoteDto> _notes = [];
+    private List<RecordingDto> _recordings = [];
+    private List<MaterialDto> _materials = [];
+    private List<SubjectDto> _subjects = [];
+    private int Count => _tab == "notes" ? _notes.Count : _tab == "recordings" ? _recordings.Count : _materials.Count;
+
+    protected override async Task LoadAsync()
+    {
+        if (TabParam is "recordings" or "materials") _tab = TabParam;
+        _subjects = (await Fetch(() => Api.GetAsync<List<SubjectDto>>("academics/subjects"))).Value ?? [];
+        await Load();
+    }
+
+    private Task Switch(string t) { _tab = t; return Load(); }
+
+    private async Task Load()
+    {
+        _loading = true; _error = null;
+        var q = $"pageSize=50&search={Uri.EscapeDataString(_search)}" + (_subject == "" ? "" : $"&subjectId={_subject}");
+        try
+        {
+            if (_tab == "notes") _notes = (await Api.GetAsync<PagedResult<NoteDto>>($"library/notes?{q}")).Items.ToList();
+            else if (_tab == "recordings") _recordings = (await Api.GetAsync<PagedResult<RecordingDto>>($"library/recordings?{q}")).Items.ToList();
+            else _materials = (await Api.GetAsync<PagedResult<MaterialDto>>($"materials?{q}")).Items.ToList();
+        }
+        catch (ApiException ex) { _error = ex; }
+        _loading = false;
+    }
+}

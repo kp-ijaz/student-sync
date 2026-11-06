@@ -1,0 +1,17 @@
+@inject MarkdownRenderer Renderer
+@inject IJSRuntime JS
+<div class="prose" @ref="_el">@((MarkupString)Renderer.ToHtml(Markdown))</div>
+
+@code {
+    [Parameter] public string? Markdown { get; set; }
+    private ElementReference _el;
+    private string? _rendered;
+
+    // Formulas written as $…$ are typeset client-side with KaTeX after each content change.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_rendered == Markdown) return;
+        _rendered = Markdown;
+        try { await JS.InvokeVoidAsync("ss.renderMath", _el); } catch (JSException) { }
+    }
+}

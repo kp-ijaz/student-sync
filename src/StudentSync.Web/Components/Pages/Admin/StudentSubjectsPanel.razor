@@ -1,0 +1,143 @@
+@inherits AppComponent
+
+@* A student's curriculum: core subjects come from course enrolment (read-only here); admins choose languages per choice group and add extra subjects. *@
+<section class="card" aria-labelledby="subjects-h">
+    <div class="card-head">
+        <div><h2 id="subjects-h">Subjects</h2><div class="caption">Core subjects come from the student's courses. Languages and additional subjects show only for this student.</div></div>
+    </div>
+    <DataView Loading="_data is null && _error is null" Error="_error" OnRetry="LoadAsync">
+        @if (_data is not null)
+        {
+            <div class="stack">
+                <div>
+                    <h3 class="small" style="margin:0 0 8px">Core subjects</h3>
+                    @if (_data.Core.Count == 0)
+                    {
+                        <p class="muted small" style="margin:0">Not enrolled in a course. Enrol the student under <a href="/admin/academics">Academic structure</a> to give them core subjects.</p>
+                    }
+                    else
+                    {
+                        <div class="row" style="flex-wrap:wrap;gap:8px">@foreach (var s in _data.Core) { <span class="badge navy" title="@s.CourseName · @s.Code">@s.Name</span> }</div>
+                    }
+                </div>
+
+                @if (_data.ChoiceGroups.Count > 0)
+                {
+                    <div class="form-grid">
+                        @foreach (var (g, i) in _data.ChoiceGroups.Select((g, i) => (g, i)))
+                        {
+                            var key = Key(g);
+                            var id = $"choice-group-{i}";
+                            <div class="field">
+                                <label for="@id">@g.Group</label>
+                                <select id="@id" class="select" value="@(_choices.GetValueOrDefault(key)?.ToString() ?? "")" @onchange="e => SetChoice(key, e.Value as string)">
+                                    <option value="">Not chosen</option>
+                                    @foreach (var o in g.Options) { <option value="@o.Id">@o.Name@(o.Status == CatalogStatus.Active ? "" : $" ({o.Status})")</option> }
+                                </select>
+                                <span class="help">@g.CourseName</span>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <div>
+                    <h3 class="small" style="margin:0 0 8px">Additional subjects</h3>
+                    @if (_additional.Count == 0) { <p class="muted small" style="margin:0 0 8px">None. Add extra coaching or elective subjects from any course.</p> }
+                    else
+                    {
+                        <ul class="list" style="margin-bottom:8px">
+                            @foreach (var s in _additional)
+                            {
+                                <li class="row-between">
+                                    <div><strong>@s.Name</strong> <span class="caption">@s.Code · @s.CourseName@(s.ChoiceGroup is null ? "" : $" · {s.ChoiceGroup}")</span></div>
+                                    <button class="btn btn-ghost btn-sm" @onclick="() => _additional.Remove(s)" aria-label="Remove @s.Name">Remove</button>
+                                </li>
+                            }
+                        </ul>
+                    }
+                    <div class="row" style="flex-wrap:wrap">
+                        <select class="select grow" style="min-width:0" aria-label="Subject to add" @bind="_toAdd">
+                            <option value="">Add a subject…</option>
+                            @foreach (var course in Addable().GroupBy(s => s.CourseName))
+                            {
+                                <optgroup label="@course.Key">@foreach (var s in course) { <option value="@s.Id">@s.Name (@s.Code)</option> }</optgroup>
+                            }
+                        </select>
+                        <button class="btn btn-secondary" @onclick="Add" disabled="@(_toAdd is null)">Add</button>
+                    </div>
+                </div>
+
+                <div class="form-actions" style="margin-top:0">
+                    <button class="btn btn-secondary" @onclick="Reset" disabled="@Busy">Discard changes</button>
+                    <button class="btn btn-primary" @onclick="Save" disabled="@Busy">Save subjects</button>
+                </div>
+            </div>
+        }
+    </DataView>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public Guid StudentId { get; set; }
+
+    private StudentSubjectsDto? _data;
+    private ApiException? _error;
+    private List<SubjectDto> _catalogue = [];
+    private readonly Dictionary<(Guid, string), Guid?> _choices = [];
+    private List<SubjectSummaryDto> _additional = [];
+    private Guid? _toAdd;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        (_data, _error) = await Fetch(() => Api.GetAsync<StudentSubjectsDto>($"students/{StudentId}/subjects"));
+        _catalogue = (await Fetch(() => Api.GetAsync<List<SubjectDto>>("academics/subjects"))).Value ?? [];
+        Reset();
+    }
+
+    private static (Guid, string) Key(SubjectChoiceGroupDto g) => (g.CourseId, g.Group);
+
+    private void Reset()
+    {
+        _choices.Clear();
+        if (_data is null) return;
+        foreach (var g in _data.ChoiceGroups) _choices[Key(g)] = g.ChosenSubjectIds.Cast<Guid?>().FirstOrDefault();
+        _additional = [.. _data.Additional];
+        _toAdd = null;
+    }
+
+    private void SetChoice((Guid, string) key, string? value) => _choices[key] = Guid.TryParse(value, out var id) ? id : null;
+
+    /// <summary>Active subjects that are not already the student's: not core or language options of their courses, not already added.</summary>
+    private IEnumerable<SubjectDto> Addable()
+    {
+        if (_data is null) return [];
+        var ownCourses = _data.Core.Select(c => c.CourseId).Concat(_data.ChoiceGroups.Select(g => g.CourseId)).ToHashSet();
+        return _catalogue
+            .Where(s => s.Status == CatalogStatus.Active && _additional.All(a => a.Id != s.Id)
+                        && !(ownCourses.Contains(s.CourseId) && s.Kind is SubjectKind.Core or SubjectKind.LanguageOption))
+            .OrderBy(s => s.CourseName).ThenBy(s => s.Name);
+    }
+
+    private void Add()
+    {
+        if (_toAdd is not { } id || _catalogue.FirstOrDefault(s => s.Id == id) is not { } s) return;
+        _additional.Add(new SubjectSummaryDto(s.Id, s.Code, s.Name, s.CourseId, s.CourseName, s.Kind, s.ChoiceGroup, s.Status));
+        _toAdd = null;
+    }
+
+    private async Task Save()
+    {
+        if (_data is null) return;
+        var request = new SaveStudentSubjectsRequest(
+            _data.ChoiceGroups.Where(g => _choices.GetValueOrDefault(Key(g)) is not null).Select(g => new SubjectChoiceRequest(g.Group, _choices[Key(g)]!.Value)).ToList(),
+            _additional.Select(a => a.Id).ToList());
+        StudentSubjectsDto? saved = null;
+        if (await Run(async () => saved = await Api.PutAsync<StudentSubjectsDto>($"students/{StudentId}/subjects", request), "Subjects saved."))
+        {
+            _data = saved;
+            Reset();
+        }
+    }
+}

@@ -1,0 +1,9 @@
+**/bin
+**/obj
+**/node_modules
+.git
+.env
+mobile
+tests
+**/App_Data
+**/.storage

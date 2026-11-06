@@ -1,0 +1,84 @@
+@page "/teacher/students"
+@attribute [Authorize(Roles = "Teacher")]
+@inherits AppPage
+@implements IDisposable
+
+@* Students a teacher teaches (mobile StudentsScreen): a filled search field and a grouped list — photo (or initials),
+   name, code · grade, chevron → profile. The API scopes the list to the teacher's own students. Admins keep the
+   management table at /admin/students. *@
+<PageHeader Title="Students" Subtitle="Students you teach in any class, batch or private arrangement." />
+
+<div class="t-students">
+    <div class="input-icon t-search">
+        <Icon Name="search" />
+        <input class="input" type="search" placeholder="Search students" aria-label="Search students by name, email or code" value="@_search" @oninput="OnSearch" />
+    </div>
+
+    <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)"
+              IsEmpty="_page?.Items.Count == 0"
+              EmptyTitle="@(Searching ? "No students found" : "No students yet")"
+              EmptyText="@(Searching ? $"Nobody you teach matches “{_search.Trim()}”. Check the spelling, or search by student code." : "Students appear here once they join one of your classes.")"
+              EmptyIllustration="@(Searching ? Illustrations.Search : Illustrations.Empty)">
+        <EmptyAction>@if (Searching) { <button class="btn btn-secondary btn-pill" @onclick="ClearSearch"><Icon Name="x" /> Clear search</button> }</EmptyAction>
+        <ChildContent>
+            @if (_page is not null)
+            {
+                <p class="sr-only" role="status">@_page.TotalCount @(_page.TotalCount == 1 ? "student" : "students")</p>
+                <ul class="list-group t-people" aria-label="Students">
+                    @foreach (var s in _page.Items)
+                    {
+                        <li>
+                            <a class="list-row" href="/students/@s.Id">
+                                <Avatar Name="@s.FullName" PhotoUrl="@s.PhotoUrl" Size="md" />
+                                <span class="list-text">
+                                    <span class="list-title">@s.FullName</span>
+                                    <span class="list-sub">@string.Join(" · ", new[] { s.StudentCode, s.GradeLevelName }.Where(x => !string.IsNullOrWhiteSpace(x)))</span>
+                                </span>
+                                <Icon Name="chevron-right" Class="chev" />
+                            </a>
+                        </li>
+                    }
+                </ul>
+                @if (_page.TotalPages > 1) { <Pager Page="_page.Page" TotalPages="_page.TotalPages" Total="_page.TotalCount" OnPage="Load" /> }
+            }
+        </ChildContent>
+    </DataView>
+</div>
+
+@code {
+    private PagedResult<StudentDto>? _page;
+    private ApiException? _error;
+    private string _search = "";
+    private CancellationTokenSource? _debounce;
+
+    private bool Searching => !string.IsNullOrWhiteSpace(_search);
+
+    protected override Task LoadAsync() => Load(1);
+
+    private async Task Load(int page)
+    {
+        var term = _search.Trim();
+        var (result, error) = await Fetch(() => Api.GetAsync<PagedResult<StudentDto>>($"students?page={page}&pageSize=25&search={Uri.EscapeDataString(term)}"));
+        if (term != _search.Trim()) return; // a newer search is on its way
+        (_page, _error) = (result, error);
+    }
+
+    // Search as the teacher types, after a short pause.
+    private async Task OnSearch(ChangeEventArgs e)
+    {
+        _search = e.Value?.ToString() ?? "";
+        _debounce?.Cancel();
+        var cts = _debounce = new CancellationTokenSource();
+        try { await Task.Delay(300, cts.Token); }
+        catch (TaskCanceledException) { return; }
+        await Load(1);
+    }
+
+    private async Task ClearSearch()
+    {
+        _search = "";
+        await Load(1);
+    }
+
+    public void Dispose() => _debounce?.Cancel();
+}

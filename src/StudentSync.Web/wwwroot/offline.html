@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offline · Student Sync</title>
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<main class="content" style="max-width:760px">
+  <div class="card" style="margin-top:32px">
+    <h1>You're offline</h1>
+    <p class="muted">Student Sync needs a connection for live classes, submissions and messages. Notes you saved for offline reading on this device are below.</p>
+    <div id="notes"></div>
+    <button class="btn btn-primary" onclick="location.reload()">Try again</button>
+  </div>
+</main>
+<script>
+  (function () {
+    const owner = localStorage.getItem("ss-offline-owner");
+    const notes = owner ? JSON.parse(localStorage.getItem("ss-offline-" + owner) || "{}") : {};
+    const host = document.getElementById("notes");
+    const entries = Object.values(notes);
+    if (entries.length === 0) { host.innerHTML = '<p class="small muted">No notes saved for offline reading.</p>'; return; }
+    for (const n of entries) {
+      const art = document.createElement("article");
+      art.className = "card tight"; art.style.marginBottom = "12px";
+      const h = document.createElement("h2"); h.textContent = n.title; art.appendChild(h);
+      const body = document.createElement("div"); body.className = "prose";
+      // Content was sanitised on the server when it was saved.
+      body.innerHTML = n.html; art.appendChild(body);
+      host.appendChild(art);
+    }
+  })();
+</script>
+</body>
+</html>
