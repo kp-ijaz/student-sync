@@ -1,0 +1,230 @@
+@inherits AppComponent
+
+@* Fees & hours (admin): the student's prepaid hours (bought − used = left) and money (price − paid = due).
+   Sell hours with an optional first payment, take a payment, or remove a payment entered by mistake (kept on record).
+   Hours used come from attendance: present or late, class not cancelled. *@
+<section class="card fee-panel" id="fees" aria-labelledby="fees-h">
+    <div class="card-head">
+        <div><h2 id="fees-h">Fees &amp; hours</h2><div class="caption">Prepaid hours, usable for any subject.</div></div>
+        <button class="btn btn-primary btn-sm btn-pill" @onclick="NewSale"><Icon Name="plus" /> Sell hours</button>
+    </div>
+    <DataView Loading="_f is null && _error is null" Error="_error" OnRetry="LoadAsync">
+        @if (_f is { } f)
+        {
+            @if (f.Packages.Count == 0)
+            {
+                <InlineEmpty Icon="wallet" Text="No hours sold yet. Sell a package (for example 30 hours) and record what was paid." />
+            }
+            else
+            {
+                @if (f.HoursBought == 0)
+                {
+                    <InlineEmpty Icon="wallet" Text="No active package. Sell hours to start; earlier packages are listed below." />
+                }
+                else
+                {
+                <div class="fee-summary">
+                    <div class="fee-stat @HoursTone(f.HoursLeft)">
+                        <span class="caption">Hours left</span>
+                        <strong>@(f.HoursLeft < 0 ? "−" : "")@Money.Hours(Math.Abs(f.HoursLeft))</strong>
+                        <span class="caption">@Money.Hours(f.HoursUsed) used of @Money.Hours(f.HoursBought)</span>
+                        <span class="fee-meter" aria-hidden="true"><span style="width:@MeterWidth(f)%"></span></span>
+                    </div>
+                    <div class="fee-stat @(f.Due > 0 ? "warn" : "good")">
+                        <span class="caption">Fees due</span>
+                        <strong>@Money.Format(f.Due, f.CurrencyCode)</strong>
+                        <span class="caption">@(f.Due > 0 && f.OldestDueOn is { } d ? $"since {d:d MMM yyyy}" : "Paid up")</span>
+                    </div>
+                    <div class="fee-stat">
+                        <span class="caption">Paid</span>
+                        <strong>@Money.Format(f.Paid, f.CurrencyCode)</strong>
+                        <span class="caption">of @Money.Format(f.Billed, f.CurrencyCode)</span>
+                    </div>
+                </div>
+                }
+                @if (f.HoursBought > 0 && f.HoursLeft <= 0)
+                {
+                    <p class="fee-warn" role="status"><Icon Name="alert" /> @(f.HoursLeft == 0 ? "All hours are used." : $"Classes went {Money.Hours(-f.HoursLeft)} past the hours bought.") Sell more hours or put the student on hold.</p>
+                }
+
+                <ul class="fee-packages">
+                    @foreach (var p in f.Packages)
+                    {
+                        <li class="@(p.Status == PackageStatus.Cancelled ? "cancelled" : "")">
+                            <div class="fee-pkg-head">
+                                <div>
+                                    <strong>@p.Name</strong>
+                                    <div class="caption">@Money.Format(p.Price, p.CurrencyCode) · from @p.StartsOn.ToString("d MMM yyyy")@(p.DueOn != p.StartsOn ? $" · pay by {p.DueOn:d MMM}" : "")</div>
+                                </div>
+                                @if (p.Status == PackageStatus.Cancelled) { <span class="badge slate">Cancelled</span> }
+                                else if (p.Balance > 0) { <span class="badge amber">@Money.Format(p.Balance, p.CurrencyCode) due</span> }
+                                else { <span class="badge green">Paid</span> }
+                            </div>
+                            @if (p.Payments.Count > 0)
+                            {
+                                <ul class="fee-payments">
+                                    @foreach (var pay in p.Payments)
+                                    {
+                                        <li class="@(pay.Voided ? "voided" : "")">
+                                            <span><strong>@Money.Format(pay.Amount, p.CurrencyCode)</strong> · @MethodName(pay.Method) · @pay.PaidOn.ToString("d MMM yyyy")@(pay.Reference is { } r ? $" · {r}" : "")
+                                                @if (pay.Voided) { <span class="caption"> — removed: @pay.VoidReason</span> }</span>
+                                            @if (!pay.Voided) { <button class="btn btn-ghost btn-sm" @onclick="() => AskVoid(pay)" disabled="@Busy">Remove<span class="sr-only"> payment of @Money.Format(pay.Amount, p.CurrencyCode)</span></button> }
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                            @if (p.Status == PackageStatus.Active)
+                            {
+                                <div class="row fee-pkg-actions">
+                                    @if (p.Balance > 0) { <button class="btn btn-secondary btn-sm btn-pill" @onclick="() => NewPayment(p)" disabled="@Busy"><Icon Name="plus" /> Take payment</button> }
+                                    @if (!p.Payments.Any(x => !x.Voided)) { <button class="btn btn-ghost btn-sm" @onclick="() => Cancel(p)" disabled="@Busy">Cancel package<span class="sr-only"> @p.Name</span></button> }
+                                </div>
+                            }
+                        </li>
+                    }
+                </ul>
+
+                @if (f.RecentUsage.Count > 0)
+                {
+                    <details class="fee-usage">
+                        <summary>Classes that used hours (@f.RecentUsage.Count most recent)</summary>
+                        <ul class="list">
+                            @foreach (var u in f.RecentUsage)
+                            {
+                                <li class="row-between"><span><a href="/sessions/@u.SessionId">@u.Title</a> <span class="caption">· <LocalTime Utc="u.StartUtc" Tz="@Tz" Format="d MMM yyyy, h:mm tt" />@(u.Status == AttendanceStatus.Late ? " · late" : "")</span></span><strong>@Money.Hours(u.Hours)</strong></li>
+                            }
+                        </ul>
+                    </details>
+                }
+            }
+        }
+    </DataView>
+</section>
+
+<Modal @bind-Open="_saleOpen" Title="Sell hours">
+    <fieldset class="field fee-method">
+        <legend>Hours</legend>
+        <div class="pick-group">
+            @foreach (var h in HourChoices) { <button type="button" class="pick" aria-pressed="@Aria.Bool(_hours == h)" @onclick="() => _hours = h">@h hours</button> }
+        </div>
+        <label for="fh" class="sr-only">Other number of hours</label>
+        <input id="fh" class="input" type="number" min="0.5" max="1000" step="0.5" placeholder="Other" @bind="_hours" style="margin-top:8px;max-width:160px" />
+    </fieldset>
+    <div class="form-grid">
+        <div class="field"><label for="fp">Price (@Currency) *</label><input id="fp" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_price" /></div>
+        <div class="field"><label for="fs">Hours count from</label><input id="fs" class="input" type="date" @bind="_starts" /></div>
+        <div class="field"><label for="fd">Pay by</label><input id="fd" class="input" type="date" @bind="_dueOn" /><span class="help">Leave empty if it is due now.</span></div>
+        <div class="field"><label for="fn">Paid now (@Currency)</label><input id="fn" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_paidNow" /><span class="help">Leave empty if nothing was paid yet.</span></div>
+    </div>
+    @if (_paidNow > 0) { <MethodPicker @bind-Method="_method" @bind-Reference="_reference" /> }
+    <div class="form-actions">
+        <button class="btn btn-secondary" @onclick="() => _saleOpen = false">Cancel</button>
+        <button class="btn btn-primary" @onclick="Sell" disabled="@(Busy || _hours is not > 0 || _price is null)">Sell @(_hours is > 0 ? Money.Hours(_hours.Value) : "hours")</button>
+    </div>
+</Modal>
+
+<Modal @bind-Open="_payOpen" Title="@($"Take payment · {_payFor?.Name}")">
+    @if (_payFor is { } pkg) { <p class="small" style="margin-top:0">@Money.Format(pkg.Balance, pkg.CurrencyCode) is due on this package.</p> }
+    <div class="form-grid">
+        <div class="field"><label for="pa">Amount (@Currency) *</label><input id="pa" class="input" type="number" min="0.01" step="0.01" inputmode="decimal" @bind="_amount" /></div>
+        <div class="field"><label for="pd">Paid on</label><input id="pd" class="input" type="date" @bind="_paidOn" /></div>
+    </div>
+    <MethodPicker @bind-Method="_method" @bind-Reference="_reference" />
+    <div class="form-actions">
+        <button class="btn btn-secondary" @onclick="() => _payOpen = false">Cancel</button>
+        <button class="btn btn-primary" @onclick="Pay" disabled="@(Busy || _amount is not > 0)">Save payment</button>
+    </div>
+</Modal>
+
+<Modal @bind-Open="_voidOpen" Title="Remove payment">
+    <p class="small" style="margin-top:0">The payment stays on record as removed and no longer counts as paid.</p>
+    <div class="field"><label for="vr">Why? *</label><input id="vr" class="input" placeholder="e.g. Entered twice" maxlength="300" @bind="_voidReason" @bind:event="oninput" /></div>
+    <div class="form-actions">
+        <button class="btn btn-secondary" @onclick="() => _voidOpen = false">Keep it</button>
+        <button class="btn btn-danger" @onclick="Void" disabled="@(Busy || string.IsNullOrWhiteSpace(_voidReason))">Remove payment</button>
+    </div>
+</Modal>
+
+@code {
+    private static readonly decimal[] HourChoices = [10, 20, 30, 50];
+
+    [Parameter, EditorRequired] public Guid StudentId { get; set; }
+
+    private StudentFeesDto? _f;
+    private ApiException? _error;
+    private string Currency => _f?.CurrencyCode ?? "";
+
+    private bool _saleOpen, _payOpen, _voidOpen;
+    private decimal? _hours, _price, _paidNow, _amount;
+    private DateOnly? _starts, _dueOn, _paidOn;
+    private PaymentMethod _method = PaymentMethod.Cash;
+    private string? _reference, _voidReason;
+    private StudentPackageDto? _payFor;
+    private FeePaymentDto? _voiding;
+    private string _idempotencyKey = "";
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+    private async Task LoadAsync() => (_f, _error) = await Fetch(() => Api.GetAsync<StudentFeesDto>($"students/{StudentId}/fees"));
+
+    public static string MethodName(PaymentMethod m) => m switch
+    {
+        PaymentMethod.BankTransfer => "Bank transfer",
+        PaymentMethod.Upi => "UPI",
+        _ => m.ToString(),
+    };
+
+    private static string HoursTone(decimal left) => left switch { <= 0 => "bad", <= 2 => "warn", _ => "good" };
+
+    private static int MeterWidth(StudentFeesDto f) => f.HoursBought <= 0 ? 0 : (int)Math.Clamp(Math.Round(100 * f.HoursUsed / f.HoursBought), 0, 100);
+
+    private void NewSale()
+    {
+        (_hours, _price, _paidNow, _starts, _dueOn, _method, _reference) = (30, null, null, null, null, PaymentMethod.Cash, null);
+        _idempotencyKey = Guid.NewGuid().ToString("N");
+        _saleOpen = true;
+    }
+
+    private void NewPayment(StudentPackageDto p)
+    {
+        (_payFor, _amount, _paidOn, _method, _reference) = (p, p.Balance, null, PaymentMethod.Cash, null);
+        _idempotencyKey = Guid.NewGuid().ToString("N");
+        _payOpen = true;
+    }
+
+    private void AskVoid(FeePaymentDto p) => (_voiding, _voidReason, _voidOpen) = (p, null, true);
+
+    private async Task Sell()
+    {
+        var request = new SavePackageRequest(_hours ?? 0, _price ?? 0, _starts, _dueOn, null, null, _paidNow is > 0 ? _paidNow : null, _method, _reference);
+        if (await Run(() => Api.PostAsync($"students/{StudentId}/packages", request, _idempotencyKey), $"{Money.Hours(_hours ?? 0)} sold."))
+        {
+            _saleOpen = false;
+            await LoadAsync();
+        }
+    }
+
+    private async Task Pay()
+    {
+        if (_payFor is not { } p) return;
+        if (await Run(() => Api.PostAsync($"students/{StudentId}/packages/{p.Id}/payments", new RecordPaymentRequest(_amount ?? 0, _paidOn, _method, _reference), _idempotencyKey), "Payment saved."))
+        {
+            _payOpen = false;
+            await LoadAsync();
+        }
+    }
+
+    private async Task Void()
+    {
+        if (_voiding is not { } p) return;
+        if (await Run(() => Api.PostAsync($"students/{StudentId}/payments/{p.Id}/void", new VoidPaymentRequest(_voidReason ?? "")), "Payment removed."))
+        {
+            _voidOpen = false;
+            await LoadAsync();
+        }
+    }
+
+    private async Task Cancel(StudentPackageDto p)
+    {
+        if (await Run(() => Api.PostAsync($"students/{StudentId}/packages/{p.Id}/cancel"), $"{p.Name} cancelled.")) await LoadAsync();
+    }
+}

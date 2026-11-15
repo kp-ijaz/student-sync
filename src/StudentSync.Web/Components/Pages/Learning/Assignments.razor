@@ -2,7 +2,7 @@
 @attribute [Authorize(Roles = "InstitutionAdmin,Teacher,Student")]
 @inherits AppPage
 
-<PageHeader Title="Assignments" Subtitle="@(IsStudent ? "Homework and tasks from your teachers." : "Create, publish and grade homework for batches, groups or individual students.")">
+<PageHeader Title="Assignments" Subtitle="@(IsStudent ? "Homework and tasks from your teachers." : "Create practice for your students, review their work, and share feedback.")">
     <Actions>@if (IsStaff) { <a class="btn btn-primary" href="/assignments/new"><Icon Name="plus" /> New assignment</a> }</Actions>
 </PageHeader>
 

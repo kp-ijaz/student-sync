@@ -6,12 +6,12 @@
 <DataView Loading="_o is null && _error is null" Error="_error" OnRetry="LoadAsync">
     @if (_o is not null)
     {
-        <div class="grid grid-4" style="margin-bottom:16px">
-            <StatCard Label="Institutions" Value="@_o.Tenants.ToString()" Hint="@($"{_o.ActiveTenants} active")" />
-            <StatCard Label="Active users" Value="@_o.TotalUsers.ToString()" Hint="@($"{_o.Students} students · {_o.Teachers} teachers")" />
-            <StatCard Label="Sessions next 7 days" Value="@_o.SessionsNext7Days.ToString()" />
-            <StatCard Label="AI jobs (30 days)" Value="@_o.AiJobsLast30Days.ToString()" Hint="@($"{_o.FailedAiJobsLast30Days} failed")" />
-        </div>
+        <MetricStrip AriaLabel="Platform at a glance" Items="@([
+            new("Institutions", _o.Tenants.ToString(), $"{_o.ActiveTenants} active", "building"),
+            new("Active users", _o.TotalUsers.ToString(), $"{_o.Students} students · {_o.Teachers} teachers", "users"),
+            new("Classes", _o.SessionsNext7Days.ToString(), "in the next 7 days", "calendar"),
+            new("AI jobs", _o.AiJobsLast30Days.ToString(), $"last 30 days · {_o.FailedAiJobsLast30Days} failed", "sparkle"),
+        ])" />
         <div class="grid grid-2">
             <div class="card"><div class="card-head"><h2>Integrations</h2></div>
                 <ul class="list">@foreach (var i in _o.Integrations) { <li class="row-between"><div><strong>@i.Name</strong><div class="caption">@i.Detail</div></div><span class="badge @(i.Configured ? "green" : "slate")">@(i.Configured ? "Configured" : "Not configured")</span></li> }</ul></div>

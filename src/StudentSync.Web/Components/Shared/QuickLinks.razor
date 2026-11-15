@@ -1,0 +1,12 @@
+@* Shortcut pills under a home greeting: up to five places the role opens every day. A sideways scroller on phones. *@
+<nav class="quick-links" aria-label="@AriaLabel">
+    @foreach (var item in Items)
+    {
+        <a href="@item.Href"><Icon Name="@item.Icon" />@item.Label</a>
+    }
+</nav>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ShortcutItem> Items { get; set; } = [];
+    [Parameter] public string AriaLabel { get; set; } = "Shortcuts";
+}

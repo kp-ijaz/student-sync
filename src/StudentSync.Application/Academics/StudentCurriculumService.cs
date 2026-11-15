@@ -46,8 +46,15 @@ public sealed class StudentCurriculumService(IAppDbContext db, ICurrentUser user
 
     public async Task<StudentSubjectsDto> GetForStudentAsync(Guid studentId, CancellationToken ct)
     {
-        access.Require(Permissions.AcademicsManage);
-        await EnsureStudentAsync(studentId, ct);
+        if (user.Has(Permissions.AcademicsManage)) await EnsureStudentAsync(studentId, ct);
+        else
+        {
+            // Teachers may read (never change) the subjects of a student they already teach, so "Add classes" can
+            // offer that student's subjects first. Everyone else is refused as before.
+            if (!access.IsTeacher) throw new ForbiddenException();
+            await EnsureStudentAsync(studentId, ct);
+            if (!await access.TeacherTeachesStudentAsync(user.UserId, studentId, ct)) throw new ForbiddenException();
+        }
         var courses = await ActiveCourseIds(studentId).ToListAsync(ct);
         var assignedIds = await db.StudentSubjects.Where(x => x.StudentId == studentId).Select(x => x.SubjectId).ToListAsync(ct);
         var courseSubjects = await Project(db.Subjects.Where(s => courses.Contains(s.CourseId)

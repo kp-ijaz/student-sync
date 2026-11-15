@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Distributed;
 using Serilog;
 using StudentSync.Contracts;
 using StudentSync.Web.Components;
@@ -42,8 +43,14 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
 });
 builder.Services.AddAuthorization();
 
-// Development uses an in-memory session store; configure a distributed cache (Redis/SQL Server) for multiple web nodes.
-builder.Services.AddDistributedMemoryCache();
+// Signed-in sessions (tokens per session id): on disk when Sessions:StorePath is set, so a restart or redeploy does not
+// sign everyone out (one web node); otherwise in memory. Several web nodes need a shared cache (Redis / SQL Server).
+if (builder.Configuration["Sessions:StorePath"] is { Length: > 0 } sessionPath)
+    builder.Services.AddSingleton<IDistributedCache>(new FileDistributedCache(Path.GetFullPath(sessionPath, builder.Environment.ContentRootPath)));
+else
+    builder.Services.AddDistributedMemoryCache();
+// "Keep me signed in": a persistent cookie that slides this long; keep it at or below the API's Jwt:RefreshTokenDays.
+var persistentSession = TimeSpan.FromDays(builder.Configuration.GetValue("Sessions:PersistentDays", 30));
 builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddSingleton<MarkdownRenderer>();
 builder.Services.AddHttpClient<ApiClient>(c => c.BaseAddress = new Uri(builder.Configuration["Api:BaseUrl"] ?? "http://localhost:5080/"));
@@ -80,8 +87,9 @@ app.MapHealthChecks("/health/live");
 
 // ---------- Sign-in / sign-out (plain form posts so the session cookie can be set) ----------
 app.MapPost("/account/login", async ([FromForm] string email, [FromForm] string password, [FromForm] string? institutionCode, [FromForm] string? returnUrl,
-    HttpContext http, IHttpClientFactory factory, SessionStore store) =>
+    [FromForm] string? remember, HttpContext http, IHttpClientFactory factory, SessionStore store) =>
 {
+    var keep = remember == "true";
     var client = factory.CreateClient("api-anon");
     var safeReturn = !string.IsNullOrEmpty(returnUrl) && Uri.IsWellFormedUriString(returnUrl, UriKind.Relative) && returnUrl.StartsWith('/') && !returnUrl.StartsWith("//") ? returnUrl : "/";
     HttpResponseMessage response;
@@ -91,19 +99,22 @@ app.MapPost("/account/login", async ([FromForm] string email, [FromForm] string 
     }
     catch (HttpRequestException)
     {
-        return Results.Redirect($"/login?error=unavailable&email={Uri.EscapeDataString(email)}&returnUrl={Uri.EscapeDataString(safeReturn)}");
+        return Results.Redirect($"/login?error=unavailable&email={Uri.EscapeDataString(email)}&returnUrl={Uri.EscapeDataString(safeReturn)}{(keep ? "" : "&keep=0")}");
     }
     if (!response.IsSuccessStatusCode)
     {
         var error = await ApiClient.ToExceptionAsync(response);
-        return Results.Redirect($"/login?error={Uri.EscapeDataString(error.Code)}&email={Uri.EscapeDataString(email)}&institution={Uri.EscapeDataString(institutionCode ?? "")}&returnUrl={Uri.EscapeDataString(safeReturn)}");
+        return Results.Redirect($"/login?error={Uri.EscapeDataString(error.Code)}&email={Uri.EscapeDataString(email)}&institution={Uri.EscapeDataString(institutionCode ?? "")}&returnUrl={Uri.EscapeDataString(safeReturn)}{(keep ? "" : "&keep=0")}");
     }
     var auth = (await response.Content.ReadFromJsonAsync<AuthResponse>(ApiClient.Json))!;
     var sid = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
     await store.SaveAsync(sid, new SessionTokens(auth.AccessToken, auth.AccessTokenExpiresAtUtc, auth.RefreshToken, auth.RefreshTokenExpiresAtUtc, auth.User));
     var identity = new ClaimsIdentity([new Claim("sid", sid), new Claim(ClaimTypes.Name, auth.User.FullName), new Claim(ClaimTypes.Role, auth.User.Role.ToString()),
         new Claim(ClaimTypes.NameIdentifier, auth.User.Id.ToString())], CookieAuthenticationDefaults.AuthenticationScheme);
-    await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
+    // Kept: a persistent cookie that survives closing the browser or app and slides for persistentSession (the
+    // handler keeps the issued-to-expiry span when it renews). Not kept: a browser-session cookie (ExpireTimeSpan).
+    await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity),
+        new AuthenticationProperties { IsPersistent = keep, ExpiresUtc = keep ? DateTimeOffset.UtcNow.Add(persistentSession) : null });
     if (auth.User.MustChangePassword) return Results.Redirect("/change-password");
     return Results.Redirect(safeReturn == "/" ? Navigation.Home(auth.User.Role) : safeReturn);
 }).AllowAnonymous();

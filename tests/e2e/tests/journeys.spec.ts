@@ -12,7 +12,7 @@ test.describe("Sign-in and role navigation", () => {
   });
 
   for (const [role, email, home, heading] of [
-    ["admin", users.admin, "/admin", "Institution dashboard"],
+    ["admin", users.admin, "/admin", "Hana"],
     // Dashboards greet with the first name as the heading (mobile HomeGreeting pattern); the greeting line sits above it.
     ["teacher", users.teacher, "/teacher", "Amira"],
     ["student", users.student, "/student", "Aisha"],
@@ -43,22 +43,32 @@ test.describe("Sign-in and role navigation", () => {
 });
 
 test.describe("Teaching workflows", () => {
-  test("admin schedules a one-to-one lesson without any batch", async ({ page }) => {
+  test("admin adds a student's one-to-one classes on one page", async ({ page }) => {
     await signIn(page, users.admin);
-    await page.goto("/sessions/new?type=OneToOne");
-    await expect(page.getByRole("button", { name: /One-to-one/ })).toHaveAttribute("aria-pressed", "true");
-    await page.getByLabel("Teacher *").selectOption({ label: "Priya Nair (Demo Teacher)" });
+    await page.goto("/sessions/new");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Add classes");
+    await expect(page.getByText("Choose a student")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create classes" })).toBeDisabled();
+    await page.getByLabel("Student *").fill("Hiro");
     await page.getByLabel(/Hiro Tanaka/).check();
-    const title = `E2E one-to-one ${Date.now()}`;
-    await page.getByLabel("Title *").fill(title);
+    // Only Hiro's own subjects are listed; "Other subject…" opens the rest (here: extra Physics coaching).
+    await expect(page.getByLabel("Subject *").locator("option", { hasText: "Other subject…" })).toBeAttached();
+    await page.getByLabel("Subject *").selectOption("other");
+    await page.getByLabel("Subject *").selectOption({ label: "Physics" });
+    // Only Physics teachers are listed; "Other teacher…" opens everyone (a substitute).
+    await page.getByLabel("Teacher *").selectOption("other");
+    await page.getByLabel("Teacher *").selectOption({ label: "Priya Nair (Demo Teacher)" });
     const date = new Date(Date.now() + 1000 * 60 * 60 * 24 * (70 + Math.floor(Math.random() * 200)));
+    await page.getByRole("button", { name: /^Just once/ }).click();
+    await page.getByRole("button", { name: /^Pick a date/ }).click();
     await page.getByLabel("Date *").fill(date.toISOString().slice(0, 10));
     await page.getByLabel("Start time *").fill("05:15");
-    await page.getByRole("button", { name: /Preview & check conflicts/ }).click();
-    await expect(page.getByText("No conflicts found")).toBeVisible();
-    await page.getByRole("button", { name: "Schedule session" }).click();
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
-    await expect(page.getByText("No batch")).toBeVisible();
+    await page.getByRole("button", { name: "45 min" }).click();
+    await expect(page.getByText("1 class ready")).toBeVisible();
+    const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+    expect(axe.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+    await page.getByRole("button", { name: "Create class" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^Physics · Hiro/);
     await expect(page.getByText("One-to-one").first()).toBeVisible();
   });
 
@@ -205,6 +215,7 @@ test.describe("Responsive layout @responsive", () => {
     ["admin students", users.admin, "/admin/students"],
     ["admin teachers", users.admin, "/admin/teachers"],
     ["admin reports", users.admin, "/admin/reports"],
+    ["admin fees", users.admin, "/admin/fees"],
     ["admin parents", users.admin, "/admin/parents"],
   ] as const) {
     test(`${name} has no horizontal overflow`, async ({ page }) => {
@@ -242,6 +253,7 @@ test.describe("Accessibility (axe, WCAG 2.1 AA)", () => {
     ["teacher new diagnostic", users.teacher, "/exams/new?purpose=Diagnostic"],
     ["admin teachers", users.admin, "/admin/teachers"],
     ["admin reports", users.admin, "/admin/reports"],
+    ["admin fees", users.admin, "/admin/fees"],
     ["admin parents", users.admin, "/admin/parents"],
   ] as const) {
     test(`${name} has no serious or critical violations`, async ({ page }) => {

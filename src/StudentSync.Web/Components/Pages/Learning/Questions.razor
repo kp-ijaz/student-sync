@@ -7,7 +7,7 @@
 </PageHeader>
 <div class="card">
     <div class="row" style="margin-bottom:16px">
-        <select class="select" style="max-width:260px" @bind="_subjectFilter" @bind:after="() => Load(1)" aria-label="Subject"><option value="">All subjects</option>@foreach (var s in _subjects) { <option value="@s.Id">@s.Name</option> }</select>
+        <select class="select" style="max-width:260px" @bind="_subjectFilter" @bind:after="() => Load(1)" aria-label="Subject"><option value="">@(IsTeacher ? "All my subjects" : "All subjects")</option>@foreach (var s in _subjects) { <option value="@s.Id">@s.Name</option> }</select>
         <input class="input" style="max-width:280px" placeholder="Search question text" @bind="_search" @bind:after="() => Load(1)" aria-label="Search" />
     </div>
     <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0" EmptyTitle="No questions yet" EmptyText="Add questions for the subjects you teach." EmptyIcon="database">
@@ -24,7 +24,7 @@
 
 <Modal @bind-Open="_open" Title="@(_editId is null ? "New question" : "Edit question")" Wide="true">
     <div class="form-grid">
-        <div class="field"><label for="qs">Subject *</label><select id="qs" class="select" @bind="_subjectId" @bind:after="() => _chapterId = null"><option value="">Choose…</option>@foreach (var s in _subjects) { <option value="@s.Id">@s.Name</option> }</select></div>
+        <div class="field"><label for="qs">Subject *</label><select id="qs" class="select" @bind="_subjectId" @bind:after="() => _chapterId = null"><option value="">Choose…</option>@foreach (var s in _subjects) { <option value="@s.Id">@s.Name</option> }</select>@if (IsTeacher && _subjects.Count == 0) { <span class="help">No subjects on your profile yet. Ask the admin to add the subjects you teach (People ▸ Teachers).</span> }</div>
         <div class="field"><label for="qch">Chapter</label><select id="qch" class="select" @bind="_chapterId" disabled="@(Chapters.Count == 0)"><option value="">Not set</option>@foreach (var c in Chapters) { <option value="@c.Id">@c.Title</option> }</select><span class="help">Used to break diagnostic results down by chapter.</span></div>
         <div class="field"><label for="qt">Type *</label><select id="qt" class="select" @bind="_type" @bind:after="TypeChanged">@foreach (var t in Enum.GetValues<QuestionType>()) { <option value="@t">@t</option> }</select></div>
         <div class="field"><label for="qd">Difficulty</label><select id="qd" class="select" @bind="_difficulty">@foreach (var d in Enum.GetValues<Difficulty>()) { <option value="@d">@d</option> }</select></div>
@@ -80,7 +80,7 @@
 
     protected override async Task LoadAsync()
     {
-        _subjects = (await Fetch(() => Api.GetAsync<List<SubjectDto>>("academics/subjects"))).Value ?? [];
+        _subjects = (await Fetch(() => Api.GetAsync<List<SubjectDto>>("academics/subjects?mine=true"))).Value ?? [];
         await Load(1);
     }
 

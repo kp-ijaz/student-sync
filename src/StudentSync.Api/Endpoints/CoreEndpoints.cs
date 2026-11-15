@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using StudentSync.Api.Hosting;
 using StudentSync.Application.Academics;
 using StudentSync.Application.Common;
+using StudentSync.Application.Fees;
 using StudentSync.Application.People;
 using StudentSync.Application.Platform;
 using StudentSync.Contracts;
@@ -110,6 +111,16 @@ public static class CoreEndpoints
         st.MapDelete("/{id:guid}/photo", async (Guid id, ProfilePhotoService s, CancellationToken ct) => { await s.RemoveStudentAsync(id, ct); return Results.NoContent(); });
         // Curriculum: core subjects (from course enrolment), language choices and additional subjects of one student.
         st.MapGet("/{id:guid}/subjects", (Guid id, StudentCurriculumService s, CancellationToken ct) => s.GetForStudentAsync(id, ct));
+        st.MapGet("/{id:guid}/school-reports", (Guid id, SchoolReportService s, CancellationToken ct) => s.ListAsync(id, ct));
+        st.MapPost("/{id:guid}/school-reports", async (Guid id, SaveSchoolReportRequest r, SchoolReportService s, CancellationToken ct) => new IdResponse(await s.AddAsync(id, r, ct)));
+        st.MapDelete("/{id:guid}/school-reports/{reportId:guid}", async (Guid id, Guid reportId, SchoolReportService s, CancellationToken ct) => { await s.DeleteAsync(id, reportId, ct); return Results.NoContent(); });
+        // Fees (addendum A): prepaid hour packages and payments. Admin only (enforced in the service); POSTs replay on Idempotency-Key.
+        st.MapGet("/{id:guid}/fees", (Guid id, FeeService s, CancellationToken ct) => s.ForStudentAsync(id, ct));
+        st.MapPost("/{id:guid}/packages", async (Guid id, SavePackageRequest r, FeeService s, CancellationToken ct) => new IdResponse(await s.AddPackageAsync(id, r, ct))).AddEndpointFilter<IdempotencyFilter>();
+        st.MapPost("/{id:guid}/packages/{packageId:guid}/cancel", async (Guid id, Guid packageId, FeeService s, CancellationToken ct) => { await s.CancelPackageAsync(id, packageId, ct); return Results.NoContent(); });
+        st.MapPost("/{id:guid}/packages/{packageId:guid}/payments", async (Guid id, Guid packageId, RecordPaymentRequest r, FeeService s, CancellationToken ct) => new IdResponse(await s.RecordPaymentAsync(id, packageId, r, ct))).AddEndpointFilter<IdempotencyFilter>();
+        st.MapPost("/{id:guid}/payments/{paymentId:guid}/void", async (Guid id, Guid paymentId, VoidPaymentRequest r, FeeService s, CancellationToken ct) => { await s.VoidPaymentAsync(id, paymentId, r, ct); return Results.NoContent(); });
+        api.MapGet("/fees/due", (int? take, FeeService s, CancellationToken ct) => s.DueAsync(take, ct)).WithTags("Fees");
         st.MapPut("/{id:guid}/subjects", (Guid id, SaveStudentSubjectsRequest r, StudentCurriculumService s, CancellationToken ct) => s.SaveForStudentAsync(id, r, ct));
         // Learning profile (addendum C): weak subjects and staff notes. Scope (admin / teacher-of-student / self) is enforced in the service.
         var lp = st.MapGroup("/{id:guid}").RequirePermission(Permissions.LearningNeedsManage);
@@ -148,8 +159,9 @@ public static class CoreEndpoints
         a.MapPost("/courses/{id:guid}/enrolments", async (Guid id, EnrolStudentRequest r, AcademicsService s, CancellationToken ct) => { await s.EnrolInCourseAsync(id, r, ct); return Results.NoContent(); });
         a.MapDelete("/courses/{id:guid}/enrolments/{studentId:guid}", async (Guid id, Guid studentId, AcademicsService s, CancellationToken ct) => { await s.WithdrawFromCourseAsync(id, studentId, ct); return Results.NoContent(); });
 
-        a.MapGet("/subjects", (Guid? courseId, AcademicsService s, CancellationToken ct) => s.SubjectsAsync(courseId, ct));
+        a.MapGet("/subjects", (Guid? courseId, bool? mine, AcademicsService s, CancellationToken ct) => s.SubjectsAsync(courseId, ct, mine == true));
         a.MapPost("/subjects", async (SaveSubjectRequest r, AcademicsService s, CancellationToken ct) => new IdResponse(await s.SaveSubjectAsync(null, r, ct)));
+        a.MapPost("/centre-subjects", async (CentreSubjectRequest r, AcademicsService s, CancellationToken ct) => new IdResponse(await s.AddCentreSubjectAsync(r, ct)));
         a.MapPut("/subjects/{id:guid}", async (Guid id, SaveSubjectRequest r, AcademicsService s, CancellationToken ct) => new IdResponse(await s.SaveSubjectAsync(id, r, ct)));
         a.MapPost("/subjects/{id:guid}/chapters", async (Guid id, SaveChapterRequest r, AcademicsService s, CancellationToken ct) => new IdResponse(await s.AddChapterAsync(id, r, ct)));
         a.MapPost("/chapters/{id:guid}/topics", async (Guid id, SaveTopicRequest r, AcademicsService s, CancellationToken ct) => new IdResponse(await s.AddTopicAsync(id, r, ct)));

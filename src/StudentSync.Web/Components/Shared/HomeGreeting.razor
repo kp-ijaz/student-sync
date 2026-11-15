@@ -1,0 +1,23 @@
+@* Home greeting used by every role (DESIGN.md "Home pattern"): photo → greeting line → first name → date caption, with
+   the role's everyday actions as pill buttons (two at most; they share the width on phones). *@
+<header class="page-header t-greeting home-head">
+    <a class="t-greeting-avatar" href="/profile" aria-label="Your profile"><Avatar Name="@FullName" PhotoUrl="@PhotoUrl" Size="lg" Ring="true" /></a>
+    <div class="grow">
+        <div class="t-greeting-line">@TeachingRules.Greeting(LocalNow.Hour)</div>
+        <h1 tabindex="-1">@FirstName</h1>
+        <div class="caption">@LocalNow.ToString("dddd d MMMM", System.Globalization.CultureInfo.InvariantCulture)@(Caption is null ? "" : $" · {Caption}")</div>
+    </div>
+    @if (Actions is not null) { <div class="btn-group home-head-actions">@Actions</div> }
+</header>
+
+@code {
+    [Parameter] public string? FullName { get; set; }
+    [Parameter] public string? PhotoUrl { get; set; }
+    [Parameter, EditorRequired] public string Tz { get; set; } = "UTC";
+    /// <summary>Shown after the date, e.g. the centre's name or "times in Asia/Kolkata".</summary>
+    [Parameter] public string? Caption { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+
+    private DateTime LocalNow => Time.ToLocal(DateTime.UtcNow, Tz);
+    private string FirstName => People.ShortName(FullName).Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+}

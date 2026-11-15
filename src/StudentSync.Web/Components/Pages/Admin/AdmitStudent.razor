@@ -1,0 +1,254 @@
+@page "/admin/students/new"
+@attribute [Authorize(Roles = "InstitutionAdmin")]
+@inherits AppPage
+
+@* Admission, the way a tuition centre takes a new student over the phone: who they are and how to reach the family,
+   their school and class, only the subjects they need tuition for, their last school result, and their goal.
+   Everything is saved together (one request); the scanned report is uploaded first and attached. *@
+<PageHeader Title="Admit a student" Subtitle="Fill in what the student or parent told you. Only name, email, class and the tuition subjects are required.">
+    <Breadcrumb><a href="/admin/students">Students</a> /</Breadcrumb>
+</PageHeader>
+
+<DataView Loading="_loading" Error="_error" OnRetry="LoadAsync">
+<div class="stack admit">
+    @if (_errors.Count > 0)
+    {
+        <div class="error-panel" role="alert"><strong>Please check:</strong><ul>@foreach (var m in _errors.Values.SelectMany(x => x).Distinct()) { <li>@m</li> }</ul></div>
+    }
+
+    <section class="card" aria-labelledby="ad-student">
+        <h2 id="ad-student" class="easy-step"><span class="planner-step-number" aria-hidden="true">1</span> Student</h2>
+        <div class="form-grid">
+            <div class="field"><label for="an">Full name *</label><input id="an" class="input" @bind="_name" autocomplete="off" /></div>
+            <div class="field"><label for="ae">Email (for sign-in) *</label><input id="ae" type="email" class="input" @bind="_email" autocomplete="off" /></div>
+            <div class="field"><label for="aph">Student phone / WhatsApp</label><input id="aph" type="tel" class="input" placeholder="+971 50 123 4567" @bind="_phone" /></div>
+            <div class="field"><label for="ac">Student code *</label><input id="ac" class="input" @bind="_code" /><span class="help">Suggested automatically; change it if you use your own codes.</span></div>
+            <div class="field"><label for="atz">Time zone</label><TimeZoneSelect Id="atz" @bind-Value="_tz" /><span class="help">Where the student lives. Classes are shown to them in this time.</span></div>
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="ad-parent">
+        <h2 id="ad-parent" class="easy-step"><span class="planner-step-number" aria-hidden="true">2</span> Parent / guardian</h2>
+        <p class="caption">Parents don’t sign in. Their contact is kept for the centre’s admins only.</p>
+        <div class="form-grid">
+            <div class="field"><label for="agn">Name</label><input id="agn" class="input" @bind="_guardianName" /></div>
+            <div class="field"><label for="agp">Phone / WhatsApp</label><input id="agp" type="tel" class="input" placeholder="+971 50 123 4567" @bind="_guardianPhone" /></div>
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="ad-school">
+        <h2 id="ad-school" class="easy-step"><span class="planner-step-number" aria-hidden="true">3</span> School</h2>
+        <div class="form-grid">
+            <div class="field"><label for="asc">School name</label><input id="asc" class="input" @bind="_school" /></div>
+            <div class="field"><label for="ag">Class *</label><select id="ag" class="select" @bind="_grade"><option value="">Choose the class</option>@foreach (var g in _grades) { <option value="@g.Id">@g.Name</option> }</select></div>
+            <div class="field"><label for="asy">Syllabus</label><select id="asy" class="select" @bind="_curriculum"><option value="">Not known</option>@foreach (var c in _curricula.Where(c => c.Status == CatalogStatus.Active)) { <option value="@c.Id">@c.Name</option> }</select></div>
+            <div class="field"><label for="ay">Academic year</label><select id="ay" class="select" @bind="_year"><option value="">—</option>@foreach (var y in _years) { <option value="@y.Id">@y.Name@(y.IsCurrent ? " (current)" : "")</option> }</select></div>
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="ad-subjects">
+        <h2 id="ad-subjects" class="easy-step"><span class="planner-step-number" aria-hidden="true">4</span> Tuition subjects *</h2>
+        <p class="caption">Only the subjects they need tuition for. These are the subjects offered when you add their classes.</p>
+        @if (CentreSubjects.Count > 0)
+        {
+            <div class="pick-group multi admit-subjects" role="group" aria-label="Tuition subjects">
+                @foreach (var s in CentreSubjects)
+                {
+                    <button type="button" class="pick" aria-pressed="@(Aria.Bool(_subjectIds.Contains(s.Id)))" @onclick="() => ToggleSubject(s.Id)">@s.Name</button>
+                }
+            </div>
+        }
+        else { <p class="muted small">Your centre’s subject list is empty. Add the first subject below.</p> }
+        @if (OtherChosen.Any())
+        {
+            <div class="pill-list" style="margin-top:8px">@foreach (var s in OtherChosen) { <span class="badge removable blue"><span>@s.Name <span class="caption">@s.CourseName</span></span><button type="button" class="chip-remove" aria-label="@($"Remove {s.Name}")" @onclick="() => ToggleSubject(s.Id)"><Icon Name="x" /></button></span> }</div>
+        }
+        <div class="form-grid" style="margin-top:12px">
+            <div class="field">
+                <label for="anew">Add a new subject to your list</label>
+                <div class="row" style="flex-wrap:nowrap"><input id="anew" class="input grow" placeholder="e.g. Accountancy" @bind="_newSubject" @bind:event="oninput" @onkeydown="NewSubjectKey" /><button type="button" class="btn btn-secondary" @onclick="AddCentreSubject" disabled="@(Busy || string.IsNullOrWhiteSpace(_newSubject))">Add</button></div>
+            </div>
+            @if (_subjects.Any(s => !s.IsCentreSubject))
+            {
+                <div class="field">
+                    <label for="aother">Or pick from a class syllabus</label>
+                    <select id="aother" class="select" @key="_subjectIds.Count" value="" @onchange="PickOther">
+                        <option value="">Other subject…</option>
+                        @foreach (var course in _subjects.Where(s => !s.IsCentreSubject && !_subjectIds.Contains(s.Id)).GroupBy(s => s.CourseName))
+                        {
+                            <optgroup label="@course.Key">@foreach (var s in course) { <option value="@s.Id">@s.Name</option> }</optgroup>
+                        }
+                    </select>
+                </div>
+            }
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="ad-result">
+        <h2 id="ad-result" class="easy-step"><span class="planner-step-number" aria-hidden="true">5</span> Last school result <span class="caption">Optional</span></h2>
+        <div class="form-grid">
+            <div class="field"><label for="art">Exam</label><input id="art" class="input" placeholder="e.g. Term 1 2026" @bind="_reportTitle" /></div>
+            <div class="field"><label for="ard">Exam date</label><input id="ard" type="date" class="input" @bind="_reportDate" /></div>
+            <div class="field"><label for="arp">Overall marks (%)</label><input id="arp" type="number" min="0" max="100" step="0.1" class="input" @bind="_overall" /></div>
+            <div class="field">
+                <label for="arf">Progress report (PDF or photo)</label>
+                <InputFile id="arf" accept="application/pdf,image/png,image/jpeg,image/webp" OnChange="UploadReport" disabled="@Busy" />
+                @if (_reportFile is not null) { <span class="help">Attached: @_reportFile.FileName</span> }
+            </div>
+        </div>
+        <h3 class="teacher-form-h" style="margin-top:12px">Marks per subject</h3>
+        <ul class="teacher-quals">
+            @foreach (var (m, i) in _marks.Select((m, i) => (m, i)))
+            {
+                <li class="teacher-qual admit-mark">
+                    <div class="field"><label for="@($"ms{i}")">Subject</label><input id="@($"ms{i}")" class="input" @bind="m.Subject" /></div>
+                    <div class="field"><label for="@($"mm{i}")">Marks</label><input id="@($"mm{i}")" type="number" min="0" step="0.5" class="input" @bind="m.Marks" /></div>
+                    <div class="field"><label for="@($"mx{i}")">Out of</label><input id="@($"mx{i}")" type="number" min="1" step="0.5" class="input" @bind="m.MaxMarks" /></div>
+                    <div class="field"><label for="@($"mg{i}")">Grade</label><input id="@($"mg{i}")" class="input" maxlength="10" @bind="m.Grade" /></div>
+                    <button type="button" class="btn btn-ghost btn-sm teacher-qual-remove" @onclick="() => _marks.RemoveAt(i)">Remove<span class="sr-only"> @m.Subject</span></button>
+                </li>
+            }
+        </ul>
+        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => _marks.Add(new())"><Icon Name="plus" /> Add subject marks</button>
+        <div class="field" style="margin-top:12px"><label for="arn">Notes from the report</label><input id="arn" class="input" placeholder="e.g. Weak in algebra, good in grammar" @bind="_reportNotes" /></div>
+    </section>
+
+    <section class="card" aria-labelledby="ad-goal">
+        <h2 id="ad-goal" class="easy-step"><span class="planner-step-number" aria-hidden="true">6</span> Joining & goal</h2>
+        <div class="form-grid">
+            <div class="field"><label for="aj">Joined the centre on</label><input id="aj" type="date" class="input" @bind="_joined" /></div>
+            <div class="field full"><label for="agoal">What do they want to improve?</label><textarea id="agoal" class="textarea" placeholder="e.g. Score above 85% in Maths in the final exam; confidence in Arabic grammar." @bind="_goals" @bind:event="oninput"></textarea>
+                <span class="help">Saved as the student’s goal; they and their teachers can see it.</span></div>
+        </div>
+    </section>
+
+    <div class="form-actions admit-actions">
+        <a class="btn btn-secondary" href="/admin/students">Cancel</a>
+        <button class="btn btn-primary" @onclick="Save" disabled="@Busy">@(Busy ? "Saving…" : "Admit student")</button>
+    </div>
+</div>
+</DataView>
+<TempPasswordDialog @bind-Password="_tempPassword" Title="Student account created" />
+
+@code {
+    private sealed class MarkRow { public string Subject { get; set; } = ""; public decimal? Marks { get; set; } public decimal? MaxMarks { get; set; } public string? Grade { get; set; } }
+
+    private bool _loading = true;
+    private ApiException? _error;
+    private IDictionary<string, string[]> _errors = new Dictionary<string, string[]>();
+    private List<SubjectDto> _subjects = [];
+    private List<GradeLevelDto> _grades = [];
+    private List<CurriculumDto> _curricula = [];
+    private List<AcademicYearDto> _years = [];
+
+    private string _name = "", _email = "", _code = "", _tz = "UTC", _newSubject = "";
+    private string? _phone, _guardianName, _guardianPhone, _school, _goals, _reportTitle, _reportNotes, _tempPassword;
+    private Guid? _grade, _curriculum, _year, _createdId;
+    private DateOnly? _joined, _reportDate;
+    private decimal? _overall;
+    private FileDto? _reportFile;
+    private readonly List<Guid> _subjectIds = [];
+    private List<MarkRow> _marks = [];
+
+    private List<SubjectDto> CentreSubjects => _subjects.Where(s => s.IsCentreSubject).OrderBy(s => s.Name).ToList();
+    private IEnumerable<SubjectDto> OtherChosen => _subjects.Where(s => !s.IsCentreSubject && _subjectIds.Contains(s.Id));
+
+    protected override async Task LoadAsync()
+    {
+        try
+        {
+            var subjects = Api.GetAsync<List<SubjectDto>>("academics/subjects");
+            var grades = Api.GetAsync<List<GradeLevelDto>>("academics/grades");
+            var curricula = Api.GetAsync<List<CurriculumDto>>("academics/curricula");
+            var years = Api.GetAsync<List<AcademicYearDto>>("academics/years");
+            _subjects = (await subjects).Where(s => s.Status == CatalogStatus.Active).ToList();
+            (_grades, _curricula, _years) = (await grades, await curricula, await years);
+        }
+        catch (ApiException ex) { _error = ex; }
+        _tz = Tz;
+        _joined = DateOnly.FromDateTime(Time.ToLocal(DateTime.UtcNow, Tz));
+        _year = _years.FirstOrDefault(y => y.IsCurrent)?.Id;
+        _code = $"ST-{Random.Shared.Next(1000, 9999)}";
+        _loading = false;
+    }
+
+    private void ToggleSubject(Guid id)
+    {
+        if (!_subjectIds.Remove(id)) _subjectIds.Add(id);
+        // Offer a marks row for each tuition subject, so the admin only types the numbers.
+        var name = _subjects.FirstOrDefault(s => s.Id == id)?.Name;
+        if (name is not null && _subjectIds.Contains(id) && _marks.All(m => !string.Equals(m.Subject, name, StringComparison.OrdinalIgnoreCase)))
+            _marks.Add(new MarkRow { Subject = name });
+    }
+
+    private void PickOther(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value as string, out var id) && !_subjectIds.Contains(id)) ToggleSubject(id);
+    }
+
+    private async Task NewSubjectKey(KeyboardEventArgs e) { if (e.Key == "Enter") await AddCentreSubject(); }
+
+    private async Task AddCentreSubject()
+    {
+        var name = _newSubject.Trim();
+        if (name.Length == 0) return;
+        IdResponse? created = null;
+        if (await Run(async () => created = await Api.PostAsync<IdResponse>("academics/centre-subjects", new CentreSubjectRequest(name)), $"“{name}” added to your subjects."))
+        {
+            _subjects = (await Fetch(() => Api.GetAsync<List<SubjectDto>>("academics/subjects"))).Value?.Where(s => s.Status == CatalogStatus.Active).ToList() ?? _subjects;
+            if (created is not null && !_subjectIds.Contains(created.Id)) ToggleSubject(created.Id);
+            _newSubject = "";
+        }
+    }
+
+    private async Task UploadReport(InputFileChangeEventArgs e)
+    {
+        await Run(async () =>
+        {
+            using var form = new MultipartFormDataContent();
+            var c = new StreamContent(e.File.OpenReadStream(15_000_000));
+            c.Headers.ContentType = new(string.IsNullOrEmpty(e.File.ContentType) ? "application/octet-stream" : e.File.ContentType);
+            form.Add(c, "file", e.File.Name);
+            form.Add(new StringContent("SchoolReport"), "purpose");
+            _reportFile = await Api.PostFormAsync<FileDto>("files", form);
+        }, "Report attached.");
+    }
+
+    private SaveSchoolReportRequest? BuildReport()
+    {
+        var marks = _marks.Where(m => !string.IsNullOrWhiteSpace(m.Subject) && (m.Marks is not null || m.MaxMarks is not null || !string.IsNullOrWhiteSpace(m.Grade)))
+            .Select(m => new SchoolMarkDto(m.Subject, m.Marks, m.MaxMarks, m.Grade)).ToList();
+        var any = marks.Count > 0 || _overall is not null || _reportFile is not null || !string.IsNullOrWhiteSpace(_reportNotes) || !string.IsNullOrWhiteSpace(_reportTitle);
+        return any ? new SaveSchoolReportRequest(string.IsNullOrWhiteSpace(_reportTitle) ? "Last school exam" : _reportTitle, _reportDate, _overall, _reportNotes, marks, _reportFile?.Id) : null;
+    }
+
+    private async Task Save()
+    {
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(_name)) missing.Add("Enter the student’s name.");
+        if (string.IsNullOrWhiteSpace(_email)) missing.Add("Enter an email for the student’s sign-in.");
+        if (_grade is null) missing.Add("Choose the class.");
+        if (_subjectIds.Count == 0) missing.Add("Choose at least one tuition subject.");
+        _errors = missing.Count > 0 ? new Dictionary<string, string[]> { ["form"] = missing.ToArray() } : new Dictionary<string, string[]>();
+        if (missing.Count > 0) return;
+
+        var request = new CreateStudentRequest(_name, _email, _code, _grade, _school, _tz, _curriculum, _year,
+            _phone, _guardianName, _guardianPhone, _joined, _subjectIds.ToList(), _goals, BuildReport());
+        if (await Run(async () =>
+        {
+            try
+            {
+                var created = await Api.PostAsync<CreatedPersonResponse>("students", request);
+                _createdId = created.Id;
+                _tempPassword = created.TemporaryPassword;
+            }
+            catch (ApiException ex) when (ex.Errors is not null) { _errors = ex.Errors.ToDictionary(); throw; }
+        }, "Student admitted.")) { }
+    }
+
+    // After the one-time password is closed, continue on the student's profile (next: add their classes).
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (_createdId is { } id && _tempPassword is null) { _createdId = null; Nav.NavigateTo($"/students/{id}"); }
+    }
+}

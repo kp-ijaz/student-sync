@@ -10,15 +10,37 @@ public sealed record PersonQuery : PageQuery
     public PersonStatus? Status { get; init; }
 }
 
-public sealed record TeacherDto(Guid Id, string FullName, string Email, string? EmployeeCode, string? Specialisations, string? Bio, PersonStatus Status, string TimeZoneId, IReadOnlyList<LookupItem> Subjects, string? PhotoUrl = null);
-public sealed record CreateTeacherRequest(string FullName, string Email, string? EmployeeCode, string? Specialisations, string? Bio, string? TimeZoneId);
-public sealed record UpdateTeacherRequest(string FullName, string? EmployeeCode, string? Specialisations, string? Bio, PersonStatus Status, string TimeZoneId);
+public sealed record TeacherQualificationDto(string Title, string? Institution = null, int? Year = null);
+/// <summary>Phone and other contact details are filled for admins only.</summary>
+public sealed record TeacherDto(Guid Id, string FullName, string Email, string? EmployeeCode, string? Specialisations, string? Bio, PersonStatus Status, string TimeZoneId, IReadOnlyList<LookupItem> Subjects, string? PhotoUrl = null,
+    string? Phone = null, int? ExperienceYears = null, string? Languages = null, DateOnly? JoinedOn = null, IReadOnlyList<TeacherQualificationDto>? Qualifications = null);
+/// <summary>SubjectIds: the subjects the teacher teaches (the same links as Academics ▸ subject ▸ teachers).</summary>
+public sealed record CreateTeacherRequest(string FullName, string Email, string? EmployeeCode, string? Specialisations, string? Bio, string? TimeZoneId,
+    List<Guid>? SubjectIds = null, string? Phone = null, int? ExperienceYears = null, string? Languages = null, DateOnly? JoinedOn = null, List<TeacherQualificationDto>? Qualifications = null);
+/// <summary>SubjectIds / Qualifications: null keeps the current ones; a list (also empty) replaces them.</summary>
+public sealed record UpdateTeacherRequest(string FullName, string? EmployeeCode, string? Specialisations, string? Bio, PersonStatus Status, string TimeZoneId,
+    List<Guid>? SubjectIds = null, string? Phone = null, int? ExperienceYears = null, string? Languages = null, DateOnly? JoinedOn = null, List<TeacherQualificationDto>? Qualifications = null);
 
 /// <summary>PhotoUrl is only returned to the student, admins and teachers who teach them — never to other students or parents.</summary>
 public sealed record StudentDto(Guid Id, string FullName, string Email, string StudentCode, Guid? GradeLevelId, string? GradeLevelName, string? SchoolName, PersonStatus Status, string TimeZoneId, string? PhotoUrl = null,
-    Guid? CurriculumId = null, string? CurriculumName = null, Guid? AcademicYearId = null, string? AcademicYearName = null);
-public sealed record CreateStudentRequest(string FullName, string Email, string StudentCode, Guid? GradeLevelId, string? SchoolName, string? TimeZoneId, Guid? CurriculumId = null, Guid? AcademicYearId = null);
-public sealed record UpdateStudentRequest(string FullName, string StudentCode, Guid? GradeLevelId, string? SchoolName, PersonStatus Status, string TimeZoneId, Guid? CurriculumId = null, Guid? AcademicYearId = null);
+    Guid? CurriculumId = null, string? CurriculumName = null, Guid? AcademicYearId = null, string? AcademicYearName = null,
+    string? Phone = null, string? GuardianName = null, string? GuardianPhone = null, DateOnly? JoinedOn = null);
+/// <summary>
+/// Admission: the account and profile, plus optionally the tuition subjects, the goal the student/parent described and the
+/// last school result, all saved together. Phone numbers are visible to admins only.
+/// </summary>
+public sealed record CreateStudentRequest(string FullName, string Email, string StudentCode, Guid? GradeLevelId, string? SchoolName, string? TimeZoneId, Guid? CurriculumId = null, Guid? AcademicYearId = null,
+    string? Phone = null, string? GuardianName = null, string? GuardianPhone = null, DateOnly? JoinedOn = null,
+    List<Guid>? SubjectIds = null, string? Goals = null, SaveSchoolReportRequest? SchoolReport = null);
+public sealed record UpdateStudentRequest(string FullName, string StudentCode, Guid? GradeLevelId, string? SchoolName, PersonStatus Status, string TimeZoneId, Guid? CurriculumId = null, Guid? AcademicYearId = null,
+    string? Phone = null, string? GuardianName = null, string? GuardianPhone = null, DateOnly? JoinedOn = null);
+
+public sealed record SchoolMarkDto(string Subject, decimal? Marks = null, decimal? MaxMarks = null, string? Grade = null);
+public sealed record SchoolReportDto(Guid Id, string Title, DateOnly? ExamDate, decimal? OverallPercent, string? Notes, IReadOnlyList<SchoolMarkDto> Marks, FileDto? File, DateTime RecordedAtUtc);
+/// <summary>FileId: a file uploaded first through POST /files with purpose SchoolReport.</summary>
+public sealed record SaveSchoolReportRequest(string Title, DateOnly? ExamDate = null, decimal? OverallPercent = null, string? Notes = null, List<SchoolMarkDto>? Marks = null, Guid? FileId = null);
+/// <summary>Adds a subject to the centre's simple subject list (or returns the existing one with that name).</summary>
+public sealed record CentreSubjectRequest(string Name);
 
 public sealed record ParentDto(Guid Id, string FullName, string Email, PersonStatus Status, IReadOnlyList<ChildLinkDto> Children);
 public sealed record ChildLinkDto(Guid LinkId, Guid StudentId, string StudentName, GuardianRelationship Relationship, bool IsVerified);
@@ -54,7 +76,7 @@ public sealed record CourseDto(Guid Id, string Code, string Name, string? Descri
 public sealed record SaveCourseRequest(string Code, string Name, string? Description, Guid? GradeLevelId, Guid? AcademicYearId, CatalogStatus Status);
 
 public sealed record SubjectDto(Guid Id, Guid CourseId, string CourseName, string Code, string Name, string? Description, CatalogStatus Status, IReadOnlyList<ChapterDto> Chapters, IReadOnlyList<LookupItem> Teachers,
-    SubjectKind Kind = SubjectKind.Core, string? ChoiceGroup = null);
+    SubjectKind Kind = SubjectKind.Core, string? ChoiceGroup = null, bool IsCentreSubject = false);
 /// <summary>
 /// Kind: omitted/null keeps the current kind and group on update (Core on create). ChoiceGroup is required for LanguageOption
 /// (e.g. "Second language"), an optional label for Additional, and ignored for Core.

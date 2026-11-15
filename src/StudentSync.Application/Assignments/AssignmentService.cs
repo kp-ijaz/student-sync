@@ -88,6 +88,7 @@ public sealed class AssignmentService(
         if (r.BatchId is { } bid && !await db.Batches.AnyAsync(b => b.Id == bid && (access.IsAdmin || b.TeacherId == user.UserId), ct))
             throw RequestValidationException.For("batchId", "Batch not found.");
         if (r.SubjectId is { } subj && !await db.Subjects.AnyAsync(s => s.Id == subj, ct)) throw RequestValidationException.For("subjectId", "Subject not found.");
+        await access.EnsureTeachesSubjectAsync(r.SubjectId, "set assignments", ct);
         if (r.MaxMarks is <= 0 or > 1000) throw RequestValidationException.For("maxMarks", "Maximum marks must be between 1 and 1000.");
     }
 

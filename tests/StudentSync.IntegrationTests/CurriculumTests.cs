@@ -137,6 +137,26 @@ public sealed class CurriculumTests(ApiFixture api)
     }
 
     [Fact]
+    public async Task Teacher_reads_but_cannot_change_the_subjects_of_a_student_they_teach()
+    {
+        // "Add classes" offers the student's own subjects first, for teachers as well as admins.
+        var admin = await api.LoginAsync(Accounts.Admin);
+        var aishaId = (await admin.Get<PagedResult<StudentDto>>("students?search=Aisha")).Items.Single().Id;
+        var amira = await api.LoginAsync(Accounts.Amira); // teaches Aisha's Class 10 batch
+        var mine = await amira.Get<StudentSubjectsDto>($"students/{aishaId}/subjects");
+        Assert.Equal(await admin.Get<StudentSubjectsDto>($"students/{aishaId}/subjects"), mine, new StudentSubjectsComparer());
+        Assert.Contains(mine.Core, s => s.Code == "MATH10");
+        Assert.Equal(HttpStatusCode.Forbidden, (await amira.PutRaw($"students/{aishaId}/subjects", new SaveStudentSubjectsRequest([], []))).StatusCode);
+
+        // A student the teacher does not teach stays closed; so do other roles and other institutions.
+        var stranger = (await admin.Post<CreatedPersonResponse>("students", new CreateStudentRequest("Unassigned Subjects (Demo Student)",
+            $"unassigned-{Guid.NewGuid():N}@horizon.example.test", $"US-{Guid.NewGuid():N}"[..12], null, null, "Asia/Dubai"))).Id;
+        Assert.Equal(HttpStatusCode.Forbidden, (await amira.GetRaw($"students/{stranger}/subjects")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await (await api.LoginAsync(Accounts.Aisha)).GetRaw($"students/{aishaId}/subjects")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await (await api.LoginAsync(Accounts.OtherAdmin)).GetRaw($"students/{aishaId}/subjects")).StatusCode);
+    }
+
+    [Fact]
     public async Task Teachers_see_the_subjects_they_are_assigned_to_even_without_classes()
     {
         var meera = await api.LoginAsync(Meera);

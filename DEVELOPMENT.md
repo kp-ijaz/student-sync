@@ -32,6 +32,7 @@ docker compose up -d sqlserver mailpit
 dotnet run --project src/StudentSync.Api -- migrate      # apply migrations + plans/feature flags
 dotnet run --project src/StudentSync.Api -- seed-demo    # Development only; safe to run repeatedly
 dotnet run --project src/StudentSync.Api -- reset-demo --confirm-development   # drops & recreates the dev DB
+dotnet run --project src/StudentSync.Api -- create-institution …   # empty database only: first institute + admin (options in DEPLOYMENT.md)
 ```
 
 `seed-demo` creates two fictional institutions inside one transaction and does nothing if they already exist. The product now runs as a single institute (Horizon); the second institution is kept only for tenant-isolation tests.

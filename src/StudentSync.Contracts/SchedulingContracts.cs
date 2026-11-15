@@ -28,7 +28,27 @@ public sealed record CreateSessionRequest(
     string? Location,
     string? Objectives,
     RecurrenceRequest? Recurrence,
-    bool AcknowledgeConflicts = false);
+    bool AcknowledgeConflicts = false,
+    List<DateOnly>? SkipDates = null);
+
+/// <summary>
+/// A student's weekly plan: one <see cref="CreateSessionRequest"/> per subject/teacher (for example Monday and Wednesday
+/// Maths with one teacher, Tuesday Science with another). All parts are for the same student and are created together.
+/// </summary>
+public sealed record CreateSessionBatchRequest(List<CreateSessionRequest> Items, bool AcknowledgeConflicts = false);
+
+/// <summary>
+/// The weekly-plan check: the overall result (same fields as <see cref="ConflictCheckResponse"/>) plus, per part, what clashes
+/// and how to fix it — teachers of that subject who are free (and within their recorded hours) and nearby free start times.
+/// </summary>
+public sealed record WeeklyPlanCheckResponse(bool HasBlockingConflicts, IReadOnlyList<ScheduleConflictDto> Conflicts, IReadOnlyList<OccurrencePreviewDto> Occurrences,
+    IReadOnlyList<string> Warnings, IReadOnlyList<PlanPartCheckDto> Parts);
+
+/// <param name="Index">Position of the part in the request's Items.</param>
+/// <param name="ClashDates">Local dates of this part that overlap another class of the teacher or the student.</param>
+/// <param name="OutsideAvailability">The teacher recorded weekly hours and some classes fall outside them (a warning, not a block).</param>
+public sealed record PlanPartCheckDto(int Index, int ClassCount, bool TeacherBusy, IReadOnlyList<ScheduleConflictDto> Conflicts, IReadOnlyList<DateOnly> ClashDates,
+    bool OutsideAvailability, IReadOnlyList<LookupItem> FreeTeachers, IReadOnlyList<TimeOnly> FreeTimes);
 
 public sealed record CreateSessionResponse(IReadOnlyList<Guid> SessionIds, Guid? SeriesId, IReadOnlyList<string> Warnings);
 

@@ -8,9 +8,10 @@ RUN dotnet publish src/StudentSync.Web/StudentSync.Web.csproj -c Release -o /app
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app .
-RUN mkdir -p /app/storage /app/keys && chown -R $APP_UID /app/storage /app/keys
+RUN mkdir -p /app/storage /app/keys /app/sessions && chown -R $APP_UID /app/storage /app/keys /app/sessions
 USER $APP_UID
 ENV ASPNETCORE_URLS=http://+:8080 \
-    DataProtection__KeysPath=/app/keys
+    DataProtection__KeysPath=/app/keys \
+    Sessions__StorePath=/app/sessions
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "StudentSync.Web.dll"]

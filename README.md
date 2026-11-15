@@ -2,7 +2,7 @@
 
 **LEARN • CONNECT • GROW** — a multi-tenant tuition and learning platform for tuition centres, teachers, students and parents.
 
-Student Sync supports **batch classes, ad hoc group sessions, private groups and one-to-one tuition** (a session never needs a batch), with scheduling across time zones, a session hub (notes, materials, recordings, attendance), assignments, exams, a Doubt Centre with automatic follow-up, messaging and notifications, an AI Class Assistant with mandatory teacher approval, role dashboards, reports and SaaS administration.
+Student Sync schedules **one-to-one tuition only** (one teacher and one student), with student-first recurring class planning, with scheduling across time zones, a session hub (notes, materials, recordings, attendance), assignments, exams, a Doubt Centre with automatic follow-up, messaging and notifications, an AI Class Assistant with mandatory teacher approval, role dashboards, reports and SaaS administration.
 
 | Part | Technology | Location |
 |---|---|---|

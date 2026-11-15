@@ -33,6 +33,8 @@ public static class LearningEndpoints
         s.MapGet("/", ([AsParameters] SessionQuery q, SchedulingService svc, CancellationToken ct) => svc.ListAsync(q, ct));
         s.MapPost("/check", (CreateSessionRequest r, SchedulingService svc, CancellationToken ct) => svc.CheckAsync(r, ct));
         s.MapPost("/", (CreateSessionRequest r, SchedulingService svc, CancellationToken ct) => svc.CreateAsync(r, ct)).AddEndpointFilter<IdempotencyFilter>();
+        s.MapPost("/batch/check", (CreateSessionBatchRequest r, SchedulingService svc, CancellationToken ct) => svc.CheckBatchAsync(r, ct));
+        s.MapPost("/batch", (CreateSessionBatchRequest r, SchedulingService svc, CancellationToken ct) => svc.CreateBatchAsync(r, ct)).AddEndpointFilter<IdempotencyFilter>();
         s.MapGet("/{id:guid}", (Guid id, SchedulingService svc, CancellationToken ct) => svc.GetAsync(id, ct));
         s.MapPut("/{id:guid}", async (Guid id, UpdateSessionDetailsRequest r, SchedulingService svc, CancellationToken ct) => { await svc.UpdateDetailsAsync(id, r, ct); return Results.NoContent(); });
         s.MapPost("/{id:guid}/reschedule", async (Guid id, RescheduleSessionRequest r, SchedulingService svc, CancellationToken ct) => new { warnings = await svc.RescheduleAsync(id, r, ct) });

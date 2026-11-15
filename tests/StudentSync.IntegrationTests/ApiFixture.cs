@@ -26,6 +26,8 @@ public sealed class ApiFixture : IAsyncLifetime
     private MsSqlContainer? _container;
     private string _connection = "";
     public WebApplicationFactory<Program> Factory { get; private set; } = default!;
+    /// <summary>Connection string of this run's database; tests that need an empty database swap the catalog name.</summary>
+    public string ConnectionString => _connection;
 
     private static JsonSerializerOptions CreateJson()
     {

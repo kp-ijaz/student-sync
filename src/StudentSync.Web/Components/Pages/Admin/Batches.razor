@@ -2,7 +2,7 @@
 @attribute [Authorize(Roles = "InstitutionAdmin")]
 @inherits AppPage
 
-<PageHeader Title="Batches" Subtitle="Predefined cohorts for batch classes. Private and ad hoc teaching doesn't need a batch.">
+<PageHeader Title="Batches" Subtitle="Existing batch records. New classes are scheduled individually for each student.">
     <Actions><button class="btn btn-primary" @onclick="New"><Icon Name="plus" /> New batch</button></Actions>
 </PageHeader>
 <DataView Loading="_items is null && _error is null" Error="_error" OnRetry="LoadAsync" IsEmpty="_items?.Count == 0" EmptyTitle="No batches yet" EmptyIcon="layers">
@@ -13,7 +13,7 @@
                 <div class="card-head"><div><h2>@b.Name</h2><div class="caption">@b.Code · @b.CourseName @(b.SubjectName is null ? "" : $"· {b.SubjectName}") · @b.TeacherName</div></div><span class="badge @(b.Status == CatalogStatus.Active ? "green" : "slate")">@b.Status</span></div>
                 <div class="bar-row"><span class="small">Capacity</span><div class="progress-bar"><span style="width:@(100.0 * b.ActiveStudents / Math.Max(1, b.Capacity))%"></span></div><span class="small num">@b.ActiveStudents/@b.Capacity</span></div>
                 <div class="btn-group" style="margin-top:12px"><button class="btn btn-secondary btn-sm" @onclick="() => OpenRoster(b)">Students</button><button class="btn btn-secondary btn-sm" @onclick="() => Edit(b)">Edit</button>
-                    <a class="btn btn-primary btn-sm" href="/sessions/new?type=Batch">Schedule batch class</a></div>
+                    <a class="btn btn-primary btn-sm" href="/sessions/new">Add classes</a></div>
             </div>
         }
     </div>

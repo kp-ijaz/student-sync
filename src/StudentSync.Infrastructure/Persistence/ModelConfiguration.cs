@@ -8,6 +8,7 @@ using StudentSync.Domain.Assignments;
 using StudentSync.Domain.Communication;
 using StudentSync.Domain.Content;
 using StudentSync.Domain.Doubts;
+using StudentSync.Domain.Fees;
 using StudentSync.Domain.Identity;
 using StudentSync.Domain.People;
 using StudentSync.Domain.Platform;
@@ -103,8 +104,62 @@ internal static class ModelConfiguration
         }
         b.Entity<Teacher>().HasIndex(x => new { x.TenantId, x.EmployeeCode }).IsUnique().HasFilter("[EmployeeCode] IS NOT NULL");
         b.Entity<Teacher>().Property(x => x.Bio).HasMaxLength(2000);
+        b.Entity<Teacher>().Property(x => x.Phone).HasMaxLength(30);
+        b.Entity<Teacher>().Property(x => x.Languages).HasMaxLength(200);
+        b.Entity<TeacherQualification>(e =>
+        {
+            // Pure child rows of the teacher profile: they go with it.
+            e.HasIndex(x => new { x.TeacherId, x.SortOrder });
+            e.HasOne<Teacher>().WithMany(t => t.Qualifications).HasForeignKey(x => x.TeacherId).OnDelete(C);
+            e.Property(x => x.Title).HasMaxLength(150);
+            e.Property(x => x.Institution).HasMaxLength(150);
+        });
         b.Entity<Student>().HasIndex(x => new { x.TenantId, x.StudentCode }).IsUnique();
         b.Entity<Student>().Property(x => x.StudentCode).HasMaxLength(30);
+        b.Entity<Student>().Property(x => x.Phone).HasMaxLength(30);
+        b.Entity<Student>().Property(x => x.GuardianName).HasMaxLength(150);
+        b.Entity<Student>().Property(x => x.GuardianPhone).HasMaxLength(30);
+        b.Entity<StudentSchoolReport>(e =>
+        {
+            e.HasIndex(x => new { x.StudentId, x.ExamDate });
+            e.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(R);
+            e.HasMany(x => x.Marks).WithOne().HasForeignKey(x => x.ReportId).OnDelete(C);
+            e.Property(x => x.Title).HasMaxLength(150);
+            e.Property(x => x.Notes).HasMaxLength(1000);
+            e.Property(x => x.OverallPercent).HasPrecision(5, 2);
+        });
+        Fk<StudentSchoolReport, StoredFile>(b, x => x.FileId);
+        b.Entity<StudentSchoolMark>(e =>
+        {
+            e.Property(x => x.Subject).HasMaxLength(100);
+            e.Property(x => x.Grade).HasMaxLength(10);
+            e.Property(x => x.Marks).HasPrecision(7, 2);
+            e.Property(x => x.MaxMarks).HasPrecision(7, 2);
+        });
+        // ---------- Fees (prepaid hour packages) ----------
+        b.Entity<StudentPackage>(e =>
+        {
+            e.HasIndex(x => new { x.StudentId, x.Status, x.StartsOn });
+            e.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(R);
+            e.HasMany(x => x.Payments).WithOne().HasForeignKey(x => x.PackageId).OnDelete(R);
+            e.Property(x => x.Name).HasMaxLength(100);
+            e.Property(x => x.Notes).HasMaxLength(500);
+            e.Property(x => x.CurrencyCode).HasMaxLength(3);
+            e.Property(x => x.Hours).HasPrecision(7, 2);
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_StudentPackages_Hours", "[Hours] > 0");
+                t.HasCheckConstraint("CK_StudentPackages_Price", "[Price] >= 0");
+            });
+        });
+        b.Entity<FeePayment>(e =>
+        {
+            e.HasIndex(x => new { x.StudentId, x.PaidOn });
+            e.HasOne<Student>().WithMany().HasForeignKey(x => x.StudentId).OnDelete(R);
+            e.Property(x => x.Reference).HasMaxLength(100);
+            e.Property(x => x.VoidReason).HasMaxLength(300);
+            e.ToTable(t => t.HasCheckConstraint("CK_FeePayments_Amount", "[Amount] > 0"));
+        });
         Fk<Student, GradeLevel>(b, x => x.GradeLevelId);
         Fk<Student, Curriculum>(b, x => x.CurriculumId);
         Fk<Student, AcademicYear>(b, x => x.AcademicYearId);

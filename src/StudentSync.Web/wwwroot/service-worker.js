@@ -2,7 +2,7 @@
 // Caches only public static assets (styles, scripts, icons, offline page). API responses, pages with user data
 // and files are never cached here. Notes saved for offline reading live in the signed-in user's localStorage and
 // are cleared on sign-out.
-const CACHE = "ss-static-v3";
+const CACHE = "ss-static-v4";
 const PRECACHE = ["/offline.html", "/css/app.css", "/js/app.js", "/icons/favicon-32.png", "/images/brand/mark.png", "/icons/icon-192.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

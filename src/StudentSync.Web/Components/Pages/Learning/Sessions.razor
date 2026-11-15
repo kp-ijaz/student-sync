@@ -5,7 +5,7 @@
 <PageHeader Title="@(IsStudent ? "My classes" : IsParent ? "Calendar" : "Classes")" Subtitle="@($"Times shown in your time zone ({Tz}).")">
     <Actions>
         <button class="btn btn-secondary" @onclick="ExportIcs"><Icon Name="download" /> Export calendar (.ics)</button>
-        @if (IsStaff) { <a class="btn btn-primary" href="/sessions/new"><Icon Name="plus" /> New session</a> }
+        @if (IsStaff) { <a class="btn btn-primary" href="/sessions/new"><Icon Name="plus" /> Add classes</a> }
     </Actions>
 </PageHeader>
 
@@ -14,13 +14,6 @@
         <div class="segmented" role="group" aria-label="View">
             <button aria-pressed="@(Aria.Bool(_view == "list"))" @onclick='() => SetView("list")'><Icon Name="list" /> List</button>
             <button aria-pressed="@(Aria.Bool(_view == "month"))" @onclick='() => SetView("month")'><Icon Name="calendar" /> Month</button>
-        </div>
-        <div class="field" style="min-width:180px">
-            <label for="mode" class="sr-only">Teaching mode</label>
-            <select id="mode" class="select" @bind="_type" @bind:after="Reload">
-                <option value="">All teaching modes</option>
-                @foreach (var t in Enum.GetValues<SessionType>()) { <option value="@t">@StatusStyles.For(t).Label</option> }
-            </select>
         </div>
         <div class="field" style="min-width:160px">
             <label for="status" class="sr-only">Status</label>

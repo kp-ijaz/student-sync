@@ -1,0 +1,186 @@
+@* Subject and teacher for one part of a class plan ("Add classes").
+   Subjects: the student's own first, with "Other subject…" for anything else.
+   Teachers (admins only): the teachers of that subject, with "Other teacher…" for anyone else (e.g. a substitute).
+   @key re-creates a select when its options change, so the browser always shows the bound value. *@
+
+<div class="form-grid easy-pick">
+    <div class="field">
+        <label for="@($"{IdPrefix}subject")">@if (DayName is not null) { <span class="sr-only">@DayName </span> }Subject *</label>
+        <select id="@($"{IdPrefix}subject")" class="select" @key="(StudentSubjectIds, Row.AllSubjects)" @ref="_subjectSelect"
+                value="@(Row.SubjectId?.ToString() ?? "")" @onchange="SubjectPicked" disabled="@LoadingSubjects" aria-describedby="@($"{IdPrefix}subject-help")">
+            <option value="">@(LoadingSubjects ? $"Loading {StudentFirstName}’s subjects…" : "Choose a subject")</option>
+            @if (ShortSubjectList)
+            {
+                @foreach (var s in StudentSubjects) { <option value="@s.Id">@SubjectLabel(s)</option> }
+                <option value="@OtherValue">Other subject…</option>
+            }
+            else
+            {
+                @if (StudentSubjects.Count > 0)
+                {
+                    <optgroup label="@($"{StudentFirstName}’s subjects")">
+                        @foreach (var s in StudentSubjects) { <option value="@s.Id">@SubjectLabel(s)</option> }
+                    </optgroup>
+                }
+                @foreach (var course in Subjects.Where(s => !StudentSubjectIds.Contains(s.Id)).GroupBy(s => s.CourseName))
+                {
+                    <optgroup label="@course.Key">
+                        @foreach (var s in course) { <option value="@s.Id">@s.Name</option> }
+                    </optgroup>
+                }
+            }
+        </select>
+        <span class="help" id="@($"{IdPrefix}subject-help")">@SubjectHelp</span>
+    </div>
+    @if (ShowTeacher)
+    {
+        <div class="field">
+            <label for="@($"{IdPrefix}teacher")">@if (DayName is not null) { <span class="sr-only">@DayName </span> }Teacher *</label>
+            <select id="@($"{IdPrefix}teacher")" class="select" @key="(Row.SubjectId, Row.AllTeachers)" @ref="_teacherSelect"
+                    value="@(Row.TeacherId?.ToString() ?? "")" @onchange="TeacherPicked" disabled="@(Row.SubjectId is null)" aria-describedby="@($"{IdPrefix}teacher-help")">
+                <option value="">@(Row.SubjectId is null ? "Choose the subject first" : "Choose a teacher")</option>
+                @if (ShortTeacherList)
+                {
+                    @foreach (var t in SubjectTeachers) { <option value="@t.Id">@t.FullName</option> }
+                    <option value="@OtherValue">Other teacher…</option>
+                }
+                else if (SubjectTeachers.Count > 0)
+                {
+                    <optgroup label="@($"Teaches {SelectedSubject?.Name}")">
+                        @foreach (var t in SubjectTeachers) { <option value="@t.Id">@t.FullName</option> }
+                    </optgroup>
+                    <optgroup label="Other teachers">
+                        @foreach (var t in Teachers.Where(t => !SubjectTeachers.Contains(t))) { <option value="@t.Id">@t.FullName</option> }
+                    </optgroup>
+                }
+                else if (Row.SubjectId is not null)
+                {
+                    @foreach (var t in Teachers) { <option value="@t.Id">@t.FullName</option> }
+                }
+            </select>
+            <span class="help" id="@($"{IdPrefix}teacher-help")">@TeacherHelp</span>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>The subject and teacher chosen for one part of the plan (all days, or one weekday).</summary>
+    public sealed class PlanRow
+    {
+        public Guid? SubjectId { get; set; }
+        public Guid? TeacherId { get; set; }
+        public bool AllSubjects { get; set; }
+        public bool AllTeachers { get; set; }
+        public PlanRow Copy() => new() { SubjectId = SubjectId, TeacherId = TeacherId, AllSubjects = AllSubjects, AllTeachers = AllTeachers };
+    }
+
+    private const string OtherValue = "other";
+
+    [Parameter, EditorRequired] public PlanRow Row { get; set; } = default!;
+    [Parameter, EditorRequired] public List<SubjectDto> Subjects { get; set; } = [];
+    [Parameter, EditorRequired] public HashSet<Guid> StudentSubjectIds { get; set; } = [];
+    [Parameter] public List<TeacherDto> Teachers { get; set; } = [];
+    [Parameter] public string StudentFirstName { get; set; } = "";
+    [Parameter] public bool HasStudent { get; set; }
+    [Parameter] public bool ShowTeacher { get; set; }
+    [Parameter] public bool LoadingSubjects { get; set; }
+    /// <summary>Per-day rows: hide the explanatory hints, keep the "show only…" links.</summary>
+    [Parameter] public bool Compact { get; set; }
+    [Parameter] public string IdPrefix { get; set; } = "";
+    /// <summary>Weekday of a per-day row, read out before "Subject"/"Teacher" for screen readers.</summary>
+    [Parameter] public string? DayName { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private ElementReference _subjectSelect, _teacherSelect;
+    private string? _focusNext;
+
+    private SubjectDto? SelectedSubject => Subjects.FirstOrDefault(s => s.Id == Row.SubjectId);
+    private List<SubjectDto> StudentSubjects => Subjects.Where(s => StudentSubjectIds.Contains(s.Id)).ToList();
+    private List<TeacherDto> SubjectTeachers => SelectedSubject is { } subject ? Teachers.Where(t => subject.Teachers.Any(x => x.Id == t.Id)).ToList() : [];
+    private bool ShortSubjectList => StudentSubjects.Count > 0 && !Row.AllSubjects;
+    private bool ShortTeacherList => SubjectTeachers.Count > 0 && !Row.AllTeachers;
+    private string SubjectLabel(SubjectDto s) => StudentSubjects.Count(x => x.Name == s.Name) > 1 ? $"{s.Name} ({s.CourseName})" : s.Name;
+
+    private RenderFragment? SubjectHelp => LoadingSubjects ? null
+        : ShortSubjectList ? (Compact ? null : @<text>Only @StudentFirstName’s subjects. For anything else, choose “Other subject…”.</text>)
+        : StudentSubjects.Count > 0 ? @<button type="button" class="easy-link" @onclick="ShowStudentSubjects">Show only @StudentFirstName’s subjects</button>
+        : HasStudent && !Compact ? @<text>@StudentFirstName has no subjects on their profile yet, so all subjects are shown.</text>
+        : null;
+
+    private RenderFragment? TeacherHelp => Row.SubjectId is null ? (Compact ? null : @<text>You’ll see the teachers of that subject.</text>)
+        : ShortTeacherList ? (Compact ? null : @<text>Only @SelectedSubject?.Name teachers. For a substitute, choose “Other teacher…”.</text>)
+        : SubjectTeachers.Count > 0 ? @<button type="button" class="easy-link" @onclick="ShowSubjectTeachers">Show only @SelectedSubject?.Name teachers</button>
+        : @<text>No teacher is assigned to @SelectedSubject?.Name yet, so all teachers are shown.</text>;
+
+    private Task SubjectPicked(ChangeEventArgs e)
+    {
+        if (e.Value as string == OtherValue)
+        {
+            Row.AllSubjects = true;
+            Row.SubjectId = null;
+            _focusNext = "subject";
+        }
+        else
+        {
+            Row.SubjectId = Guid.TryParse(e.Value as string, out var id) ? id : null;
+            // One of the student's own subjects picked from the full list: fold back to the short list.
+            if (Row.AllSubjects && Row.SubjectId is { } chosen && StudentSubjectIds.Contains(chosen))
+            {
+                Row.AllSubjects = false;
+                _focusNext = "subject";
+            }
+        }
+        return SubjectChanged();
+    }
+
+    private Task ShowStudentSubjects()
+    {
+        Row.AllSubjects = false;
+        if (Row.SubjectId is { } id && !StudentSubjectIds.Contains(id)) Row.SubjectId = null;
+        _focusNext = "subject";
+        return SubjectChanged();
+    }
+
+    private Task SubjectChanged()
+    {
+        Row.AllTeachers = false;
+        if (ShowTeacher)
+        {
+            // Keep the teacher only if they teach the new subject (or nobody is assigned to it).
+            if (Row.TeacherId is { } current && (Row.SubjectId is null || (SubjectTeachers.Count > 0 && !SubjectTeachers.Any(t => t.Id == current))))
+                Row.TeacherId = null;
+            // When exactly one teacher teaches the subject, choose them: one less decision.
+            if (Row.TeacherId is null && SubjectTeachers is [var only]) Row.TeacherId = only.Id;
+        }
+        return OnChanged.InvokeAsync();
+    }
+
+    private Task TeacherPicked(ChangeEventArgs e)
+    {
+        if (e.Value as string == OtherValue)
+        {
+            Row.AllTeachers = true;
+            Row.TeacherId = null;
+            _focusNext = "teacher";
+        }
+        else Row.TeacherId = Guid.TryParse(e.Value as string, out var id) ? id : null;
+        return OnChanged.InvokeAsync();
+    }
+
+    private Task ShowSubjectTeachers()
+    {
+        Row.AllTeachers = false;
+        if (Row.TeacherId is { } id && !SubjectTeachers.Any(t => t.Id == id)) Row.TeacherId = null;
+        _focusNext = "teacher";
+        return OnChanged.InvokeAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // A select is re-created when its list changes; put focus back on it so keyboard users stay in place.
+        if (_focusNext is null) return;
+        var el = _focusNext == "teacher" ? _teacherSelect : _subjectSelect;
+        _focusNext = null;
+        try { await el.FocusAsync(); } catch (InvalidOperationException) { /* not rendered */ }
+    }
+}

@@ -11,6 +11,8 @@
     <ProjectReference Include="..\..\src\StudentSync.Application\StudentSync.Application.csproj" />
     <ProjectReference Include="..\..\src\StudentSync.Domain\StudentSync.Domain.csproj" />
     <ProjectReference Include="..\..\src\StudentSync.Contracts\StudentSync.Contracts.csproj" />
+    <!-- IDistributedCache for the linked Web FileDistributedCache; part of the shared framework, no package. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
@@ -25,5 +27,6 @@
     <!-- Pure web display rules (no UI dependencies), compiled in so they can be tested without referencing the web app. -->
     <Compile Include="..\..\src\StudentSync.Web\Services\TeachingRules.cs" Link="Web\TeachingRules.cs" />
     <Compile Include="..\..\src\StudentSync.Web\Services\StudentViews.cs" Link="Web\StudentViews.cs" />
+    <Compile Include="..\..\src\StudentSync.Web\Services\FileDistributedCache.cs" Link="Web\FileDistributedCache.cs" />
   </ItemGroup>
 </Project>

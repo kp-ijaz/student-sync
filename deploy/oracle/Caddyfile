@@ -1,0 +1,16 @@
+# HTTPS entry point for the demo environment. Certificates are issued and renewed automatically.
+# APP_HOST, API_HOST and API_UPSTREAM come from web.env.
+
+{$APP_HOST} {
+	encode zstd gzip
+	reverse_proxy web:8080
+}
+
+{$API_HOST} {
+	# The browser only needs the API for short-lived file, photo and recording links.
+	# API documentation and diagnostics stay private.
+	@private path /swagger* /openapi* /hangfire*
+	respond @private 404
+
+	reverse_proxy {$API_UPSTREAM}
+}

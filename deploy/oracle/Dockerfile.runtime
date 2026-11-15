@@ -1,0 +1,14 @@
+# Runtime-only image built on the VM from a pre-published app (see deploy.sh).
+# The 1 GB demo VMs cannot run the .NET SDK, so `dotnet publish -r linux-x64` happens on the developer machine
+# and only the output is copied here. Mirrors the runtime stage of src/StudentSync.*/Dockerfile.
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
+WORKDIR /app
+COPY publish/ .
+RUN mkdir -p /app/storage /app/keys /app/sessions && chown -R $APP_UID /app/storage /app/keys /app/sessions
+USER $APP_UID
+ARG APP_DLL
+ENV ASPNETCORE_URLS=http://+:8080 \
+    DataProtection__KeysPath=/app/keys \
+    APP_DLL=$APP_DLL
+EXPOSE 8080
+ENTRYPOINT ["sh", "-c", "exec dotnet \"$APP_DLL\" \"$@\"", "--"]

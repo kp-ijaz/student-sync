@@ -8,6 +8,7 @@ using StudentSync.Domain.Assignments;
 using StudentSync.Domain.Communication;
 using StudentSync.Domain.Content;
 using StudentSync.Domain.Doubts;
+using StudentSync.Domain.Fees;
 using StudentSync.Domain.Identity;
 using StudentSync.Domain.People;
 using StudentSync.Domain.Platform;
@@ -42,6 +43,11 @@ public interface IAppDbContext
     DbSet<Chapter> Chapters { get; }
     DbSet<Topic> Topics { get; }
     DbSet<TeacherSubject> TeacherSubjects { get; }
+    DbSet<TeacherQualification> TeacherQualifications { get; }
+    DbSet<StudentSchoolReport> StudentSchoolReports { get; }
+    DbSet<StudentSchoolMark> StudentSchoolMarks { get; }
+    DbSet<StudentPackage> StudentPackages { get; }
+    DbSet<FeePayment> FeePayments { get; }
     DbSet<CourseEnrolment> CourseEnrolments { get; }
     DbSet<StudentSubject> StudentSubjects { get; }
     DbSet<Curriculum> Curricula { get; }

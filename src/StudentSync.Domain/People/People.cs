@@ -14,6 +14,24 @@ public class Teacher : TenantEntity
     public string? Bio { get; set; }
     public string? Specialisations { get; set; }
     public PersonStatus Status { get; set; } = PersonStatus.Active;
+    /// <summary>Contact number the centre uses (WhatsApp etc.). Shown to admins only.</summary>
+    public string? Phone { get; set; }
+    public int? ExperienceYears { get; set; }
+    /// <summary>Languages the teacher can teach in, e.g. "English, Malayalam, Arabic".</summary>
+    public string? Languages { get; set; }
+    /// <summary>When the teacher joined the centre.</summary>
+    public DateOnly? JoinedOn { get; set; }
+    public List<TeacherQualification> Qualifications { get; set; } = [];
+}
+
+/// <summary>A degree or certificate of a teacher (e.g. "B.Ed", "MSc Mathematics"), in the order the admin entered them.</summary>
+public class TeacherQualification : TenantEntity
+{
+    public Guid TeacherId { get; set; }
+    public string Title { get; set; } = "";
+    public string? Institution { get; set; }
+    public int? Year { get; set; }
+    public int SortOrder { get; set; }
 }
 
 /// <summary>Student profile. Shares its primary key with the <see cref="AppUser"/> account (1:1).
@@ -28,6 +46,41 @@ public class Student : TenantEntity
     public Guid? CurriculumId { get; set; }
     public Guid? AcademicYearId { get; set; }
     public PersonStatus Status { get; set; } = PersonStatus.Active;
+    /// <summary>Contact details the centre uses (calls/WhatsApp). Parents do not sign in; their contact is kept here. Admins only.</summary>
+    public string? Phone { get; set; }
+    public string? GuardianName { get; set; }
+    public string? GuardianPhone { get; set; }
+    /// <summary>When the student joined the tuition centre ("with us for 3 months").</summary>
+    public DateOnly? JoinedOn { get; set; }
+}
+
+/// <summary>
+/// A school result the student or parent shared (e.g. "Term 1 2026"): overall percentage, marks per school subject and
+/// optionally the scanned progress report. Evidence for the learning plan, recorded by the centre.
+/// </summary>
+public class StudentSchoolReport : TenantEntity
+{
+    public Guid StudentId { get; set; }
+    public Student? Student { get; set; }
+    public string Title { get; set; } = "";
+    public DateOnly? ExamDate { get; set; }
+    public decimal? OverallPercent { get; set; }
+    public string? Notes { get; set; }
+    /// <summary>The uploaded report (PDF or photo); access is decided by this report's student.</summary>
+    public Guid? FileId { get; set; }
+    public Guid RecordedByUserId { get; set; }
+    public List<StudentSchoolMark> Marks { get; set; } = [];
+}
+
+/// <summary>One school subject's result on a report. School subjects are free text: they need not be tuition subjects.</summary>
+public class StudentSchoolMark : TenantEntity
+{
+    public Guid ReportId { get; set; }
+    public string Subject { get; set; } = "";
+    public decimal? Marks { get; set; }
+    public decimal? MaxMarks { get; set; }
+    public string? Grade { get; set; }
+    public int SortOrder { get; set; }
 }
 
 public class Parent : TenantEntity

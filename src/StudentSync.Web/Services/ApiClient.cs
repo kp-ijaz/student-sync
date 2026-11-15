@@ -3,9 +3,11 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Caching.Distributed;
 using StudentSync.Contracts;
 
@@ -26,10 +28,12 @@ public sealed record SessionTokens(string AccessToken, DateTime AccessExpiresUtc
 
 /// <summary>
 /// Server-side token store (backend-for-frontend). The browser only holds an HttpOnly cookie with an opaque session id;
-/// API access and refresh tokens never reach the browser.
+/// API access and refresh tokens never reach the browser. Entries are encrypted with Data Protection, so a persistent
+/// backing store (<see cref="FileDistributedCache"/>, Redis, SQL Server) never holds tokens in clear text.
 /// </summary>
-public sealed class SessionStore(IDistributedCache cache)
+public sealed class SessionStore(IDistributedCache cache, IDataProtectionProvider dataProtection)
 {
+    private readonly IDataProtector _protector = dataProtection.CreateProtector("StudentSync.Web.SessionStore.v1");
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> Locks = new();
     public static readonly JsonSerializerOptions Json = CreateJson();
 
@@ -43,11 +47,13 @@ public sealed class SessionStore(IDistributedCache cache)
     public async Task<SessionTokens?> GetAsync(string sid)
     {
         var bytes = await cache.GetAsync(Key(sid));
-        return bytes is null ? null : JsonSerializer.Deserialize<SessionTokens>(bytes, Json);
+        if (bytes is null) return null;
+        try { return JsonSerializer.Deserialize<SessionTokens>(_protector.Unprotect(bytes), Json); }
+        catch (CryptographicException) { return null; } // keys lost or entry altered: treat as signed out
     }
 
     public Task SaveAsync(string sid, SessionTokens tokens) =>
-        cache.SetAsync(Key(sid), JsonSerializer.SerializeToUtf8Bytes(tokens, Json), new DistributedCacheEntryOptions { AbsoluteExpiration = tokens.RefreshExpiresUtc });
+        cache.SetAsync(Key(sid), _protector.Protect(JsonSerializer.SerializeToUtf8Bytes(tokens, Json)), new DistributedCacheEntryOptions { AbsoluteExpiration = tokens.RefreshExpiresUtc });
 
     public Task RemoveAsync(string sid) => cache.RemoveAsync(Key(sid));
 
@@ -118,11 +124,12 @@ public sealed class ApiClient(HttpClient http, SessionStore store, Authenticatio
         if (await store.GetAsync(sid) is { } t) await store.SaveAsync(sid, t with { User = user });
     }
 
-    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent? content, CancellationToken ct)
+    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent? content, CancellationToken ct, string? idempotencyKey = null)
     {
         var tokens = await TokensAsync();
         using var request = new HttpRequestMessage(method, "api/v1/" + path.TrimStart('/')) { Content = content };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+        if (idempotencyKey is not null) request.Headers.Add("Idempotency-Key", idempotencyKey);
         HttpResponseMessage response;
         try { response = await http.SendAsync(request, ct); }
         catch (HttpRequestException) { throw new ApiException(503, "unavailable", "The Student Sync service is unreachable. Check your connection and try again.", null, null); }
@@ -186,6 +193,12 @@ public sealed class ApiClient(HttpClient http, SessionStore store, Authenticatio
     public async Task PostAsync(string path, object? body = null, CancellationToken ct = default)
     {
         using var _ = await SendAsync(HttpMethod.Post, path, Body(body ?? new { }), ct);
+    }
+
+    /// <summary>A command the API replays instead of repeating when the same key is sent again (double-click, retry after a dropped connection).</summary>
+    public async Task PostAsync(string path, object? body, string idempotencyKey, CancellationToken ct = default)
+    {
+        using var _ = await SendAsync(HttpMethod.Post, path, Body(body ?? new { }), ct, idempotencyKey);
     }
 
     public async Task<T> PutAsync<T>(string path, object? body, CancellationToken ct = default)

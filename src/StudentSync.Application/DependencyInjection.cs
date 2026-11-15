@@ -36,6 +36,8 @@ public static class DependencyInjection
         services.AddScoped<AiService>();
         services.AddScoped<AiJobRunner>();
         services.AddScoped<PeopleService>();
+        services.AddScoped<SchoolReportService>();
+        services.AddScoped<StudentSync.Application.Fees.FeeService>();
         services.AddScoped<ProfilePhotoService>();
         services.AddScoped<LearningProfileService>();
         services.AddScoped<AcademicsService>();

@@ -2,62 +2,131 @@
 @attribute [Authorize(Roles = "InstitutionAdmin")]
 @inherits AppPage
 
-<PageHeader Title="Institution dashboard" Subtitle="@Me?.TenantName">
+@* The front desk's home (DESIGN.md "Home pattern"): greeting with the two everyday actions, shortcut pills, the centre
+   in five numbers, what is coming up (grouped by day, live/next marked), what needs the admin, who owes fees or is
+   running out of hours, and recent activity. Every number links to where it is managed. *@
+<PageTitle>Home · Student Sync</PageTitle>
+<HomeGreeting FullName="@Me?.FullName" PhotoUrl="@Me?.PhotoUrl" Tz="@Tz" Caption="@Me?.TenantName">
     <Actions>
-        <a class="btn btn-secondary" href="/sessions/new?type=OneToOne"><Icon Name="user" /> Schedule one-to-one</a>
-        <a class="btn btn-secondary" href="/sessions/new?type=Group"><Icon Name="users" /> Create group session</a>
-        <a class="btn btn-primary" href="/sessions/new?type=Batch"><Icon Name="plus" /> Create batch class</a>
+        <a class="btn btn-secondary btn-pill" href="/admin/students/new"><Icon Name="user-plus" /> Admit student</a>
+        <a class="btn btn-primary btn-pill" href="/sessions/new"><Icon Name="plus" /> Add classes</a>
     </Actions>
-</PageHeader>
+</HomeGreeting>
 
 <DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync">
     @if (_d is not null)
     {
-        <div class="stat-grid" style="margin-bottom:24px">
-            @foreach (var s in _d.Stats) { var ic = StatIcons.For(s.Key); <StatCard Label="@s.Label" Value="@s.Value" Hint="@s.Hint" Icon="@ic?.Icon" Tone="@(ic?.Tone ?? "blue")" /> }
-        </div>
-        @if (_d.Alerts.Count > 0)
-        {
-            <div class="stack-sm" style="margin-bottom:24px">
-                @foreach (var a in _d.Alerts) { <div class="@(a.Severity == "warning" ? "warn-panel" : "info-panel") row-between"><span>@a.Message</span>@if (a.Link is not null) { <a class="panel-link" href="@a.Link">Review <Icon Name="chevron-right" /></a> }</div> }
-            </div>
-        }
-        <div class="grid grid-main">
-            <div class="card">
-                <div class="card-head"><h2>Upcoming sessions</h2><a href="/sessions">View calendar</a></div>
-                <DataView IsEmpty="_d.UpcomingSessions.Count == 0" EmptyTitle="No upcoming sessions" EmptyText="Schedule a batch class, group session or one-to-one lesson to get started." EmptyIcon="calendar">
-                    <ul class="list">@foreach (var s in _d.UpcomingSessions) { <li><SessionItem Session="s" Tz="@Tz" /></li> }</ul>
-                </DataView>
-            </div>
-            <div class="stack dash-aside">
-                <div class="card">
-                    <div class="card-head"><h2>Attendance · last 30 days</h2></div>
-                    <AttendanceBars Summary="_d.AttendanceLast30Days" />
-                </div>
-                <div class="card">
-                    <div class="card-head"><h2>Sessions by teaching mode</h2></div>
-                    <p class="caption">Past 30 days to next 30 days, excluding cancelled. Each session is counted once by its own mode.</p>
-                    @foreach (var t in _d.SessionsByType)
-                    {
-                        <div class="bar-row"><span class="small">@StatusStyles.For(t.SessionType).Label</span>
-                            <div class="progress-bar" role="img" aria-label="@t.Sessions sessions"><span style="width:@Pct(t.Sessions, _d.SessionsByType.Sum(x => x.Sessions))%"></span></div>
-                            <span class="small num" style="text-align:end">@t.Sessions</span></div>
-                    }
-                </div>
-                <div class="card">
-                    <div class="card-head"><h2>Recent activity</h2><a href="/admin/settings?tab=audit">Audit log</a></div>
-                    <DataView IsEmpty="_d.RecentActivity.Count == 0" EmptyTitle="No activity yet">
-                        <ul class="list">@foreach (var a in _d.RecentActivity) { <li><div class="small">@a.Summary</div><div class="caption">@(a.UserName ?? "System") · <LocalTime Utc="a.AtUtc" Tz="@Tz" Format="relative" /></div></li> }</ul>
+        <QuickLinks Items="Shortcuts" AriaLabel="Front desk shortcuts" />
+        <MetricStrip Items="Metrics" AriaLabel="The centre at a glance" />
+
+        <div class="home-main">
+            <ClassAgenda Sessions="_d.UpcomingSessions" Tz="@Tz" LinkHref="/sessions"
+                         EmptyText="Pick a student, choose the days and the time, and their classes appear here.">
+                <EmptyAction><a class="btn btn-primary btn-pill" href="/sessions/new"><Icon Name="plus" /> Add classes</a></EmptyAction>
+            </ClassAgenda>
+
+            <div class="home-side">
+                <section class="card home-needs" aria-labelledby="needs-h">
+                    <div class="card-head"><h2 id="needs-h">Needs you</h2></div>
+                    <NeedsList Items="Needs" />
+                </section>
+
+                <section class="card home-fees" aria-labelledby="fees-h">
+                    <div class="card-head"><h2 id="fees-h">Fees due</h2><a href="/admin/fees">All fees</a></div>
+                    <DataView Loading="_fees is null && _feesError is null" Error="_feesError" OnRetry="LoadFeesAsync">
+                        @if (_fees is { } f)
+                        {
+                            @if (f.TotalItems == 0)
+                            {
+                                <p class="all-clear"><Icon Name="check-circle" /> Everyone is paid up and has hours left.</p>
+                            }
+                            else
+                            {
+                                <div class="fee-total">
+                                    <span class="caption">To collect</span>
+                                    <strong>@Money.Format(f.TotalDue, f.CurrencyCode)</strong>
+                                    <span class="caption">@FeeSummary(f)</span>
+                                </div>
+                                <FeesDueList Items="f.Items" Currency="@f.CurrencyCode" LowHoursAt="f.LowHoursAt" />
+                                @if (f.TotalItems > f.Items.Count) { <a class="fee-more" href="/admin/fees">See all @f.TotalItems students</a> }
+                            }
+                            <p class="caption fee-month">@Money.Format(f.CollectedThisMonth, f.CurrencyCode) collected this month</p>
+                        }
                     </DataView>
-                </div>
+                </section>
+
+                <section class="card" aria-labelledby="act-h">
+                    <div class="card-head"><h2 id="act-h">Recent activity</h2><a href="/admin/settings?tab=audit">Audit log</a></div>
+                    <DataView IsEmpty="_d.RecentActivity.Count == 0" EmptyTitle="No activity yet">
+                        <ul class="activity-list">@foreach (var a in _d.RecentActivity.Take(6)) { <li><span class="activity-dot" aria-hidden="true"></span><div><div class="small">@a.Summary</div><div class="caption">@(People.ShortName(a.UserName) is { Length: > 0 } n ? n : "System") · <LocalTime Utc="a.AtUtc" Tz="@Tz" Format="relative" /></div></div></li> }</ul>
+                    </DataView>
+                </section>
             </div>
         </div>
     }
 </DataView>
 
 @code {
+    private static readonly IReadOnlyList<ShortcutItem> Shortcuts =
+    [
+        new("Students", "/admin/students", "users"),
+        new("Teachers", "/admin/teachers", "graduation"),
+        new("Calendar", "/sessions", "calendar"),
+        new("Fees", "/admin/fees", "wallet"),
+        new("Reports", "/admin/reports", "bar-chart"),
+    ];
+
     private AdminDashboardDto? _d;
     private ApiException? _error;
-    protected override async Task LoadAsync() => (_d, _error) = await Fetch(() => Api.GetAsync<AdminDashboardDto>("dashboard/admin"));
-    private static double Pct(int v, int total) => total == 0 ? 0 : Math.Round(100.0 * v / total, 1);
+    private FeesDueDto? _fees;
+    private ApiException? _feesError;
+
+    private List<MetricStrip.Item> Metrics
+    {
+        get
+        {
+            string Stat(string key) => _d!.Stats.FirstOrDefault(s => s.Key == key)?.Value ?? "—";
+            return
+            [
+                new("Students", Stat("students"), "active", "users", "/admin/students"),
+                new("Teachers", Stat("teachers"), "active", "graduation", "/admin/teachers"),
+                new("Classes", Stat("sessions"), "in the next 7 days", "calendar", "/sessions"),
+                new("Doubts", Stat("doubts"), "open", "help", "/doubts"),
+                _fees is { } f
+                    ? new("Fees due", Money.Format(f.TotalDue, f.CurrencyCode), f.StudentsOwing == 1 ? "from 1 student" : $"from {f.StudentsOwing} students", "wallet", "/admin/fees")
+                    : new("Fees due", "—", "not loaded", "wallet", "/admin/fees"),
+            ];
+        }
+    }
+
+    private List<NeedsList.Item> Needs => _d!.Alerts.Select(a =>
+    {
+        var (count, text) = SplitCount(a.Message);
+        return new NeedsList.Item(count, text, a.Link, a.Severity == "warning");
+    }).ToList();
+
+    /// <summary>"36 past session(s) … attendance." → ("36", "past sessions … attendance") so the number can lead the row.</summary>
+    private static (string? Count, string Text) SplitCount(string message)
+    {
+        var space = message.IndexOf(' ');
+        if (space <= 0 || !message[..space].All(char.IsDigit)) return (null, message);
+        return (message[..space], message[(space + 1)..].Replace("(s)", "s").TrimEnd('.'));
+    }
+
+    /// <summary>"3 overdue · 2 running out of hours" — the counts behind the total, so nothing is a bare number.</summary>
+    private static string FeeSummary(FeesDueDto f)
+    {
+        var parts = new List<string> { f.StudentsOwing == 1 ? "1 student owes" : $"{f.StudentsOwing} students owe" };
+        if (f.OverdueCount > 0) parts.Add($"{f.OverdueCount} overdue");
+        if (f.LowHoursCount > 0) parts.Add($"{f.LowHoursCount} running out of hours");
+        return string.Join(" · ", parts);
+    }
+
+    private async Task LoadFeesAsync() => (_fees, _feesError) = await Fetch(() => Api.GetAsync<FeesDueDto>("fees/due?take=5"));
+
+    protected override async Task LoadAsync()
+    {
+        (_d, _error) = await Fetch(() => Api.GetAsync<AdminDashboardDto>("dashboard/admin"));
+        await LoadFeesAsync();
+    }
 }

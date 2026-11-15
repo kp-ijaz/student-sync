@@ -70,6 +70,7 @@ services:
       - "5090:8080"
     volumes:
       - webkeys:/app/keys
+      - websessions:/app/sessions
     depends_on:
       - api
 
@@ -78,3 +79,4 @@ volumes:
   storage:
   apikeys:
   webkeys:
+  websessions:

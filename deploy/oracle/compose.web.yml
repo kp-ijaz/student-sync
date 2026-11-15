@@ -1,0 +1,49 @@
+# Student Sync demo environment - web VM (Oracle Always Free micro instance, 1 GB RAM).
+# Runs the Blazor Server app behind Caddy, which terminates HTTPS for both the app and the API host names.
+# Usage on the VM:  docker compose -f compose.web.yml up -d
+# Settings come from web.env next to this file (see web.env.example).
+name: studentsync
+
+services:
+  web:
+    image: studentsync-web:${IMAGE_TAG:-demo}
+    restart: unless-stopped
+    env_file: web.env
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # Caddy is the only client of this container; trust its X-Forwarded-Proto so the app knows requests are HTTPS.
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      # Signed-in sessions on a volume (encrypted with the Data Protection keys in webkeys): restarts and redeploys keep people signed in.
+      Sessions__StorePath: /app/sessions
+      DOTNET_gcServer: "0"
+      DOTNET_GCConserveMemory: "7"
+    volumes:
+      - webkeys:/app/keys
+      - websessions:/app/sessions
+    mem_limit: 650m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file: web.env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      - web
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  webkeys:
+  websessions:
+  caddydata:
+  caddyconfig:

@@ -3,23 +3,19 @@
 @* A student's curriculum: core subjects come from course enrolment (read-only here); admins choose languages per choice group and add extra subjects. *@
 <section class="card" aria-labelledby="subjects-h">
     <div class="card-head">
-        <div><h2 id="subjects-h">Subjects</h2><div class="caption">Core subjects come from the student's courses. Languages and additional subjects show only for this student.</div></div>
+        <div><h2 id="subjects-h">Tuition subjects</h2><div class="caption">The subjects this student comes for. They are offered first when you add the student’s classes.</div></div>
     </div>
     <DataView Loading="_data is null && _error is null" Error="_error" OnRetry="LoadAsync">
         @if (_data is not null)
         {
             <div class="stack">
-                <div>
-                    <h3 class="small" style="margin:0 0 8px">Core subjects</h3>
-                    @if (_data.Core.Count == 0)
-                    {
-                        <p class="muted small" style="margin:0">Not enrolled in a course. Enrol the student under <a href="/admin/academics">Academic structure</a> to give them core subjects.</p>
-                    }
-                    else
-                    {
+                @if (_data.Core.Count > 0)
+                {
+                    <div>
+                        <h3 class="small" style="margin:0 0 8px">From their class course</h3>
                         <div class="row" style="flex-wrap:wrap;gap:8px">@foreach (var s in _data.Core) { <span class="badge navy" title="@s.CourseName · @s.Code">@s.Name</span> }</div>
-                    }
-                </div>
+                    </div>
+                }
 
                 @if (_data.ChoiceGroups.Count > 0)
                 {
@@ -41,8 +37,8 @@
                 }
 
                 <div>
-                    <h3 class="small" style="margin:0 0 8px">Additional subjects</h3>
-                    @if (_additional.Count == 0) { <p class="muted small" style="margin:0 0 8px">None. Add extra coaching or elective subjects from any course.</p> }
+                    @if (_data.Core.Count > 0 || _data.ChoiceGroups.Count > 0) { <h3 class="small" style="margin:0 0 8px">Extra subjects</h3> }
+                    @if (_additional.Count == 0) { <p class="muted small" style="margin:0 0 8px">None yet. Add the subjects the student needs tuition for.</p> }
                     else
                     {
                         <ul class="list" style="margin-bottom:8px">

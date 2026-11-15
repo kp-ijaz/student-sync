@@ -117,21 +117,58 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
         return c.Id;
     }
 
-    public async Task<IReadOnlyList<SubjectDto>> SubjectsAsync(Guid? courseId, CancellationToken ct)
+    /// <param name="mine">For a teacher: only the subjects on their profile (what they may teach and set work in).</param>
+    public async Task<IReadOnlyList<SubjectDto>> SubjectsAsync(Guid? courseId, CancellationToken ct, bool mine = false)
     {
         View();
         var q = db.Subjects.AsQueryable();
         if (courseId is { } cid) q = q.Where(s => s.CourseId == cid);
+        if (mine && access.IsTeacher) q = q.Where(s => db.TeacherSubjects.Any(t => t.SubjectId == s.Id && t.TeacherId == user.UserId));
         // Students see only their own subjects: core subjects of their courses, their language choices and assigned extras.
         if (access.IsStudent)
         {
-            var mine = StudentCurriculum.SubjectsOf(user.UserId, db.Subjects, db.CourseEnrolments, db.StudentSubjects).Select(x => x.Id);
-            q = q.Where(s => mine.Contains(s.Id));
+            var own = StudentCurriculum.SubjectsOf(user.UserId, db.Subjects, db.CourseEnrolments, db.StudentSubjects).Select(x => x.Id);
+            q = q.Where(s => own.Contains(s.Id));
         }
         return await q.OrderBy(s => s.Course!.Name).ThenBy(s => s.Name).Select(s => new SubjectDto(s.Id, s.CourseId, s.Course!.Name, s.Code, s.Name, s.Description, s.Status,
             s.Chapters.OrderBy(c => c.SortOrder).Select(c => new ChapterDto(c.Id, c.Title, c.SortOrder, c.Topics.OrderBy(t => t.SortOrder).Select(t => new TopicDto(t.Id, t.Title, t.SortOrder)).ToList())).ToList(),
             db.TeacherSubjects.Where(t => t.SubjectId == s.Id).Select(t => new LookupItem(t.TeacherId, t.Teacher!.User!.FullName, null)).ToList(),
-            s.Kind, s.ChoiceGroup)).ToListAsync(ct);
+            s.Kind, s.ChoiceGroup, s.Course.Code == CentreCourseCode)).ToListAsync(ct);
+    }
+
+    // ---------------- Centre subjects: the tuition centre's own simple subject list ----------------
+
+    /// <summary>Course holding the centre's simple subjects (Maths, Arabic, Accounts…) used for any class or syllabus.</summary>
+    public const string CentreCourseCode = "CENTRE";
+
+    /// <summary>Adds a subject to the centre's list, or returns the existing one with the same name (re-activating it).</summary>
+    public async Task<Guid> AddCentreSubjectAsync(CentreSubjectRequest r, CancellationToken ct)
+    {
+        Manage();
+        var name = Text.Required(r.Name, "name", 150);
+        var course = await db.Courses.FirstOrDefaultAsync(c => c.Code == CentreCourseCode, ct);
+        if (course is null)
+        {
+            course = new Course { Code = CentreCourseCode, Name = "Tuition subjects", Description = "The centre's own subject list, used for any class or syllabus." };
+            db.Courses.Add(course);
+        }
+        else
+        {
+            var existing = await db.Subjects.FirstOrDefaultAsync(s => s.CourseId == course.Id && s.Name == name, ct);
+            if (existing is not null)
+            {
+                if (existing.Status != CatalogStatus.Active) { existing.Status = CatalogStatus.Active; await db.SaveChangesAsync(ct); }
+                return existing.Id;
+            }
+        }
+        var stem = new string(name.Where(char.IsLetterOrDigit).Take(12).ToArray()).ToUpperInvariant();
+        var code = $"T-{(stem.Length == 0 ? "SUBJECT" : stem)}";
+        for (var n = 2; await db.Subjects.AnyAsync(s => s.Code == code, ct); n++) code = $"T-{stem}{n}";
+        var subject = new Subject { CourseId = course.Id, Code = code, Name = name, Kind = SubjectKind.Additional };
+        db.Subjects.Add(subject);
+        audit.Record("subject.saved", "Subject", subject.Id, $"{code} (centre subject)");
+        await db.SaveChangesAsync(ct);
+        return subject.Id;
     }
 
     public async Task<Guid> SaveSubjectAsync(Guid? id, SaveSubjectRequest r, CancellationToken ct)

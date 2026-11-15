@@ -48,6 +48,45 @@ window.ss = {
   }
 })();
 
+// Install banner (InstallBanner.razor). Chromium browsers fire "beforeinstallprompt" when the app can be installed:
+// keep the event and offer an Install button. iOS has no such event, so the banner shows the Share-menu steps there.
+// Nothing is shown inside the installed app, or for 14 days after "Not now".
+(function () {
+  const KEY = "ss-install-dismissed", SNOOZE_MS = 14 * 24 * 60 * 60 * 1000;
+  let deferred = null;
+  const installed = () => window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+  // iPadOS reports itself as a Mac; the touch points tell them apart.
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const snoozed = () => { try { return Date.now() - Number(localStorage.getItem(KEY) || 0) < SNOOZE_MS; } catch { return false; } };
+  const mode = () => (installed() || snoozed() ? null : deferred ? "prompt" : ios ? "ios" : null);
+  const update = () => {
+    const m = mode();
+    document.querySelectorAll("ss-install-banner").forEach((banner) => {
+      banner.hidden = !m;
+      banner.querySelectorAll("[data-install-mode]").forEach((el) => { el.hidden = el.dataset.installMode !== m; });
+    });
+  };
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferred = e; update(); });
+  window.addEventListener("appinstalled", () => { deferred = null; update(); });
+  document.addEventListener("click", (e) => {
+    const button = e.target instanceof Element ? e.target.closest("[data-install-action]") : null;
+    if (!button) return;
+    if (button.dataset.installAction === "dismiss") {
+      try { localStorage.setItem(KEY, String(Date.now())); } catch { /* private mode: hidden for this page only */ }
+      deferred = null;
+    } else if (deferred) {
+      const prompt = deferred;
+      deferred = null; // a prompt event can be used once; the browser sends a new one if the person declines
+      prompt.prompt();
+    }
+    update();
+  });
+  // A custom element so the state is applied whenever Blazor creates the banner (first load, prerender → interactive).
+  customElements.define("ss-install-banner", class extends HTMLElement { connectedCallback() { update(); } });
+  // Enhanced navigation re-applies the server markup (hidden); restore the state afterwards.
+  if (window.Blazor && window.Blazor.addEventListener) window.Blazor.addEventListener("enhancedload", update);
+})();
+
 // Tab bars (role="tablist", e.g. PillTabs and .tabs): Left/Right/Home/End move to and select the neighbouring tab,
 // following the WAI-ARIA tabs pattern (automatic activation).
 document.addEventListener("keydown", (e) => {

@@ -1,0 +1,34 @@
+# Student Sync demo environment - API VM (Oracle Always Free micro instance, 1 GB RAM).
+# Usage on the VM:  docker compose -f compose.api.yml up -d
+# Secrets come from api.env next to this file (see api.env.example); never commit the real file.
+name: studentsync
+
+services:
+  api:
+    image: studentsync-api:${IMAGE_TAG:-demo}
+    restart: unless-stopped
+    env_file: api.env
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # No Hangfire server: its constant SQL polling would keep the serverless Azure SQL database awake
+      # and exhaust the free monthly allowance within days. Enqueued jobs run in-process; delayed and
+      # recurring jobs do not run (see DEPLOYMENT.md, "Free demo environment").
+      Jobs__Mode: Inline
+      Database__MigrateOnStartup: "true"
+      Storage__Local__LocalRootPath: /app/storage
+      DOTNET_gcServer: "0"
+      DOTNET_GCConserveMemory: "7"
+    ports:
+      # Reached by the web VM over the private subnet only; the VCN security list does not expose 8080 publicly.
+      - "8080:8080"
+    volumes:
+      - storage:/app/storage
+      - apikeys:/app/keys
+    mem_limit: 750m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  storage:
+  apikeys:

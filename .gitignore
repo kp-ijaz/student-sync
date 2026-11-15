@@ -7,6 +7,7 @@ obj/
 TestResults/
 # Secrets / local config
 .env
+deploy/**/*.env
 *.local.json
 App_Data/
 .storage/

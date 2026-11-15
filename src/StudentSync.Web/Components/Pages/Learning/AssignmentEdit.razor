@@ -19,7 +19,7 @@
         <div class="field"><label for="bat">Batch</label>
             <select id="bat" class="select" @bind="_batchId" disabled="@_published"><option value="">None</option>@foreach (var b in _batches) { <option value="@b.Id">@b.Name</option> }</select></div>
         <div class="field"><label for="sub">Subject</label>
-            <select id="sub" class="select" @bind="_subjectId"><option value="">None</option>@foreach (var s in _subjects) { <option value="@s.Id">@s.Name</option> }</select></div>
+            <select id="sub" class="select" @bind="_subjectId"><option value="">None</option>@foreach (var s in _subjects) { <option value="@s.Id">@s.Name</option> }</select>@if (IsTeacher && _subjects.Count == 0) { <span class="help">No subjects on your profile yet. Ask the admin to add the subjects you teach (People ▸ Teachers).</span> }</div>
         <div class="field">
             <label class="check"><input type="checkbox" @bind="_late" /> Accept late submissions</label>
             <label class="check"><input type="checkbox" @bind="_resubmit" /> Allow resubmission</label>
@@ -61,7 +61,7 @@
         {
             _sessions = await Api.GetAsync<List<SessionListItemDto>>($"sessions?fromUtc={DateTime.UtcNow.AddDays(-30):O}&toUtc={DateTime.UtcNow.AddDays(60):O}&limit=200");
             _batches = await Api.GetAsync<List<BatchDto>>("academics/batches");
-            _subjects = await Api.GetAsync<List<SubjectDto>>("academics/subjects");
+            _subjects = await Api.GetAsync<List<SubjectDto>>("academics/subjects?mine=true");
             _students = (await Api.GetAsync<PagedResult<StudentDto>>("students?pageSize=100")).Items.Select(s => new LookupItem(s.Id, s.FullName, s.StudentCode)).ToList();
             _sessionId = SessionParam;
             if (Id is { } id)

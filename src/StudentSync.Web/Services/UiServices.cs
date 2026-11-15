@@ -281,6 +281,7 @@ public static class I18n
             ["Messages"] = "الرسائل",
             ["Announcements"] = "الإعلانات",
             ["Reports"] = "التقارير",
+            ["Fees"] = "الرسوم",
             ["Settings"] = "الإعدادات",
             ["Library"] = "المكتبة",
             ["Progress"] = "التقدم",
@@ -320,6 +321,7 @@ public static class I18n
             ["Messages"] = "സന്ദേശങ്ങൾ",
             ["Announcements"] = "അറിയിപ്പുകൾ",
             ["Reports"] = "റിപ്പോർട്ടുകൾ",
+            ["Fees"] = "ഫീസ്",
             ["Settings"] = "ക്രമീകരണങ്ങൾ",
             ["Library"] = "ലൈബ്രറി",
             ["Progress"] = "പുരോഗതി",
@@ -368,8 +370,8 @@ public static class Navigation
         [
             new("Dashboard", "/admin", "grid", true),
             NavItem.Group("Classes", "calendar",
-                new("Calendar", "/sessions", "calendar"), new("Schedule a class", "/sessions/new", "plus"),
-                new("Pre-recorded videos", "/videos", "video"), new("Batches", "/admin/batches", "layers"), new("Private tuition", "/admin/arrangements", "user")),
+                new("Calendar", "/sessions", "calendar"), new("Add classes", "/sessions/new", "plus"),
+                new("Pre-recorded videos", "/videos", "video")),
             NavItem.Group("People", "users",
                 new("Students", "/admin/students", "users"),
                 new("Teachers", "/admin/teachers", "user-check")),
@@ -378,13 +380,14 @@ public static class Navigation
                 new("Exams", "/exams", "check-square"), new("Doubt Centre", "/doubts", "help")),
             NavItem.Group("Communication", "message",
                 new("Messages", "/messages", "message"), new("Announcements", "/announcements", "megaphone")),
+            new("Fees", "/admin/fees", "wallet"),
             new("Reports", "/admin/reports", "bar-chart"), new("Settings", "/admin/settings", "settings"),
         ],
         UserRole.Teacher =>
         [
             new("Dashboard", "/teacher", "grid", true),
             NavItem.Group("Classes", "calendar",
-                new("Timetable", "/sessions", "calendar"), new("Schedule a class", "/sessions/new", "plus"),
+                new("Timetable", "/sessions", "calendar"), new("Add classes", "/sessions/new", "plus"),
                 new("Pre-recorded videos", "/videos", "video"), new("Availability", "/teacher/availability", "clock")),
             NavItem.Group("Teaching", "book",
                 new("Students", "/teacher/students", "users"), new("Tasks", "/teacher/tasks", "list-checks"),
@@ -441,7 +444,7 @@ public static class Navigation
         [
             new("Home", "/admin", "grid", true),
             new("Students", "/admin/students", "users", Children: [new("Student", "/students", "user")]),
-            new("Classes", "/sessions", "calendar", Children: [new("Batches", "/admin/batches", "layers"), new("Private tuition", "/admin/arrangements", "user"), new("Videos", "/videos", "video")]),
+            new("Classes", "/sessions", "calendar", Children: [new("Videos", "/videos", "video")]),
             new("Reports", "/admin/reports", "bar-chart"),
         ],
         _ => [],
@@ -461,7 +464,7 @@ public static class Navigation
 
     /// <summary>
     /// The single link that should show as current: the longest href matching the path, so
-    /// "/sessions/new" highlights "Schedule a class" rather than also highlighting "Calendar".
+    /// "/sessions/new" highlights "Add classes" rather than also highlighting "Calendar".
     /// </summary>
     public static NavItem? Active(IReadOnlyList<NavItem> items, string path)
     {
@@ -577,4 +580,16 @@ public static class People
 
     /// <summary>"Amira Haddad (Demo Teacher)" → "Amira Haddad".</summary>
     public static string ShortName(string? name) => System.Text.RegularExpressions.Regex.Replace(name ?? "", @"\s*\([^)]*\)", "").Trim();
+}
+
+/// <summary>Money and hours as the front desk reads them: "AED 4,000", "AED 1,250.50", "2.5 h".</summary>
+public static class Money
+{
+    public static string Format(decimal amount, string currency) =>
+        $"{currency} {amount.ToString(amount == decimal.Truncate(amount) ? "#,0" : "#,0.00", System.Globalization.CultureInfo.InvariantCulture)}";
+
+    public static string Hours(decimal hours) => $"{hours.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)} h";
+
+    /// <summary>"3 h left", "Out of hours", "1.5 h over".</summary>
+    public static string HoursLeft(decimal left) => left switch { > 0 => $"{Hours(left)} left", 0 => "Out of hours", _ => $"{Hours(-left)} over" };
 }

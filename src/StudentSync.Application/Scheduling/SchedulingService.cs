@@ -24,8 +24,10 @@ public sealed class SchedulingService(
     // ---------------- Create ----------------
 
     public async Task<ConflictCheckResponse> CheckAsync(CreateSessionRequest request, CancellationToken ct)
+        => await CheckPlanAsync(await BuildPlanAsync(request, ct), ct);
+
+    private async Task<ConflictCheckResponse> CheckPlanAsync(Plan plan, CancellationToken ct)
     {
-        var plan = await BuildPlanAsync(request, ct);
         var conflicts = await FindConflictsAsync(plan.Teacher.Id, plan.Students.Select(s => s.Id).ToList(),
             plan.Occurrences.Select(o => (o.StartUtc, o.EndUtc)).ToList(), excludeSessionId: null, ct);
         var preview = plan.Occurrences.Select(o => new OccurrencePreviewDto(o.LocalDate, o.StartUtc, o.EndUtc, o.Resolution.ToString(), false))
@@ -40,7 +42,162 @@ public sealed class SchedulingService(
         var conflicts = await FindConflictsAsync(plan.Teacher.Id, plan.Students.Select(s => s.Id).ToList(),
             plan.Occurrences.Select(o => (o.StartUtc, o.EndUtc)).ToList(), null, ct);
         ThrowIfConflicts(conflicts, request.AcknowledgeConflicts);
+        var response = await AddPlanAsync(plan, ct);
+        await db.SaveChangesAsync(ct);
+        return response;
+    }
 
+    // ---------------- Weekly plan: several class plans for one student, saved together ----------------
+
+    public const int MaxBatchItems = 7;
+    /// <summary>Preview resolution of a date left out on purpose (<see cref="CreateSessionRequest.SkipDates"/>); holidays read "Skipped: {name}".</summary>
+    public const string SkippedByChoice = "Skipped: you chose to skip it";
+
+    /// <summary>
+    /// Previews a student's weekly plan (e.g. Monday Maths with one teacher, Tuesday Science with another) as one schedule,
+    /// and for each clashing part suggests free teachers of the same subject and nearby free start times.
+    /// </summary>
+    public async Task<WeeklyPlanCheckResponse> CheckBatchAsync(CreateSessionBatchRequest request, CancellationToken ct)
+    {
+        var plans = await BuildBatchPlansAsync(request, ct);
+        var results = new List<ConflictCheckResponse>();
+        foreach (var plan in plans) results.Add(await CheckPlanAsync(plan, ct));
+
+        var parts = new List<PlanPartCheckDto>();
+        var studentIds = plans[0].Students.Select(s => s.Id).ToList();
+        for (var i = 0; i < plans.Count; i++)
+        {
+            var plan = plans[i];
+            var conflicts = results[i].Conflicts;
+            var clashDates = plan.Occurrences.Where(o => conflicts.Any(c => c.StartUtc < o.EndUtc && o.StartUtc < c.EndUtc)).Select(o => o.LocalDate).Distinct().ToList();
+            var availability = await AvailabilityRowsAsync([plan.Teacher.Id], ct);
+            var outside = plan.Occurrences.Any(o => !WithinAvailability(availability, plan.Teacher.Id, o.StartUtc, o.EndUtc));
+            IReadOnlyList<LookupItem> freeTeachers = [];
+            IReadOnlyList<TimeOnly> freeTimes = [];
+            if (conflicts.Count > 0 || outside)
+            {
+                var others = plans.Where((_, j) => j != i).SelectMany(p => p.Occurrences).Select(o => (o.StartUtc, o.EndUtc)).ToList();
+                (freeTeachers, freeTimes) = await SuggestAsync(plan, studentIds, others, conflicts.Any(c => c.Kind == "Student"), ct);
+            }
+            parts.Add(new PlanPartCheckDto(i, plan.Occurrences.Count, conflicts.Any(c => c.Kind == "Teacher"), conflicts, clashDates, outside, freeTeachers, freeTimes));
+        }
+
+        return new WeeklyPlanCheckResponse(
+            results.Any(r => r.HasBlockingConflicts),
+            results.SelectMany(r => r.Conflicts).DistinctBy(c => (c.Kind, c.PersonId, c.SessionId)).Take(100).ToList(),
+            results.SelectMany(r => r.Occurrences).OrderBy(o => o.LocalDate).ThenBy(o => o.StartUtc).ToList(),
+            results.SelectMany(r => r.Warnings).Distinct().ToList(),
+            parts);
+    }
+
+    private sealed record Busy(Guid TeacherId, bool HasStudent, DateTime Start, DateTime End);
+
+    /// <summary>
+    /// Free teachers of the part's subject (no clash, within their recorded hours) and up to three nearby start times
+    /// (06:00–22:00, nearest first) when the current teacher and the student are both free and the rest of the plan does not overlap.
+    /// Busy times are read once; everything else is checked in memory.
+    /// </summary>
+    private async Task<(IReadOnlyList<LookupItem> Teachers, IReadOnlyList<TimeOnly> Times)> SuggestAsync(
+        Plan plan, List<Guid> studentIds, List<(DateTime Start, DateTime End)> otherParts, bool studentBusy, CancellationToken ct)
+    {
+        var r = plan.Request;
+        var candidates = r.SubjectId is { } subjectId
+            ? await db.TeacherSubjects.Where(t => t.SubjectId == subjectId && t.TeacherId != plan.Teacher.Id && t.Teacher!.Status == PersonStatus.Active)
+                .Select(t => new LookupItem(t.TeacherId, t.Teacher!.User!.FullName, null)).Distinct().ToListAsync(ct)
+            : [];
+        var teacherIds = candidates.Select(c => c.Id).Append(plan.Teacher.Id).ToList();
+        var from = plan.Occurrences.Min(o => o.StartUtc).AddHours(-18);
+        var to = plan.Occurrences.Max(o => o.EndUtc).AddHours(18);
+        var busy = await db.Sessions
+            .Where(s => s.Status != SessionStatus.Cancelled && s.StartUtc < to && s.EndUtc > from
+                        && (teacherIds.Contains(s.TeacherId) || s.Participants.Any(p => studentIds.Contains(p.StudentId) && p.Status == ParticipantStatus.Active)))
+            .Select(s => new Busy(s.TeacherId, s.Participants.Any(p => studentIds.Contains(p.StudentId) && p.Status == ParticipantStatus.Active), s.StartUtc, s.EndUtc))
+            .ToListAsync(ct);
+        var availability = await AvailabilityRowsAsync(teacherIds, ct);
+        static bool Overlaps(DateTime s1, DateTime e1, DateTime s2, DateTime e2) => s1 < e2 && s2 < e1;
+        bool StudentFree(DateTime s, DateTime e) => !busy.Any(b => b.HasStudent && Overlaps(s, e, b.Start, b.End)) && !otherParts.Any(o => Overlaps(s, e, o.Start, o.End));
+        bool TeacherFree(Guid t, DateTime s, DateTime e) => !busy.Any(b => b.TeacherId == t && Overlaps(s, e, b.Start, b.End)) && WithinAvailability(availability, t, s, e);
+
+        // Another teacher only helps when the student is free at this time.
+        var teachers = studentBusy ? [] : candidates
+            .Where(c => plan.Occurrences.All(o => TeacherFree(c.Id, o.StartUtc, o.EndUtc)))
+            .OrderBy(c => c.Name).Take(5).ToList();
+
+        var times = new List<TimeOnly>();
+        foreach (var offset in new[] { 30, -30, 60, -60, 90, -90, 120, -120, 150, -150, 180, -180 })
+        {
+            var start = r.LocalStartTime.AddMinutes(offset, out var wrapped);
+            if (wrapped != 0 || start < new TimeOnly(6, 0) || start.AddMinutes(r.DurationMinutes) > new TimeOnly(22, 0) || start.AddMinutes(r.DurationMinutes) < start) continue;
+            var shifted = plan.Occurrences.Select(o => ZonedTime.ToUtc(o.LocalDate, start, r.TimeZoneId).Utc).Select(s => (Start: s, End: s.AddMinutes(r.DurationMinutes)));
+            if (shifted.All(x => TeacherFree(plan.Teacher.Id, x.Start, x.End) && StudentFree(x.Start, x.End))) times.Add(start);
+            if (times.Count == 3) break;
+        }
+        return (teachers, times);
+    }
+
+    private async Task<List<TeacherAvailability>> AvailabilityRowsAsync(List<Guid> teacherIds, CancellationToken ct) =>
+        await db.TeacherAvailability.Where(a => teacherIds.Contains(a.TeacherId)).ToListAsync(ct);
+
+    /// <summary>True when the teacher recorded no weekly hours, or the class fits inside one of their slots (in the slot's time zone).</summary>
+    private static bool WithinAvailability(List<TeacherAvailability> rows, Guid teacherId, DateTime startUtc, DateTime endUtc)
+    {
+        var mine = rows.Where(a => a.TeacherId == teacherId).ToList();
+        if (mine.Count == 0) return true;
+        return mine.Any(a =>
+        {
+            if (!ZonedTime.TryFind(a.TimeZoneId, out _)) return true;
+            var start = ZonedTime.ToLocal(startUtc, a.TimeZoneId);
+            var end = ZonedTime.ToLocal(endUtc, a.TimeZoneId);
+            return start.DayOfWeek == a.DayOfWeek && start.Date == end.Date
+                   && TimeOnly.FromDateTime(start) >= a.StartLocalTime && TimeOnly.FromDateTime(end) <= a.EndLocalTime;
+        });
+    }
+
+    /// <summary>Creates every plan of a student's weekly plan in one save: all classes are created, or none.</summary>
+    public async Task<CreateSessionResponse> CreateBatchAsync(CreateSessionBatchRequest request, CancellationToken ct)
+    {
+        var plans = await BuildBatchPlansAsync(request, ct);
+        var conflicts = new List<ScheduleConflictDto>();
+        foreach (var plan in plans)
+            conflicts.AddRange(await FindConflictsAsync(plan.Teacher.Id, plan.Students.Select(s => s.Id).ToList(),
+                plan.Occurrences.Select(o => (o.StartUtc, o.EndUtc)).ToList(), null, ct));
+        ThrowIfConflicts(conflicts.DistinctBy(c => (c.Kind, c.PersonId, c.SessionId)).ToList(), request.AcknowledgeConflicts);
+
+        var responses = new List<CreateSessionResponse>();
+        foreach (var plan in plans) responses.Add(await AddPlanAsync(plan, ct));
+        await db.SaveChangesAsync(ct);
+        return new CreateSessionResponse(
+            responses.SelectMany(r => r.SessionIds).ToList(),
+            responses.Count == 1 ? responses[0].SeriesId : null,
+            responses.SelectMany(r => r.Warnings).Distinct().ToList());
+    }
+
+    private async Task<List<Plan>> BuildBatchPlansAsync(CreateSessionBatchRequest request, CancellationToken ct)
+    {
+        if (request.Items is not { Count: > 0 } items) throw RequestValidationException.For("items", "Add at least one class plan.");
+        if (items.Count > MaxBatchItems) throw RequestValidationException.For("items", $"A weekly plan can have at most {MaxBatchItems} parts.");
+        var studentSets = items.Select(i => string.Join(",", (i.StudentIds ?? []).Distinct().Order())).Distinct().Count();
+        if (studentSets != 1) throw RequestValidationException.For("items", "Every part of a weekly plan must be for the same student.");
+
+        var plans = new List<Plan>();
+        foreach (var item in items) plans.Add(await BuildPlanAsync(item, ct));
+
+        // The parts are not saved yet, so the database check cannot see them: make sure they do not overlap each other.
+        for (var i = 0; i < plans.Count; i++)
+        {
+            for (var j = i + 1; j < plans.Count; j++)
+            {
+                var clash = plans[i].Occurrences.FirstOrDefault(a => plans[j].Occurrences.Any(b => a.StartUtc < b.EndUtc && b.StartUtc < a.EndUtc));
+                if (clash is not null)
+                    throw RequestValidationException.For("items", $"Two classes in this plan overlap on {clash.LocalDate:ddd d MMM yyyy}. Give each day only one class.");
+            }
+        }
+        return plans;
+    }
+
+    /// <summary>Adds a validated plan's sessions (and series) to the context and queues notifications. The caller saves.</summary>
+    private async Task<CreateSessionResponse> AddPlanAsync(Plan plan, CancellationToken ct)
+    {
         var r = plan.Request;
         SessionSeries? series = null;
         if (r.Recurrence is { } rec)
@@ -112,12 +269,24 @@ public sealed class SchedulingService(
             created.Count > 1 ? $"{created.Count} sessions scheduled, starting {when}." : $"Scheduled for {when}.",
             $"/sessions/{first.Id}", $"session-scheduled:{series?.Id ?? first.Id}", ct);
 
-        await db.SaveChangesAsync(ct);
+        // When an admin books classes for a teacher, tell the teacher too (no need to post it in a group chat).
+        if (plan.Teacher.Id != user.UserId)
+        {
+            await notify.NotifyAsync([plan.Teacher.Id], NotificationType.SessionScheduled,
+                created.Count > 1 ? $"New classes for you: {plan.Title}" : $"New class for you: {plan.Title}",
+                created.Count > 1 ? $"{created.Count} classes, starting {DescribeLocal(first.StartUtc, plan.Teacher.User!.TimeZoneId)}." : $"Scheduled for {DescribeLocal(first.StartUtc, plan.Teacher.User!.TimeZoneId)}.",
+                $"/sessions/{first.Id}", $"session-assigned:{series?.Id ?? first.Id}", ct);
+        }
+
         return new CreateSessionResponse(created.OrderBy(s => s.StartUtc).Select(s => s.Id).ToList(), series?.Id, plan.Warnings);
     }
 
     private async Task<Plan> BuildPlanAsync(CreateSessionRequest r, CancellationToken ct)
     {
+        if (r.SessionType != SessionType.OneToOne)
+            throw RequestValidationException.For("sessionType", "Only one-to-one classes can be scheduled. Choose one student.");
+        if (r.BatchId is not null || r.StudentIds?.Distinct().Count() != 1)
+            throw RequestValidationException.For("studentIds", "Choose exactly one student for a one-to-one class.");
         var title = Text.Required(r.Title, "title", 200);
         if (r.DurationMinutes is < 15 or > 720) throw RequestValidationException.For("durationMinutes", "Duration must be between 15 and 720 minutes.");
         if (!ZonedTime.TryFind(r.TimeZoneId, out _)) throw RequestValidationException.For("timeZoneId", "Choose a valid time zone.");
@@ -178,6 +347,7 @@ public sealed class SchedulingService(
             throw RequestValidationException.For("courseId", "Course not found.");
         if (r.SubjectId is { } subjectId && !await db.Subjects.AnyAsync(s => s.Id == subjectId, ct))
             throw RequestValidationException.For("subjectId", "Subject not found.");
+        await access.EnsureTeachesSubjectAsync(r.SubjectId, "book classes", ct);
         if (r.ChapterId is { } chapterId)
         {
             var chapter = await db.Chapters.FirstOrDefaultAsync(c => c.Id == chapterId, ct) ?? throw RequestValidationException.For("chapterId", "Chapter not found.");
@@ -204,6 +374,13 @@ public sealed class SchedulingService(
             if (skipped.Count > 0) warnings.Add($"{skipped.Count} occurrence(s) skipped because of institution holidays.");
         }
         else dates.Add(r.LocalDate);
+        // Dates the user chose to leave out (e.g. the days a teacher is busy).
+        if (r.SkipDates is { Count: > 0 } skip)
+        {
+            if (skip.Count > RecurrencePattern.MaxOccurrences) throw RequestValidationException.For("skipDates", "Too many dates to skip.");
+            var set = skip.ToHashSet();
+            foreach (var d in dates.Where(set.Contains).ToList()) { dates.Remove(d); skipped.Add((d, "you chose to skip it")); }
+        }
         if (dates.Count == 0) throw RequestValidationException.For("recurrence", "The schedule produces no sessions.");
 
         var occurrences = new List<Occurrence>();
@@ -352,6 +529,7 @@ public sealed class SchedulingService(
         if (r.SubjectId is { } subjectId && !await db.Subjects.AnyAsync(x => x.Id == subjectId, ct)) throw RequestValidationException.For("subjectId", "Subject not found.");
         if (r.ChapterId is { } chapterId && !await db.Chapters.AnyAsync(x => x.Id == chapterId && (r.SubjectId == null || x.SubjectId == r.SubjectId), ct))
             throw RequestValidationException.For("chapterId", "Chapter not found for this subject.");
+        if (r.SubjectId != s.SubjectId) await access.EnsureTeachesSubjectAsync(r.SubjectId, "teach classes", ct);
         s.Title = Text.Required(r.Title, "title", 200);
         s.SubjectId = r.SubjectId;
         s.ChapterId = r.ChapterId;

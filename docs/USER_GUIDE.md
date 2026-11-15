@@ -2,6 +2,17 @@
 
 Short guides for each role. Times are always shown in **your** time zone (set it under *Profile*); when a class was scheduled in a different zone, the organiser's time is shown too.
 
+## Installing the app (everyone)
+
+Student Sync can be installed from the browser and then opens from the home screen like any other app, with the Student Sync logo as its icon.
+
+* **Android, Windows, Mac, Chromebook (Chrome or Edge):** a strip at the top of the page says *Install Student Sync*. Choose **Install** and confirm. If you closed the strip, use the browser menu → *Install app* (it returns by itself after 14 days).
+* **iPhone and iPad:** Apple does not let websites show an install button. Tap the browser's **Share** button, then **Add to Home Screen**.
+
+## Staying signed in (everyone)
+
+*Keep me signed in* on the sign-in page is ticked by default: the app remembers you on this device for 30 days after you last used it, also after you close the browser or the installed app. **Untick it on a shared or public computer**, and use **Sign out** when you finish there. Changing your password signs you out on your other devices.
+
 ## Institution administrators
 
 **Set up your institution**
@@ -11,20 +22,26 @@ Short guides for each role. Times are always shown in **your** time zone (set it
 4. *Students → open a student → Diagnostic assessments → New diagnostic*: build a short entry test from the question bank (any subjects, basic questions, optionally with a diagram), name the teacher who runs it, publish it, then either let the student take it online or use *Enter paper answers* to type in what they marked on the paper sheet. The result page shows a breakdown by subject and chapter; tick the weak rows and *Record as weak areas* to add them to the learning plan with the source "Diagnostic test". Results are recommendations: staff decide what to record and can resolve it later.
 5. *Students → open a student*: record the subjects or chapters they find hard (what the student, a parent or a teacher told you), set goals the student will see, and keep staff-only observations. Resolve a weak subject with a reason when it is no longer a problem; the history stays.
 
+**Teachers first** — *People ▸ Teachers ▸ Add teacher*: name, email (for sign-in), phone/WhatsApp, the **subjects they teach** (one class, or *Whole subject (every class)* such as Mathematics for Class 1–12), qualifications (e.g. B.Ed, University of Calicut, 2016), years of experience, joining date, teaching languages and a short introduction. A teacher is offered in *Add classes* only for the subjects chosen here. Phone numbers are visible to admins only.
+
+**Admit a student** — *People ▸ Students ▸ Admit student* (one page): student details and phone, parent/guardian name and phone (parents don't sign in), school, class and syllabus, **only the tuition subjects they need** (tap them; type a new one to add it to the centre's subject list), the last school result (overall %, marks per subject, the progress report as PDF/photo, notes), the joining date and what they want to improve. Everything is saved together; then share the one-time password and add their classes. The student's profile shows how long they have been with the centre, their tuition subjects, school results and goals. Teachers see the profile and results of students they teach, but not phone numbers.
+
 **Add people** — *Teachers*, *Students* → "Add…". Students never register themselves: you create the profile (class, syllabus such as NCERT or Kerala State, academic year, school) and the account together. Each new account gets a one-time temporary password (shown once); the person must change it at first sign-in. If someone forgets their password, open their edit dialog and use *Reset password* for a new one-time password (their other sessions are signed out). Syllabi are managed under *Academics ▸ Syllabi*. Link parents to children under *Parents → Link child* and tick "verified" only after checking the relationship — parents see only verified children.
 
 **Organise teaching**
-* *Batches* are optional cohorts for regular classes. Add students to a batch and schedule "Batch class" sessions for it.
-* *Private tuition* holds one-to-one and private-group arrangements — no batch needed.
-* *Sessions → New session*: choose **Batch class**, **Group session**, **One-to-one** or **Private group**, pick participants, set date/time/time zone, and optionally make it repeat (weekly days or daily, until a date or a number of sessions). "Preview & check conflicts" shows every occurrence in your time, any daylight-saving adjustments, and clashes. A teacher can't be double-booked; student clashes need confirmation.
-* Open any session to edit, reschedule (the original time is kept in *History*), cancel (optionally the rest of the series) or change participants.
+* *Classes → Add classes* (or *Add classes* on a student's profile) books a student's one-to-one classes on one page: **who** (the student), **when** (how many weeks, tap the days, start time and class length — in UAE time, or tap the student's own time, e.g. "8 pm India time"), and **what is taught**: either the same subject every day, or *Different subject on different days* with a subject and teacher for each day (e.g. Monday Maths with Mirsha, Tuesday Science with Shahda). Only the student's own subjects and the teachers of each subject are listed; choose *Other subject…* or *Other teacher…* for special cases. Holidays are skipped and clashes are checked automatically (a teacher can't be double-booked; a student clash needs *Book anyway*). *Create N classes* saves the whole week at once and notifies the student and each teacher.
+* Open any class to edit, reschedule (the original time is kept in *History*), cancel (optionally the rest of the series) or change participants.
 
-**Monitor** — the dashboard shows real counts, upcoming sessions, attendance, sessions by teaching mode and alerts. *Reports* filters by date and teaching mode and exports attendance as CSV. *Settings → Audit log* lists sensitive actions.
+**Fees (prepaid hours)** — open a student and use *Fees & hours ▸ Sell hours*: pick 10/20/30/50 hours (or type a number), the price, the day the hours count from, when it must be paid, and what was paid now (cash, card, bank transfer, UPI, cheque) with a receipt number. *Take payment* records the rest; a payment entered by mistake is *Removed* with a reason (it stays on record, crossed out); a package with no payments can be cancelled. Hours used are counted automatically from attendance — a class marked present or late uses its exact length (45 minutes = 0.75 h); absent or cancelled classes use nothing. When hours run out the panel says so; nothing is blocked — you decide whether to sell more hours or pause the student. *Fees* in the side menu and the *Fees due* card on the dashboard list who owes money (most overdue first) and who has 2 hours or less left.
+
+**Monitor** — the dashboard shows real counts, upcoming classes, what needs you and fees due; attendance is under *Reports*. *Reports* filters by date and teaching mode and exports attendance as CSV. *Settings → Audit log* lists sensitive actions.
 
 ## Teachers
 
+**Your subjects decide what you can create.** The admin adds your subjects to your profile (*People ▸ Teachers*). Everywhere you create something — classes, the question bank, exams and assignments — the subject list shows only those subjects, and the system refuses work in any other subject ("You can … only in the subjects you teach"). If a subject is missing, ask the admin to add it to your profile. *Students* shows the same table the admin uses, limited to the students you teach.
+
 * **Dashboard** — next class, today's timetable, attendance still to mark, doubts to answer, submissions to grade, AI drafts to review.
-* **Schedule** a one-to-one or group session from *Sessions → New session* or from a student's profile ("Schedule 1:1"). You can only schedule yourself.
+* **Add classes** (*Classes → Add classes*): pick the student and subject, tap the days, set the time and class length, and choose how many weeks. Clashes are checked as you go; press *Create N classes*. You can only schedule yourself.
 * **Session hub** (open a session):
   * *Overview* — details, participants, join link, mark live/completed.
   * *Attendance* — opens 30 minutes before the start; works the same for one student or many. Parents are notified of absences.

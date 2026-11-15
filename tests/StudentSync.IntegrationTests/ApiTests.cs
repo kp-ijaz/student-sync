@@ -196,27 +196,83 @@ public sealed class TeachingModeTests(ApiFixture api)
     }
 
     [Fact]
-    public async Task Ad_hoc_group_session_without_batch_and_teacher_double_booking_is_blocked()
+    public async Task One_to_one_teacher_double_booking_is_blocked()
     {
         var teacher = await api.LoginAsync(Accounts.Daniel);
         var date = Future(50);
-        var students = new List<Guid> { await StudentId("Chloe"), await StudentId("Dev") };
-        var created = await teacher.Post<CreateSessionResponse>("sessions", TenantIsolationTests.NewSession(SessionType.Group, null, students, date, time: new TimeOnly(7, 0)));
+        var students = new List<Guid> { await StudentId("Chloe") };
+        var created = await teacher.Post<CreateSessionResponse>("sessions", TenantIsolationTests.NewSession(SessionType.OneToOne, null, students, date, time: new TimeOnly(7, 0)));
         Assert.Null((await teacher.Get<SessionDetailDto>($"sessions/{created.SessionIds[0]}")).BatchId);
 
-        var clash = await teacher.PostRaw("sessions", TenantIsolationTests.NewSession(SessionType.Group, null, [await StudentId("Ethan")], date, time: new TimeOnly(7, 30)));
+        var clash = await teacher.PostRaw("sessions", TenantIsolationTests.NewSession(SessionType.OneToOne, null, [await StudentId("Ethan")], date, time: new TimeOnly(7, 30)));
         Assert.Equal(HttpStatusCode.Conflict, clash.StatusCode);
         Assert.Equal("teacher_conflict", await Client.Code(clash));
     }
 
     [Fact]
-    public async Task Batch_session_requires_a_batch()
+    public async Task Batch_session_is_rejected()
     {
         var admin = await api.LoginAsync(Accounts.Admin);
         var amira = (await api.LoginAsync(Accounts.Amira)).UserId;
         var r = await admin.PostRaw("sessions", TenantIsolationTests.NewSession(SessionType.Batch, amira, null, Future(60)));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, r.StatusCode);
-        Assert.Equal("batch_required", await Client.Code(r));
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+        Assert.Equal("validation_failed", await Client.Code(r));
+    }
+
+    [Theory]
+    [InlineData(SessionType.Batch)]
+    [InlineData(SessionType.Group)]
+    [InlineData(SessionType.PrivateGroup)]
+    public async Task Other_teaching_modes_are_rejected_for_preview_and_creation(SessionType mode)
+    {
+        var teacher = await api.LoginAsync(Accounts.Daniel);
+        var request = TenantIsolationTests.NewSession(mode, null, [await StudentId("Chloe")], Future(65));
+        foreach (var endpoint in new[] { "sessions/check", "sessions" })
+        {
+            var response = await teacher.PostRaw(endpoint, request);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task One_to_one_requires_exactly_one_student()
+    {
+        var teacher = await api.LoginAsync(Accounts.Daniel);
+        foreach (var students in new List<Guid>[] { [], [await StudentId("Chloe"), await StudentId("Dev")] })
+        {
+            var request = TenantIsolationTests.NewSession(SessionType.OneToOne, null, students, Future(66));
+            foreach (var endpoint in new[] { "sessions/check", "sessions" })
+                Assert.Equal(HttpStatusCode.BadRequest, (await teacher.PostRaw(endpoint, request)).StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task Admin_can_preview_and_create_a_students_full_weekly_schedule()
+    {
+        var admin = await api.LoginAsync(Accounts.Admin);
+        var teacherId = (await api.LoginAsync(Accounts.Daniel)).UserId;
+        var studentId = await StudentId("Chloe");
+        var request = TenantIsolationTests.NewSession(SessionType.OneToOne, teacherId, [studentId], Future(180),
+            rec: new RecurrenceRequest(RecurrenceFrequency.Weekly, 1, WeekDays.Monday | WeekDays.Thursday, null, 6, false),
+            time: new TimeOnly(5, 0));
+        var preview = await admin.Post<ConflictCheckResponse>("sessions/check", request);
+        Assert.False(preview.HasBlockingConflicts);
+        Assert.Equal(6, preview.Occurrences.Count);
+        var created = await admin.Post<CreateSessionResponse>("sessions", request);
+        Assert.Equal(6, created.SessionIds.Count);
+        Assert.NotNull(created.SeriesId);
+        foreach (var id in created.SessionIds)
+        {
+            var detail = await admin.Get<SessionDetailDto>($"sessions/{id}");
+            Assert.Equal(teacherId, detail.TeacherId);
+            Assert.Equal(studentId, Assert.Single(detail.Participants).StudentId);
+            Assert.Equal(SessionType.OneToOne, detail.SessionType);
+            Assert.Null(detail.BatchId);
+            var local = ZonedTime.ToLocal(detail.StartUtc, request.TimeZoneId);
+            Assert.Contains(local.DayOfWeek, new[] { DayOfWeek.Monday, DayOfWeek.Thursday });
+            Assert.Equal(5, local.Hour);
+            Assert.Contains(preview.Occurrences, occurrence => occurrence.StartUtc == detail.StartUtc);
+        }
     }
 
     [Fact]

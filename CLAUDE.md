@@ -95,7 +95,16 @@ First verify compatibility with the existing repository and the master specifica
   until the owner re-enables it. Every Flutter/mobile instruction elsewhere in this file
   and in the skills is suspended for the duration of this phase.
 
-### Teaching formats
+### Current teaching scope (owner decision 2026-11-12)
+
+- New classes are **one-to-one only**: one teacher and exactly one student.
+- Admins select a student and create their recurring classes together by choosing teacher,
+  days, time, duration and end date or class count. Preview dates and conflicts before saving.
+- Group, batch and private-group creation choices are removed from the active class journey.
+  Existing historical data and tenant/role protections remain intact.
+- This decision supersedes the older teaching-format requirements below.
+
+### Teaching formats (historical, superseded for new classes)
 
 Student Sync must support all of these teaching modes:
 

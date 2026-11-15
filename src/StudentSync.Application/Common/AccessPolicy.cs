@@ -23,6 +23,17 @@ public sealed class AccessPolicy(IAppDbContext db, ICurrentUser user)
         if (!user.Has(permission)) throw new ForbiddenException();
     }
 
+    /// <summary>
+    /// A teacher works only in the subjects on their profile (TeacherSubjects, set by the admin): classes, exams,
+    /// assignments and questions. Admins are not limited. No subject (null) is always allowed.
+    /// </summary>
+    public async Task EnsureTeachesSubjectAsync(Guid? subjectId, string what, CancellationToken ct)
+    {
+        if (!IsTeacher || subjectId is not { } id) return;
+        if (!await db.TeacherSubjects.AnyAsync(t => t.SubjectId == id && t.TeacherId == user.UserId, ct))
+            throw RequestValidationException.For("subjectId", $"You can {what} only in the subjects you teach. Ask the admin to add this subject to your profile.");
+    }
+
     /// <summary>Verified children of the current parent (empty for other roles).</summary>
     public async Task<HashSet<Guid>> ChildIdsAsync(CancellationToken ct)
     {

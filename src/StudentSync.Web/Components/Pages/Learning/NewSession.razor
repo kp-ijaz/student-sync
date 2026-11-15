@@ -1,302 +1,817 @@
 @page "/sessions/new"
 @attribute [Authorize(Roles = "InstitutionAdmin,Teacher")]
 @inherits AppPage
+@implements IDisposable
 
-<PageHeader Title="Schedule a session" Subtitle="Batches are optional — group, one-to-one and private-group sessions never need one.">
-    <Breadcrumb><a href="/sessions">Sessions</a> /</Breadcrumb>
+@* Tuition-centre class booking on one page, written the way the centre plans a student's week:
+   who → when (start, how long, days, time) → what is taught (one subject, or a subject and teacher per day).
+   The plan is checked automatically; a clash is shown on the day it affects, in one sentence, with one-tap fixes
+   (a free teacher of that subject, a nearby free time for that day, or skipping just those dates).
+   The whole plan is saved in one request (all classes or none). *@
+<PageHeader Title="Add classes" Subtitle="Pick the student, the days and the time. Every date is checked for clashes as you go.">
+    <Breadcrumb><a href="/sessions">Classes</a> /</Breadcrumb>
 </PageHeader>
 
 <DataView Loading="_loading" Error="_error" OnRetry="LoadAsync">
-<div class="stack">
-    <section class="card" aria-labelledby="mode-h">
-        <h2 id="mode-h" style="margin-bottom:12px">1. Teaching mode</h2>
-        <div class="choice-cards" role="group" aria-label="Teaching mode">
-            @foreach (var (type, desc) in Modes)
-            {
-                <button type="button" class="choice-card" aria-pressed="@(Aria.Bool(_type == type))" @onclick="() => SelectType(type)">
-                    <strong>@StatusStyles.For(type).Label</strong><span class="caption">@desc</span>
-                </button>
-            }
-        </div>
-    </section>
+<div class="planner-layout bk-page">
+    <fieldset class="stack planner-fields" disabled="@Busy">
+        <legend class="sr-only">New classes</legend>
 
-    <section class="card" aria-labelledby="who-h">
-        <h2 id="who-h" style="margin-bottom:12px">2. Who's taking part</h2>
-        <div class="form-grid">
-            @if (IsAdmin)
+        @* 1 · Student *@
+        <section class="card bk-card" aria-labelledby="who-h">
+            <h2 id="who-h" class="easy-step"><span class="planner-step-number" aria-hidden="true">1</span> Student</h2>
+            @if (SelectedStudent is { } picked && !_pickStudent)
             {
-                <div class="field"><label for="teacher">Teacher *</label>
-                    <select id="teacher" class="select" @bind="_teacherId" @bind:after="TeacherChanged">
-                        <option value="">Choose a teacher</option>
-                        @foreach (var t in _teachers) { <option value="@t.Id">@t.FullName</option> }
-                    </select>
-                    @Err("teacherId")</div>
-            }
-            @if (_type is SessionType.Batch or SessionType.Group)
-            {
-                <div class="field"><label for="batch">Batch @(_type == SessionType.Batch ? "*" : "(optional)")</label>
-                    <select id="batch" class="select" @bind="_batchId" @bind:after="BatchChanged">
-                        <option value="">@(_type == SessionType.Batch ? "Choose a batch" : "No batch")</option>
-                        @foreach (var b in Batches) { <option value="@b.Id">@b.Name (@b.ActiveStudents students)</option> }
-                    </select>
-                    @if (_type == SessionType.Batch) { <span class="help">All active students in the batch are added automatically.</span> }
-                    @Err("batchId")</div>
-            }
-            @if (_type is SessionType.OneToOne or SessionType.PrivateGroup)
-            {
-                <div class="field"><label for="arr">Private arrangement (optional)</label>
-                    <select id="arr" class="select" @bind="_arrangementId" @bind:after="ArrangementChanged">
-                        <option value="">None — pick students directly</option>
-                        @foreach (var a in Arrangements) { <option value="@a.Id">@a.Title</option> }
-                    </select>
-                    @Err("arrangementId")</div>
-            }
-        </div>
-        @if (_type != SessionType.Batch)
-        {
-            <div class="field" style="margin-top:16px">
-                <label for="stsearch">@(_type == SessionType.OneToOne ? "Student *" : "Students *")</label>
-                <input id="stsearch" class="input" placeholder="Search by name or student code" @bind="_search" @bind:event="oninput" />
-                <div style="max-height:240px;overflow-y:auto;border:1px solid var(--ss-border);border-radius:10px;padding:8px;margin-top:8px">
-                    @foreach (var s in FilteredStudents)
-                    {
-                        <label class="check" style="display:flex;padding:6px 4px">
-                            <input type="@(_type == SessionType.OneToOne ? "radio" : "checkbox")" name="students" checked="@_selected.Contains(s.Id)" @onchange="e => Toggle(s.Id, e.Value)" />
-                            <span>@s.Name <span class="caption">@s.Detail</span></span>
-                        </label>
-                    }
-                    @if (!FilteredStudents.Any()) { <p class="muted small">No matching students.</p> }
+                <div class="easy-picked">
+                    <Avatar Name="@picked.Name" Size="sm" Decorative="true" />
+                    <span class="grow"><strong>@picked.Name</strong>
+                        <span class="caption">@string.Join(" · ", new[] { picked.Detail, StudentSubjectsLine }.Where(x => !string.IsNullOrEmpty(x)))</span></span>
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="() => _pickStudent = true">Change<span class="sr-only"> student</span></button>
                 </div>
-                <span class="help">@_selected.Count selected</span>
-                @Err("studentIds")
-            </div>
-        }
-    </section>
-
-    <section class="card" aria-labelledby="what-h">
-        <h2 id="what-h" style="margin-bottom:12px">3. Details</h2>
-        <div class="form-grid">
-            <div class="field full"><label for="title">Title *</label><input id="title" class="input" @bind="_title" maxlength="200" />@Err("title")</div>
-            <div class="field"><label for="subject">Subject</label>
-                <select id="subject" class="select" @bind="_subjectId" @bind:after="() => _chapterId = null">
-                    <option value="">Not specified</option>
-                    @foreach (var s in _subjects) { <option value="@s.Id">@s.Name — @s.CourseName</option> }
-                </select></div>
-            <div class="field"><label for="chapter">Chapter</label>
-                <select id="chapter" class="select" @bind="_chapterId" disabled="@(_subjectId is null)">
-                    <option value="">Not specified</option>
-                    @foreach (var c in _subjects.FirstOrDefault(s => s.Id == _subjectId)?.Chapters ?? []) { <option value="@c.Id">@c.Title</option> }
-                </select></div>
-            <div class="field"><label for="delivery">Delivery</label>
-                <select id="delivery" class="select" @bind="_delivery">@foreach (var d in Enum.GetValues<DeliveryMode>()) { <option value="@d">@d</option> }</select></div>
-            <div class="field"><label for="meet">Meeting link</label><input id="meet" class="input" type="url" placeholder="https://meet.google.com/…" @bind="_meetingUrl" />
-                <span class="help">Paste a Google Meet, Zoom or Teams link. Automatic Google Meet creation needs a connected Google Workspace account.</span>@Err("meetingUrl")</div>
-            @if (_delivery != DeliveryMode.Online) { <div class="field full"><label for="loc">Location</label><input id="loc" class="input" @bind="_location" /></div> }
-            <div class="field full"><label for="obj">Objectives</label><textarea id="obj" class="textarea" @bind="_objectives"></textarea></div>
-        </div>
-    </section>
-
-    <section class="card" aria-labelledby="when-h">
-        <h2 id="when-h" style="margin-bottom:12px">4. When</h2>
-        <div class="form-grid">
-            <div class="field"><label for="date">Date *</label><input id="date" type="date" class="input" @bind="_date" /></div>
-            <div class="field"><label for="start">Start time *</label><input id="start" type="time" class="input" @bind="_start" /></div>
-            <div class="field"><label for="dur">Duration (minutes) *</label><input id="dur" type="number" min="15" max="720" step="5" class="input" @bind="_duration" />@Err("durationMinutes")</div>
-            <div class="field"><label for="tz">Time zone *</label><TimeZoneSelect Id="tz" @bind-Value="_tz" />
-                <span class="help" id="tz-help">The wall-clock time above is in this zone. Students see it converted to their own time.</span></div>
-            <div class="field full"><label class="check"><input type="checkbox" @bind="_repeat" /> Repeats</label></div>
-            @if (_repeat)
-            {
-                <div class="field"><label for="freq">Frequency</label>
-                    <select id="freq" class="select" @bind="_freq"><option value="@RecurrenceFrequency.Weekly">Weekly</option><option value="@RecurrenceFrequency.Daily">Daily</option></select></div>
-                <div class="field"><label for="interval">Every</label><input id="interval" type="number" min="1" max="12" class="input" @bind="_interval" /><span class="help">@(_freq == RecurrenceFrequency.Weekly ? "week(s)" : "day(s)")</span></div>
-                @if (_freq == RecurrenceFrequency.Weekly)
-                {
-                    <div class="field full"><span class="label">On</span>
-                        <div class="segmented" role="group" aria-label="Weekdays">
-                            @foreach (var d in Enum.GetValues<WeekDays>().Where(d => d != WeekDays.None))
-                            { <button type="button" aria-pressed="@(Aria.Bool(_days.HasFlag(d)))" @onclick="() => _days ^= d">@d.ToString()[..3]</button> }
-                        </div></div>
-                }
-                <div class="field"><label for="until">End date</label><input id="until" type="date" class="input" @bind="_until" /></div>
-                <div class="field"><label for="count">…or number of sessions</label><input id="count" type="number" min="1" max="400" class="input" @bind="_count" /></div>
-                <div class="field full"><label class="check"><input type="checkbox" @bind="_skipHolidays" /> Skip institution holidays</label></div>
-                @Err("recurrence")
             }
-        </div>
-        <div class="form-actions" style="justify-content:flex-start">
-            <button class="btn btn-secondary" @onclick="Check" disabled="@Busy"><Icon Name="calendar" /> Preview &amp; check conflicts</button>
-        </div>
-        @if (_check is not null)
-        {
-            <div class="stack-sm" style="margin-top:16px">
-                @foreach (var w in _check.Warnings) { <div class="warn-panel">@w</div> }
-                @if (_check.Conflicts.Count > 0)
-                {
-                    <div class="@(_check.HasBlockingConflicts ? "error-panel" : "warn-panel")">
-                        <strong>@(_check.HasBlockingConflicts ? "The teacher is already booked at this time." : "Some students already have a session at this time.")</strong>
-                        <ul>@foreach (var c in _check.Conflicts.Take(12)) { <li>@c.Kind: @c.PersonName — @c.SessionTitle (@Time.Range(c.StartUtc, c.EndUtc, Tz))</li> }</ul>
-                        @if (!_check.HasBlockingConflicts) { <label class="check"><input type="checkbox" @bind="_ack" /> I understand and want to schedule anyway</label> }
-                    </div>
-                }
-                else { <div class="ok-panel">No conflicts found for the teacher or students.</div> }
-                <div class="table-wrap"><table class="table">
-                    <thead><tr><th>Date (@_tz)</th><th>Your time (@Tz)</th><th>Note</th></tr></thead>
-                    <tbody>
-                        @foreach (var o in _check.Occurrences.Take(60))
+            else
+            {
+                <div class="field">
+                    <label for="stsearch">Student *</label>
+                    <div class="input-icon"><Icon Name="search" /><input id="stsearch" class="input" type="search" placeholder="Type a name or student code" autocomplete="off" @bind="_search" @bind:event="oninput" /></div>
+                    <div class="planner-students" role="radiogroup" aria-label="Students">
+                        @foreach (var s in FilteredStudents)
                         {
-                            <tr><td>@o.LocalDate.ToString("ddd d MMM yyyy")</td>
-                                <td>@(o.SkippedHoliday ? "—" : Time.Range(o.StartUtc, o.EndUtc, Tz))</td>
-                                <td class="small">@(o.SkippedHoliday ? o.Resolution : o.Resolution == "Exact" ? "" : o.Resolution == "SkippedShiftedForward" ? "DST gap: shifted forward" : "DST overlap: first occurrence")</td></tr>
+                            <label class="check planner-student">
+                                <input type="radio" name="student" checked="@(_studentId == s.Id)" @onchange="() => PickStudent(s.Id)" />
+                                <Avatar Name="@s.Name" Size="sm" Decorative="true" /><span><strong>@s.Name</strong>@if (s.Detail is not null) { <span class="caption">@s.Detail</span> }</span>
+                            </label>
                         }
-                    </tbody>
-                </table></div>
-                @if (_check.Occurrences.Count > 60) { <p class="caption">…and @(_check.Occurrences.Count - 60) more.</p> }
-            </div>
-        }
-    </section>
+                        @if (!FilteredStudents.Any()) { <p class="muted small">No student matches “@_search”.</p> }
+                    </div>
+                </div>
+            }
+        </section>
 
-    <div class="form-actions">
-        <a class="btn btn-secondary" href="/sessions">Cancel</a>
-        <button class="btn btn-primary" @onclick="Create" disabled="@(Busy || _check?.HasBlockingConflicts == true)">Schedule @(_repeat ? "sessions" : "session")</button>
+        @* 2 · Dates and time: one labelled row per decision *@
+        <section class="card bk-card" aria-labelledby="when-h">
+            <h2 id="when-h" class="easy-step"><span class="planner-step-number" aria-hidden="true">2</span> Dates and time</h2>
+
+            <div class="bk-row">
+                <span class="bk-label" id="start-l">Starts</span>
+                <div class="pick-group cols-2" role="group" aria-labelledby="start-l">
+                    @foreach (var (choice, label) in StartChoices)
+                    {
+                        <button type="button" class="pick" aria-pressed="@(Aria.Bool(_startChoice == choice))" @onclick="() => SetStart(choice)">@label</button>
+                    }
+                </div>
+            </div>
+
+            <div class="bk-row">
+                <span class="bk-label" id="span-l">For</span>
+                <div class="bk-control">
+                    <div class="pick-group cols-3" role="group" aria-labelledby="span-l">
+                        @foreach (var (span, label) in SpanChoices)
+                        {
+                            <button type="button" class="pick" aria-pressed="@(Aria.Bool(_span == span))" @onclick="() => SetSpan(span)">@label</button>
+                        }
+                    </div>
+                    @* The real dates, as a from → to ticket; a side becomes a date box when it is the admin's to choose. *@
+                    <div class="bk-range">
+                        <div class="bk-range-end">
+                            @if (_startChoice == StartChoice.Pick || _span == Span.Until)
+                            {
+                                <label for="date">@(Repeats ? "From *" : "Date *")</label>
+                                <input id="date" type="date" class="input" @bind="_date" @bind:after="DatesChanged" />
+                            }
+                            else
+                            {
+                                <span class="bk-range-label">@(Repeats ? "From" : "Date")</span>
+                                <strong>@_date.ToString("ddd d MMM")</strong>
+                            }
+                        </div>
+                        @if (Repeats)
+                        {
+                            <Icon Name="chevron-right" />
+                            <div class="bk-range-end">
+                                @if (_span == Span.Until)
+                                {
+                                    <label for="until">To *</label>
+                                    <input id="until" type="date" class="input" min="@_date.ToString("yyyy-MM-dd")" @bind="_until" @bind:after="DatesChanged" />
+                                }
+                                else
+                                {
+                                    <span class="bk-range-label">To</span>
+                                    <strong>@EndDate?.ToString("ddd d MMM")</strong>
+                                }
+                            </div>
+                        }
+                        <span class="bk-range-note">@RangeNote</span>
+                    </div>
+                </div>
+            </div>
+
+            @if (Repeats)
+            {
+                <div class="bk-row">
+                    <span class="bk-label" id="days-l">Days *</span>
+                    <div class="day-picks" role="group" aria-labelledby="days-l">
+                        @foreach (var d in AllDays)
+                        {
+                            <button type="button" class="day-pick" aria-pressed="@(Aria.Bool(_days.HasFlag(d)))" @onclick="() => ToggleDay(d)"><span aria-hidden="true">@Short(d)</span><span class="sr-only">@d</span></button>
+                        }
+                    </div>
+                </div>
+            }
+
+            <div class="bk-row">
+                <label class="bk-label" for="start">Start time *</label>
+                <div class="bk-control">
+                    <div class="bk-time">
+                        <input id="start" type="time" class="input" @bind="_start" @bind:after="Changed" aria-describedby="tz-help" />
+                        @if (StudentZoneDiffers)
+                        {
+                            <div class="pair" role="group" aria-label="Time zone of this time">
+                                <button type="button" aria-pressed="@(Aria.Bool(_zone == Tz))" @onclick="() => SetZone(Tz)">@ZoneName(Tz)</button>
+                                <button type="button" aria-pressed="@(Aria.Bool(_zone == _studentZone))" @onclick="() => SetZone(_studentZone!)">@FirstName(SelectedStudent?.Name)’s time</button>
+                            </div>
+                        }
+                    </div>
+                    <span class="help" id="tz-help">@ZoneHelp</span>
+                </div>
+            </div>
+
+            <div class="bk-row">
+                <span class="bk-label" id="dur-l">Length *</span>
+                <div class="pick-group cols-3" role="group" aria-labelledby="dur-l">
+                    @foreach (var m in Lengths)
+                    {
+                        <button type="button" class="pick" aria-pressed="@(Aria.Bool(_duration == m))" @onclick="() => SetDuration(m)">@LengthLabel(m)</button>
+                    }
+                </div>
+            </div>
+        </section>
+
+        @* 3 · Subjects and teachers, then the week: one row per day with its own status and fixes *@
+        <section class="card bk-card" aria-labelledby="what-h">
+            <h2 id="what-h" class="easy-step"><span class="planner-step-number" aria-hidden="true">3</span> Subjects and teachers</h2>
+            @if (CanSplitByDay)
+            {
+                <div class="pair bk-mode" role="group" aria-label="Subjects">
+                    <button type="button" aria-pressed="@(Aria.Bool(!_perDay))" @onclick="() => SetPerDay(false)">Same every day</button>
+                    <button type="button" aria-pressed="@(Aria.Bool(_perDay))" @onclick="() => SetPerDay(true)">Different each day</button>
+                </div>
+            }
+            @if (!PerDayActive)
+            {
+                <SubjectTeacherPicker Row="_same" Subjects="_subjects" StudentSubjectIds="_studentSubjectIds" Teachers="_teachers"
+                                      StudentFirstName="@FirstName(SelectedStudent?.Name)" HasStudent="_studentId is not null" ShowTeacher="IsAdmin"
+                                      LoadingSubjects="_loadingSubjects" OnChanged="Changed" />
+            }
+
+            @if (WeekDaysInPlan.Any())
+            {
+                <h3 class="bk-week-h" id="week-h">@(Repeats ? "Each week" : "The class")</h3>
+                <ul class="wk-list" aria-labelledby="week-h">
+                    @foreach (var d in WeekDaysInPlan)
+                    {
+                        var issue = IssueFor(d);
+                        var row = RowOf(d);
+                        <li class="wk-row @(PerDayActive ? "picker" : "") @(issue is { Blocking: true } ? "bad" : issue is not null ? "warn" : "")" id="@($"day-{Short(d).ToLowerInvariant()}")">
+                            <div class="wk-day">
+                                <strong>@(Repeats ? Short(d) : _date.ToString("ddd"))</strong>
+                                <span>@(Repeats ? TimeOf(d).ToString("h:mm tt") : _date.ToString("d MMM"))</span>
+                                @* With two selects in the row, the status sits under the day so the teacher names are not cut off. *@
+                                @if (PerDayActive) { @DayState(d, issue) }
+                            </div>
+                            <div class="wk-what">
+                                @if (PerDayActive)
+                                {
+                                    <SubjectTeacherPicker @key="d" Row="RowFor(d)" Subjects="_subjects" StudentSubjectIds="_studentSubjectIds" Teachers="_teachers"
+                                                          StudentFirstName="@FirstName(SelectedStudent?.Name)" HasStudent="_studentId is not null" ShowTeacher="IsAdmin"
+                                                          LoadingSubjects="_loadingSubjects" Compact="true" IdPrefix="@($"{Short(d).ToLowerInvariant()}-")" DayName="@d.ToString()" OnChanged="Changed" />
+                                }
+                                else
+                                {
+                                    <strong>@(SubjectName(row) is { Length: > 0 } sn ? $"{sn} · {TeacherShort(row)}".TrimEnd(' ', '·') : "Choose the subject above")</strong>
+                                    <span class="caption">@TimeOf(d).ToString("h:mm")–@TimeOf(d).AddMinutes(_duration).ToString("h:mm tt") @ZoneName(_zone)@if (_dayTimes.ContainsKey(d)) { <text> · </text><button type="button" class="easy-link inline" @onclick="() => ResetDayTime(d)">Use @_start.ToString("h:mm tt")<span class="sr-only"> on @d</span></button> }</span>
+                                }
+                            </div>
+                            @if (!PerDayActive) { @DayState(d, issue) }
+                            @if (issue is not null) { <div class="wk-issue">@IssueBody(d, issue)</div> }
+                        </li>
+                    }
+                </ul>
+            }
+
+            <details class="planner-optional" open="@_online">
+                <summary>Online class? <span class="caption">Optional</span></summary>
+                <div class="form-grid">
+                    <div class="field full"><label class="check"><input type="checkbox" @bind="_online" @bind:after="Changed" /> These classes happen online</label></div>
+                    @if (_online)
+                    {
+                        <div class="field full"><label for="meet">Meeting link</label><input id="meet" class="input" type="url" placeholder="https://meet.google.com/…" @bind="_meetingUrl" @bind:after="Changed" />
+                            <span class="help">Paste a Google Meet, Zoom or Teams link. You can add it later too.</span></div>
+                    }
+                </div>
+            </details>
+        </section>
+    </fieldset>
+
+    @* Summary: the student's week at a glance *@
+    <aside class="card planner-summary bk-summary" aria-labelledby="summary-h">
+        <div class="bk-sum-head">
+            @if (SelectedStudent is { } who) { <Avatar Name="@who.Name" Size="sm" Decorative="true" /> }
+            <div>
+                <h2 id="summary-h">@(SelectedStudent is null ? "Summary" : $"{FirstName(SelectedStudent.Name)}’s classes")</h2>
+                <span class="caption">@DatesLabel</span>
+            </div>
+        </div>
+
+        <ol class="wk-strip" aria-hidden="true">
+            @foreach (var d in AllDays)
+            {
+                var on = Repeats ? _days.HasFlag(d) : _studentId is not null && Flag(_date) == d;
+                <li class="@(on ? IssueFor(d) is { Blocking: true } ? "on bad" : "on" : "")">
+                    <span class="wk-strip-day">@d.ToString()[..1]</span>
+                    <span class="wk-strip-cell">@(on ? Initials(SubjectName(RowOf(d))) : "")</span>
+                </li>
+            }
+        </ol>
+
+        @if (Missing.Count > 0)
+        {
+            <p class="bk-todo-h">To continue</p>
+            <ul class="easy-todo">@foreach (var m in Missing) { <li>@m</li> }</ul>
+        }
+        else
+        {
+            <div role="status" aria-live="polite">
+                @if (_checking) { <div class="easy-status checking"><span class="easy-status-dot" aria-hidden="true"></span>Checking every date…</div> }
+                else if (_checkError is not null) { <div class="error-panel">@_checkError</div> }
+                else if (_check is not null)
+                {
+                    var blocking = AllIssues.Where(i => i.Blocking).ToList();
+                    @if (ClassCount == 0) { <div class="warn-panel">No class falls on the chosen days in this period. Pick other days or a longer period.</div> }
+                    else if (blocking.Count > 0)
+                    {
+                        <div class="easy-status bad"><Icon Name="alert" />
+                            <span><strong>@(blocking.Count == 1 ? $"{blocking[0].DayName} needs a change" : $"{blocking.Count} days need a change")</strong>
+                            <a href="@($"#day-{Short(blocking[0].Day).ToLowerInvariant()}")" class="easy-link">Fix it in the week list</a></span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="easy-status good"><Icon Name="check-circle" />
+                            <span><strong>@ClassCount @(ClassCount == 1 ? "class" : "classes") ready</strong>No clashes for the teacher@(AllIssues.Any() ? "" : " or the student").</span>
+                        </div>
+                        @if (_check.Conflicts.Count > 0)
+                        {
+                            <label class="check easy-ack"><input type="checkbox" @bind="_ack" /> @FirstName(SelectedStudent?.Name) already has another class at some of these times. Book anyway.</label>
+                        }
+                    }
+                }
+            </div>
+            <ul class="bk-lines">
+                @foreach (var (line, day) in PlanLines)
+                {
+                    <li class="easy-plan-line @(IssueFor(day) is { Blocking: true } ? "bad" : "")">@line</li>
+                }
+            </ul>
+            @if (_check is not null && !_checking)
+            {
+                <div class="bk-notes">
+                    @if (_skip.Count > 0) { <p>@_skip.Count @(_skip.Count == 1 ? "date is" : "dates are") left out because of a clash. <button type="button" class="easy-link inline" @onclick="UndoSkip">Undo</button></p> }
+                    @if (HolidayCount > 0) { <p>@HolidayCount @(HolidayCount == 1 ? "date falls" : "dates fall") on a holiday and will be skipped.</p> }
+                    @foreach (var w in _check.Warnings.Where(w => !w.Contains("holiday"))) { <p>@w</p> }
+                    @if (StudentSeesLabel is { } sees) { <p>@sees</p> }
+                </div>
+                @if (ClassCount > 1)
+                {
+                    <details class="easy-dates"><summary>See all @ClassCount dates</summary>
+                        <ul>@foreach (var o in _check.Occurrences.Where(o => !o.SkippedHoliday)) { <li>@Time.Range(o.StartUtc, o.EndUtc, Tz)</li> }</ul>
+                    </details>
+                }
+            }
+        }
+        <div class="form-actions">
+            <button type="button" class="btn btn-primary planner-create" @onclick="Create" disabled="@(Busy || !CanCreate)">@(Busy ? "Creating…" : CreateLabel)</button>
+            <a class="btn btn-secondary" href="/sessions">Cancel</a>
+        </div>
+    </aside>
+
+    @* Phones and tablets: the summary sits below the form, so the outcome and Create float above the tab bar. *@
+    <div class="bk-bar">
+        <span class="bk-bar-text @BarKind"><strong>@BarTitle</strong>@if (BarSub is not null) { <span>@BarSub</span> }</span>
+        <button type="button" class="btn btn-primary bk-bar-create" @onclick="Create" disabled="@(Busy || !CanCreate)">@(Busy ? "Creating…" : CreateLabel)</button>
     </div>
 </div>
 </DataView>
 
 @code {
-    [SupplyParameterFromQuery(Name = "type")] public string? TypeParam { get; set; }
     [SupplyParameterFromQuery(Name = "studentId")] public Guid? StudentParam { get; set; }
 
-    private static readonly (SessionType, string)[] Modes =
-    [
-        (SessionType.Batch, "Scheduled for a predefined batch; its students are added automatically."),
-        (SessionType.Group, "Ad hoc group of selected students. A batch link is optional."),
-        (SessionType.OneToOne, "One teacher, one student. No batch or group needed."),
-        (SessionType.PrivateGroup, "A small private group of selected students."),
-    ];
+    private enum StartChoice { Today, Tomorrow, NextWeek, Pick }
+    private enum Span { Once, Week1, Week2, Month1, Month3, Until }
+    private sealed record Part(WeekDays Days, SubjectTeacherPicker.PlanRow Row, TimeOnly Time);
+    /// <summary>A problem on one weekday of the plan, in plain words, with what can fix it.</summary>
+    private sealed record Issue(WeekDays Day, string DayName, bool Blocking, string Title, IReadOnlyList<string> Details, string Short,
+        IReadOnlyList<LookupItem> FreeTeachers, IReadOnlyList<TimeOnly> FreeTimes, IReadOnlyList<DateOnly> Dates, int DayClassCount);
 
-    private bool _loading = true;
+    private static readonly int[] Lengths = [30, 45, 60, 90, 120];
+    private static readonly (StartChoice, string)[] StartChoices = [(StartChoice.Today, "Today"), (StartChoice.Tomorrow, "Tomorrow"), (StartChoice.NextWeek, "Next week"), (StartChoice.Pick, "Pick a date")];
+    private static readonly (Span, string)[] SpanChoices = [(Span.Once, "Just once"), (Span.Week1, "1 week"), (Span.Week2, "2 weeks"), (Span.Month1, "1 month"), (Span.Month3, "3 months"), (Span.Until, "Until a date")];
+    private static readonly WeekDays[] AllDays = [WeekDays.Monday, WeekDays.Tuesday, WeekDays.Wednesday, WeekDays.Thursday, WeekDays.Friday, WeekDays.Saturday, WeekDays.Sunday];
+
+    private bool _loading = true, _defaultsSet;
     private ApiException? _error;
     private List<TeacherDto> _teachers = [];
-    private List<BatchDto> _batches = [];
-    private List<ArrangementDto> _arrangements = [];
     private List<SubjectDto> _subjects = [];
     private List<LookupItem> _students = [];
-    private readonly HashSet<Guid> _selected = [];
-    private IDictionary<string, string[]> _errors = new Dictionary<string, string[]>();
+    private HashSet<Guid> _studentSubjectIds = [];
 
-    private SessionType _type = SessionType.Group;
-    private Guid? _teacherId, _batchId, _arrangementId, _subjectId, _chapterId;
-    private string _title = "", _search = "", _tz = "UTC";
-    private string? _meetingUrl, _location, _objectives;
-    private DeliveryMode _delivery = DeliveryMode.Online;
-    private DateOnly _date = DateOnly.FromDateTime(DateTime.Today.AddDays(1));
+    private Guid? _studentId;
+    private string? _studentZone;
+    private string _zone = "UTC";
+    private bool _pickStudent = true, _online, _ack, _loadingSubjects, _perDay;
+    private string _search = "";
+    private string? _meetingUrl;
+    private StartChoice _startChoice = StartChoice.Tomorrow;
+    private Span _span = Span.Month1;
+    private DateOnly _date;
+    private DateOnly? _until;
     private TimeOnly _start = new(17, 0);
     private int _duration = 60;
-    private bool _repeat, _skipHolidays = true, _ack;
-    private RecurrenceFrequency _freq = RecurrenceFrequency.Weekly;
-    private int _interval = 1;
     private WeekDays _days = WeekDays.None;
-    private DateOnly? _until;
-    private int? _count = 8;
-    private ConflictCheckResponse? _check;
+    private SubjectTeacherPicker.PlanRow _same = new();
+    private readonly Dictionary<WeekDays, SubjectTeacherPicker.PlanRow> _dayRows = [];
+    private readonly Dictionary<WeekDays, TimeOnly> _dayTimes = [];
+    private readonly HashSet<DateOnly> _skip = [];
 
-    private Guid? EffectiveTeacher => IsTeacher ? Me?.Id : _teacherId;
-    private IEnumerable<BatchDto> Batches => _batches.Where(b => b.Status == CatalogStatus.Active && (EffectiveTeacher is null || b.TeacherId == EffectiveTeacher));
-    private IEnumerable<ArrangementDto> Arrangements => _arrangements.Where(a => (EffectiveTeacher is null || a.TeacherId == EffectiveTeacher)
-        && a.Type == (_type == SessionType.OneToOne ? ArrangementType.OneToOne : ArrangementType.PrivateGroup));
+    private WeeklyPlanCheckResponse? _check;
+    private string? _checkedFor, _checkError;
+    private bool _checking;
+    private CancellationTokenSource? _checkCts;
+
+    // ---------- Derived state ----------
+    private DateOnly Today => DateOnly.FromDateTime(Time.ToLocal(DateTime.UtcNow, Tz));
+    private bool Repeats => _span != Span.Once;
+    private IEnumerable<WeekDays> SelectedDays => AllDays.Where(d => _days.HasFlag(d));
+    private bool CanSplitByDay => Repeats && SelectedDays.Count() > 1;
+    private bool PerDayActive => _perDay && CanSplitByDay;
+    private LookupItem? SelectedStudent => _students.FirstOrDefault(s => s.Id == _studentId);
+    private bool StudentZoneDiffers => _studentZone is not null && _studentZone != Tz;
     private IEnumerable<LookupItem> FilteredStudents => string.IsNullOrWhiteSpace(_search) ? _students
         : _students.Where(s => s.Name.Contains(_search, StringComparison.OrdinalIgnoreCase) || (s.Detail ?? "").Contains(_search, StringComparison.OrdinalIgnoreCase));
 
+    private DateOnly StartDateFor(StartChoice c) => c switch
+    {
+        StartChoice.Today => Today,
+        StartChoice.Tomorrow => Today.AddDays(1),
+        StartChoice.NextWeek => Today.AddDays(((int)DayOfWeek.Monday - (int)Today.DayOfWeek + 7) % 7 is 0 ? 7 : ((int)DayOfWeek.Monday - (int)Today.DayOfWeek + 7) % 7),
+        _ => _date,
+    };
+
+    private DateOnly? EndDate => _span switch
+    {
+        Span.Once => null,
+        Span.Week1 => _date.AddDays(6),
+        Span.Week2 => _date.AddDays(13),
+        Span.Month1 => _date.AddMonths(1).AddDays(-1),
+        Span.Month3 => _date.AddMonths(3).AddDays(-1),
+        _ => _until,
+    };
+
+    private string SpanHint(Span s) => s switch
+    {
+        Span.Once => _date.ToString("d MMM"),
+        Span.Until => _span == Span.Until && _until is { } u ? $"to {u:d MMM}" : "Any end date",
+        _ => $"to {(s switch { Span.Week1 => _date.AddDays(6), Span.Week2 => _date.AddDays(13), Span.Month1 => _date.AddMonths(1).AddDays(-1), _ => _date.AddMonths(3).AddDays(-1) }):d MMM}",
+    };
+
+    private static WeekDays Flag(DateOnly d) => RecurrencePattern.ToFlag(d.DayOfWeek);
+    private SubjectTeacherPicker.PlanRow RowOf(WeekDays d) => PerDayActive ? RowFor(d) : _same;
+    private TimeOnly TimeOf(WeekDays d) => _dayTimes.TryGetValue(d, out var t) ? t : _start;
+
+    private SubjectTeacherPicker.PlanRow RowFor(WeekDays d)
+    {
+        if (!_dayRows.TryGetValue(d, out var row)) _dayRows[d] = row = _same.Copy();
+        return row;
+    }
+
+    /// <summary>The parts of the plan, in request order: days that share subject, teacher and time become one series.</summary>
+    private List<Part> Parts()
+    {
+        if (!Repeats) return [new Part(Flag(_date), _same, TimeOf(Flag(_date)))];
+        return SelectedDays.Select(d => (Day: d, Row: RowOf(d), Time: TimeOf(d)))
+            .GroupBy(x => (x.Row.SubjectId, x.Row.TeacherId, x.Time))
+            .Select(g => new Part(g.Aggregate(WeekDays.None, (all, x) => all | x.Day), g.First().Row, g.Key.Time))
+            .ToList();
+    }
+
+    private int PartIndexOf(WeekDays d) => Parts().FindIndex(p => p.Days.HasFlag(d));
+
+    private List<string> Missing
+    {
+        get
+        {
+            var list = new List<string>();
+            if (_studentId is null) list.Add("Choose a student");
+            if (Repeats && _days == WeekDays.None) list.Add("Pick at least one day");
+            if (_span == Span.Until && (_until is null || _until < _date)) list.Add("Pick an end date after the start date");
+            if (_loadingSubjects) { list.Add("Loading the student’s subjects…"); return list; }
+            if (PerDayActive)
+            {
+                foreach (var d in SelectedDays)
+                {
+                    var row = RowFor(d);
+                    if (row.SubjectId is null) list.Add($"Choose the subject for {d}");
+                    else if (IsAdmin && row.TeacherId is null) list.Add($"Choose the teacher for {d}");
+                }
+            }
+            else
+            {
+                if (_same.SubjectId is null) list.Add("Choose a subject");
+                if (IsAdmin && _same.TeacherId is null) list.Add("Choose a teacher");
+            }
+            return list;
+        }
+    }
+
+    private int ClassCount => _check?.Occurrences.Count(o => !o.SkippedHoliday) ?? 0;
+    private int HolidayCount => _check?.Occurrences.Count(o => o.SkippedHoliday && !o.Resolution.StartsWith("Skipped: you chose")) ?? 0;
+    private bool CheckIsCurrent => _check is not null && !_checking && _checkedFor == Fingerprint(BuildRequest());
+    private bool CanCreate => Missing.Count == 0 && CheckIsCurrent && ClassCount > 0
+        && !_check!.HasBlockingConflicts && (_check.Conflicts.Count == 0 || _ack);
+    private string CreateLabel => CheckIsCurrent && ClassCount > 0 ? (ClassCount == 1 ? "Create class" : $"Create {ClassCount} classes") : "Create classes";
+
+    private string WhenLabel
+    {
+        get
+        {
+            string Range(TimeOnly t) => $"{t:h:mm tt}–{t.AddMinutes(_duration):h:mm tt}";
+            var days = Repeats ? string.Join(", ", SelectedDays.Select(Short)) : _date.ToString("ddd d MMM yyyy");
+            var extra = _dayTimes.Where(x => !Repeats ? x.Key == Flag(_date) : _days.HasFlag(x.Key)).Select(x => $"{Short(x.Key)} {Range(x.Value)}").ToList();
+            return $"{days} · {Range(Repeats ? _start : TimeOf(Flag(_date)))} {ZoneName(_zone)}" + (extra.Count > 0 && Repeats ? $" (except {string.Join(", ", extra)})" : "");
+        }
+    }
+
+    private string DatesLabel => !Repeats ? $"Once, {_date:ddd d MMM yyyy}"
+        : EndDate is { } end ? $"{_date:d MMM} – {end:d MMM yyyy}" : "Pick an end date";
+
+    private IEnumerable<(string Line, WeekDays Day)> PlanLines => Parts().Select(p =>
+    {
+        var days = Repeats ? string.Join(", ", AllDays.Where(d => p.Days.HasFlag(d)).Select(Short)) : _date.ToString("ddd d MMM");
+        var subject = _subjects.FirstOrDefault(s => s.Id == p.Row.SubjectId)?.Name ?? "—";
+        var teacher = IsAdmin ? _teachers.FirstOrDefault(t => t.Id == p.Row.TeacherId)?.FullName : Me?.FullName;
+        var time = p.Time != _start || !Repeats ? $" · {p.Time:h:mm tt}" : "";
+        return ($"{days} · {subject} · {People.ShortName(teacher)}{time}", AllDays.FirstOrDefault(d => p.Days.HasFlag(d)));
+    });
+
+    private string? StudentSeesLabel => StudentZoneDiffers && _check?.Occurrences.FirstOrDefault(o => !o.SkippedHoliday) is { } first
+        ? $"{FirstName(SelectedStudent?.Name)} sees {Time.ToLocal(first.StartUtc, _studentZone!):h:mm tt} {ZoneName(_studentZone!)}; you see {Time.ToLocal(first.StartUtc, Tz):h:mm tt} {ZoneName(Tz)}."
+        : null;
+
+    private string ZoneHelp => StudentZoneDiffers
+        ? $"{FirstName(SelectedStudent?.Name)} lives in another time zone and always sees classes in their own time."
+        : $"Times are in {ZoneName(Tz)}.";
+
+    // ---------- Clashes, per weekday ----------
+    private IEnumerable<WeekDays> IssueDays => (Repeats ? SelectedDays : [Flag(_date)]).Where(d => IssueFor(d) is not null);
+    private IEnumerable<Issue> AllIssues => IssueDays.Select(d => IssueFor(d)!);
+
+    private Issue? IssueFor(WeekDays d)
+    {
+        if (!CheckIsCurrent || _check is null) return null;
+        var index = PartIndexOf(d);
+        var part = _check.Parts.FirstOrDefault(p => p.Index == index);
+        if (part is null) return null;
+        var dates = part.ClashDates.Where(x => !Repeats || Flag(x) == d).ToList();
+        var conflicts = part.Conflicts.Where(c => !Repeats || RecurrencePattern.ToFlag(Time.ToLocal(c.StartUtc, _zone).DayOfWeek) == d).ToList();
+        var dayCount = _check.Occurrences.Count(o => !o.SkippedHoliday && (!Repeats || Flag(o.LocalDate) == d));
+        var parts = Parts();
+        var row = index >= 0 && index < parts.Count ? parts[index].Row : _same;
+        var teacherName = FirstName(IsAdmin ? _teachers.FirstOrDefault(t => t.Id == row.TeacherId)?.FullName : Me?.FullName);
+        var dayName = Repeats ? d.ToString() : _date.ToString("dddd d MMM");
+        var teacherBusy = conflicts.Any(c => c.Kind == "Teacher");
+        var studentBusy = conflicts.Any(c => c.Kind == "Student");
+        // "Outside hours" belongs to the whole part: show it on the part's first day only.
+        var outside = part.OutsideAvailability && AllDays.FirstOrDefault(x => parts[index].Days.HasFlag(x)) == d;
+        if (!teacherBusy && !studentBusy && !outside) return null;
+
+        // The row already names the day and time, so the sentence only says who is busy and with what.
+        var title = teacherBusy ? $"{teacherName} is busy then"
+            : studentBusy ? $"{FirstName(SelectedStudent?.Name)} already has a class then"
+            : $"Outside {teacherName}’s available hours";
+        var details = conflicts.GroupBy(c => (c.SessionTitle, Clock: $"{Time.ToLocal(c.StartUtc, _zone):h:mm}–{Time.ToLocal(c.EndUtc, _zone):h:mm tt}"))
+            .Select(g =>
+            {
+                var people = g.Select(c => FirstName(c.PersonName)).Distinct().ToList();
+                var dates = g.Select(c => c.SessionId).Distinct().Count();
+                // "Mathematics · Hiro" reads as "Hiro has Mathematics", not "Hiro has Mathematics · Hiro".
+                var what = g.Key.SessionTitle.EndsWith($" · {FirstName(SelectedStudent?.Name)}") ? g.Key.SessionTitle[..g.Key.SessionTitle.LastIndexOf(" · ")] : g.Key.SessionTitle;
+                return $"{string.Join(" and ", people)} {(people.Count > 1 ? "have" : "has")} {what}, {g.Key.Clock}"
+                    + (dates == 1 ? $" on {Time.ToLocal(g.First().StartUtc, _zone):d MMM}" : $" ({dates} dates)");
+            })
+            .Take(3).ToList();
+        if (!teacherBusy && !studentBusy) details = ["You can still book it. The teacher recorded other hours under Availability."];
+        var shortText = teacherBusy ? $"{Short(d)}: {teacherName} busy" : studentBusy ? $"{Short(d)}: {FirstName(SelectedStudent?.Name)} busy" : $"{Short(d)}: outside hours";
+        return new Issue(d, dayName, teacherBusy, title, details, shortText, part.FreeTeachers, part.FreeTimes, dates, dayCount);
+    }
+
+    private int DayCount(WeekDays d) => _check?.Occurrences.Count(o => !o.SkippedHoliday && (!Repeats || Flag(o.LocalDate) == d)) ?? 0;
+
+    /// <summary>The status chip at the end of a day's row: free (with how many classes), clash, student busy or outside hours.</summary>
+    private RenderFragment DayState(WeekDays d, Issue? issue) => __builder =>
+    {
+        if (Missing.Count > 0) { <span class="wk-state idle" aria-hidden="true"></span> return; }
+        if (_checkError is not null) { <span class="wk-state idle" aria-hidden="true"></span> return; }
+        if (!CheckIsCurrent) { <span class="wk-state wait">Checking…</span> return; }
+        if (issue is { Blocking: true }) { <span class="wk-state bad"><Icon Name="alert" />Clash</span> }
+        else if (issue is not null && issue.Dates.Count > 0) { <span class="wk-state warn"><Icon Name="alert" />@FirstName(SelectedStudent?.Name) busy</span> }
+        else if (issue is not null) { <span class="wk-state info"><Icon Name="info" />Outside hours</span> }
+        else
+        {
+            var n = DayCount(d);
+            <span class="wk-state good"><Icon Name="check" />@n @(n == 1 ? "class" : "classes")</span>
+        }
+    };
+
+    /// <summary>A clash under its day, in one sentence, with one-tap fixes for that day only.</summary>
+    private RenderFragment IssueBody(WeekDays d, Issue issue) => __builder =>
+    {
+        <p class="wk-issue-text"><strong>@issue.Title.</strong> @string.Join(". ", issue.Details)@(issue.Blocking || issue.Dates.Count > 0 ? "." : "")</p>
+        @if (issue.FreeTeachers.Count > 0 || issue.FreeTimes.Count > 0 || (issue.Dates.Count > 0 && issue.Dates.Count < ClassCount))
+        {
+            <div class="wk-fixes" role="group" aria-label="@($"Fixes for {issue.DayName}")">
+                @if (IsAdmin)
+                {
+                    @foreach (var t in issue.FreeTeachers.Take(3))
+                    {
+                        <button type="button" class="fix" @onclick="() => UseTeacher(d, t.Id)"><Icon Name="user-check" />Use @People.ShortName(t.Name)<span class="sr-only"> on @issue.DayName</span></button>
+                    }
+                }
+                @foreach (var time in issue.FreeTimes.Take(2))
+                {
+                    <button type="button" class="fix" @onclick="() => MoveDay(d, time)"><Icon Name="clock" />Move to @time.ToString("h:mm tt")<span class="sr-only"> on @issue.DayName</span></button>
+                }
+                @if (issue.Dates.Count > 0 && issue.Dates.Count < ClassCount)
+                {
+                    <button type="button" class="fix quiet" @onclick="() => SkipDates(issue.Dates)"><Icon Name="x" />Skip @(issue.Dates.Count == 1 ? $"{issue.Dates[0]:d MMM}" : $"these {issue.Dates.Count} dates")</button>
+                }
+            </div>
+        }
+        else if (issue.Blocking)
+        {
+            <p class="wk-issue-text muted">No free teacher or nearby time was found. Choose another day or time above.</p>
+        }
+    };
+
+    // ---------- Week list, summary strip and the phone bar ----------
+    private IEnumerable<WeekDays> WeekDaysInPlan => Repeats ? SelectedDays : [Flag(_date)];
+    private string SubjectName(SubjectTeacherPicker.PlanRow r) => _subjects.FirstOrDefault(s => s.Id == r.SubjectId)?.Name ?? "";
+    private string TeacherShort(SubjectTeacherPicker.PlanRow r) => People.ShortName(IsAdmin ? _teachers.FirstOrDefault(t => t.Id == r.TeacherId)?.FullName : Me?.FullName);
+
+    private string StudentSubjectsLine => string.Join(", ", _subjects.Where(s => _studentSubjectIds.Contains(s.Id)).Select(s => s.Name).Distinct());
+
+    /// <summary>"Ma" for Mathematics, "SS" for Social Science: what fits in a day cell of the week strip.</summary>
+    private static string Initials(string subject)
+    {
+        var words = subject.Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(w => char.IsLetter(w[0])).ToArray();
+        return words.Length switch { 0 => "", 1 => words[0][..Math.Min(2, words[0].Length)], _ => $"{words[0][0]}{words[1][0]}".ToUpperInvariant() };
+    }
+
+    private string RangeNote
+    {
+        get
+        {
+            if (!Repeats) return "One class";
+            if (EndDate is not { } end || end < _date) return "Pick an end date";
+            var days = end.DayNumber - _date.DayNumber + 1;
+            var span = days % 7 == 0 ? (days == 7 ? "1 week" : $"{days / 7} weeks") : days == 1 ? "1 day" : $"{days} days";
+            return CheckIsCurrent ? $"{span} · {ClassCount} {(ClassCount == 1 ? "class" : "classes")}" : span;
+        }
+    }
+
+    private string BarKind => Missing.Count > 0 ? "todo" : _checkError is not null ? "bad" : !CheckIsCurrent ? "wait"
+        : ClassCount == 0 || AllIssues.Any(i => i.Blocking) ? "bad" : "good";
+
+    private string BarTitle => BarKind switch
+    {
+        "todo" => "Not ready yet",
+        "wait" => "Checking dates…",
+        "bad" when _checkError is not null => "Could not check the dates",
+        "bad" when ClassCount == 0 => "No dates in this period",
+        "bad" => AllIssues.Where(i => i.Blocking).ToList() is [var one] ? $"Clash on {(Repeats ? Short(one.Day) : "this date")}"
+            : $"{AllIssues.Count(i => i.Blocking)} days clash",
+        _ => "All dates free",
+    };
+
+    private string? BarSub => BarKind switch
+    {
+        "todo" => Missing.Count == 1 ? "1 thing left to choose" : $"{Missing.Count} things left to choose",
+        "bad" when _checkError is null && ClassCount > 0 => "Fix it in the week list",
+        "good" => DatesLabel,
+        _ => null,
+    };
+
+    // ---------- Labels ----------
+    private static string Short(WeekDays d) => d.ToString()[..3];
+    private static string LengthLabel(int minutes) => minutes switch { 60 => "1 hour", 90 => "1½ hours", 120 => "2 hours", _ => $"{minutes} min" };
+    private static string FirstName(string? name) => (People.ShortName(name)).Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+
+    /// <summary>Plain names for the time zones the centre works with; others use their city.</summary>
+    private static string ZoneName(string tz) => tz switch
+    {
+        "Asia/Dubai" => "UAE time",
+        "Asia/Kolkata" or "Asia/Calcutta" => "India time",
+        "Asia/Riyadh" => "Saudi time",
+        "Asia/Qatar" => "Qatar time",
+        "Asia/Muscat" => "Oman time",
+        "Asia/Kuwait" => "Kuwait time",
+        "Asia/Bahrain" => "Bahrain time",
+        "Europe/London" => "UK time",
+        _ => $"{tz[(tz.LastIndexOf('/') + 1)..].Replace('_', ' ')} time",
+    };
+
+    // ---------- Loading ----------
     protected override async Task LoadAsync()
     {
-        _tz = Tz;
-        if (Enum.TryParse<SessionType>(TypeParam, out var t)) _type = t;
+        _error = null;
+        if (!_defaultsSet)
+        {
+            _zone = Tz;
+            _date = StartDateFor(StartChoice.Tomorrow);
+            _days = Flag(_date);
+            _defaultsSet = true;
+        }
         try
         {
-            var batches = Api.GetAsync<List<BatchDto>>("academics/batches");
-            var arrangements = Api.GetAsync<List<ArrangementDto>>("academics/arrangements");
-            var subjects = Api.GetAsync<List<SubjectDto>>("academics/subjects");
+            // Teachers book only the subjects on their profile; the admin sees every subject.
+            var subjects = Api.GetAsync<List<SubjectDto>>("academics/subjects?mine=true");
             var students = Api.GetAsync<List<LookupItem>>("students/lookup");
             if (IsAdmin) _teachers = (await Api.GetAsync<PagedResult<TeacherDto>>("teachers?pageSize=100&status=Active")).Items.ToList();
-            _batches = await batches; _arrangements = await arrangements; _subjects = await subjects; _students = await students;
-            if (StudentParam is { } sid && _students.Any(s => s.Id == sid)) _selected.Add(sid);
-            _days = RecurrencePattern.ToFlag(_date.DayOfWeek);
+            _subjects = (await subjects).Where(s => s.Status == CatalogStatus.Active).ToList();
+            _students = await students;
         }
         catch (ApiException ex) { _error = ex; }
         _loading = false;
+        if (_error is null && _studentId is null && StudentParam is { } sid && _students.Any(s => s.Id == sid)) await PickStudent(sid);
     }
 
-    private void SelectType(SessionType t)
+    private async Task PickStudent(Guid id)
     {
-        _type = t; _check = null; _batchId = null; _arrangementId = null;
-        if (t == SessionType.OneToOne && _selected.Count > 1) _selected.Clear();
-    }
-
-    private void TeacherChanged() { _batchId = null; _arrangementId = null; _check = null; }
-
-    private void BatchChanged()
-    {
-        _check = null;
-        if (_batches.FirstOrDefault(b => b.Id == _batchId) is { } b)
+        _studentId = id;
+        _pickStudent = false;
+        _search = "";
+        _studentSubjectIds = [];
+        _studentZone = null;
+        _zone = Tz;
+        _skip.Clear();
+        _loadingSubjects = true;
+        StateHasChanged();
+        // The student's own subjects come first, and their time zone lets the admin enter "8 pm India time".
+        // Teachers can read both only for students they already teach; otherwise all subjects and their own time are used.
+        var subjects = Fetch(() => Api.GetAsync<StudentSubjectsDto>($"students/{id}/subjects"));
+        var profile = Fetch(() => Api.GetAsync<StudentProfileDto>($"students/{id}"));
+        if ((await subjects).Value is { } s)
+            _studentSubjectIds = s.Core.Select(x => x.Id).Concat(s.ChoiceGroups.SelectMany(g => g.ChosenSubjectIds)).Concat(s.Additional.Select(x => x.Id)).ToHashSet();
+        if ((await profile).Value is { } p && !string.IsNullOrEmpty(p.Student.TimeZoneId)) _studentZone = p.Student.TimeZoneId;
+        _loadingSubjects = false;
+        foreach (var row in _dayRows.Values.Append(_same))
         {
-            if (string.IsNullOrWhiteSpace(_title)) _title = b.Name;
-            _subjectId ??= b.SubjectId;
+            row.AllSubjects = false;
+            if (row.SubjectId is { } subject && _studentSubjectIds.Count > 0 && !_studentSubjectIds.Contains(subject)) { row.SubjectId = null; row.TeacherId = null; }
         }
+        await Changed();
     }
 
-    private void ArrangementChanged()
+    // ---------- Changes ----------
+    private Task SetStart(StartChoice c)
     {
-        _check = null;
-        if (_arrangements.FirstOrDefault(a => a.Id == _arrangementId) is { } a)
+        _startChoice = c;
+        if (c != StartChoice.Pick) _date = StartDateFor(c);
+        return DatesChanged();
+    }
+
+    private Task SetSpan(Span s)
+    {
+        _span = s;
+        if (s == Span.Until) _until ??= _date.AddMonths(1).AddDays(-1);
+        if (s != Span.Once && _days == WeekDays.None) _days = Flag(_date);
+        return DatesChanged();
+    }
+
+    private Task DatesChanged()
+    {
+        _skip.Clear();
+        if (_until is { } u && u < _date) _until = _date;
+        return Changed();
+    }
+
+    private Task ToggleDay(WeekDays d)
+    {
+        _days ^= d;
+        if (!_days.HasFlag(d)) _dayTimes.Remove(d);
+        _skip.RemoveWhere(x => Flag(x) == d);
+        return Changed();
+    }
+
+    private Task SetDuration(int minutes) { _duration = minutes; return Changed(); }
+    private Task SetZone(string tz) { _zone = tz; _skip.Clear(); return Changed(); }
+    private Task ResetDayTime(WeekDays d) { _dayTimes.Remove(d); return Changed(); }
+    private Task UndoSkip() { _skip.Clear(); return Changed(); }
+
+    private Task SetPerDay(bool perDay)
+    {
+        // Each day starts from the shared choice, so only the days that differ need changing.
+        if (perDay && !_perDay) { _dayRows.Clear(); foreach (var d in SelectedDays) _dayRows[d] = _same.Copy(); }
+        _perDay = perDay;
+        return Changed();
+    }
+
+    /// <summary>Quick fix: a free teacher of the subject for this day only (switches to per-day subjects when needed).</summary>
+    private async Task UseTeacher(WeekDays d, Guid teacherId)
+    {
+        if (CanSplitByDay && !_perDay) await SetPerDay(true);
+        var row = RowOf(d);
+        row.TeacherId = teacherId;
+        row.AllTeachers = false;
+        await Changed();
+    }
+
+    /// <summary>Quick fix: a nearby free start time for this weekday only.</summary>
+    private Task MoveDay(WeekDays d, TimeOnly time)
+    {
+        if (!Repeats) _start = time;
+        else if (time == _start) _dayTimes.Remove(d);
+        else _dayTimes[d] = time;
+        return Changed();
+    }
+
+    private Task SkipDates(IEnumerable<DateOnly> dates) { _skip.UnionWith(dates); return Changed(); }
+
+    // ---------- Request, check, create ----------
+    private CreateSessionBatchRequest BuildRequest()
+    {
+        var student = FirstName(SelectedStudent?.Name);
+        var end = EndDate;
+        var items = Parts().Select(p =>
         {
-            _selected.Clear();
-            foreach (var s in a.Students) _selected.Add(s.Id);
-            if (string.IsNullOrWhiteSpace(_title)) _title = a.Title;
-            _subjectId ??= a.SubjectId;
+            var subject = _subjects.FirstOrDefault(s => s.Id == p.Row.SubjectId)?.Name ?? "Class";
+            var recurrence = Repeats ? new RecurrenceRequest(RecurrenceFrequency.Weekly, 1, p.Days, end, null) : null;
+            var skip = _skip.Where(x => Repeats ? p.Days.HasFlag(Flag(x)) : x == _date).Order().ToList();
+            return new CreateSessionRequest(
+                string.IsNullOrEmpty(student) ? subject : $"{subject} · {student}", SessionType.OneToOne, IsAdmin ? p.Row.TeacherId : null,
+                null, null, null, p.Row.SubjectId, null, _studentId is { } id ? [id] : [], _zone, _date, p.Time, _duration,
+                _online ? DeliveryMode.Online : DeliveryMode.InPerson, _online ? _meetingUrl : null, null, null, recurrence,
+                false, skip.Count > 0 ? skip : null);
+        }).ToList();
+        return new CreateSessionBatchRequest(items);
+    }
+
+    private static string Fingerprint(CreateSessionBatchRequest r) => System.Text.Json.JsonSerializer.Serialize(r with { AcknowledgeConflicts = false });
+
+    /// <summary>Re-checks dates and clashes shortly after the last change, so the summary always matches the form.</summary>
+    private async Task Changed()
+    {
+        _checkCts?.Cancel();
+        _checkCts?.Dispose();
+        _check = null;
+        _checkError = null;
+        _ack = false;
+        if (Missing.Count > 0) { _checking = false; _checkCts = null; return; }
+        var cts = _checkCts = new CancellationTokenSource();
+        _checking = true;
+        try
+        {
+            await Task.Delay(300, cts.Token);
+            var request = BuildRequest();
+            var result = await Api.PostAsync<WeeklyPlanCheckResponse>("sessions/batch/check", request, cts.Token);
+            if (cts.IsCancellationRequested) return;
+            _check = result;
+            _checkedFor = Fingerprint(request);
         }
-    }
-
-    private void Toggle(Guid id, object? value)
-    {
-        if (_type == SessionType.OneToOne) _selected.Clear();
-        if (value is true || _type == SessionType.OneToOne) _selected.Add(id); else _selected.Remove(id);
-        _check = null;
-    }
-
-    private RenderFragment? Err(string field) => _errors.TryGetValue(field, out var m) ? @<span class="error">@string.Join(" ", m)</span> : null;
-
-    private CreateSessionRequest BuildRequest() => new(
-        _title, _type, IsAdmin ? _teacherId : null, _batchId, _arrangementId, null, _subjectId, _chapterId,
-        _type == SessionType.Batch ? null : _selected.ToList(), _tz, _date, _start, _duration, _delivery, _meetingUrl, _location, _objectives,
-        _repeat ? new RecurrenceRequest(_freq, _interval, _freq == RecurrenceFrequency.Weekly ? _days : WeekDays.None, _until, _until is null ? _count : null, _skipHolidays) : null,
-        _ack);
-
-    private async Task Check()
-    {
-        _errors = new Dictionary<string, string[]>();
-        await Run(async () =>
-        {
-            try { _check = await Api.PostAsync<ConflictCheckResponse>("sessions/check", BuildRequest()); }
-            catch (ApiException ex) when (ex.Errors is not null) { _errors = ex.Errors.ToDictionary(); throw; }
-        });
+        catch (OperationCanceledException) { return; }
+        catch (ApiException ex) when (ex.Status == 401) { Nav.NavigateTo("/login", forceLoad: true); return; }
+        catch (ApiException ex) { if (!cts.IsCancellationRequested) _checkError = ex.Describe(); }
+        if (_checkCts == cts) _checking = false;
     }
 
     private async Task Create()
     {
-        _errors = new Dictionary<string, string[]>();
+        if (!CanCreate) return;
         CreateSessionResponse? result = null;
+        var stale = false;
         var ok = await Run(async () =>
         {
-            try { result = await Api.PostAsync<CreateSessionResponse>("sessions", BuildRequest()); }
-            catch (ApiException ex) when (ex.Errors is not null) { _errors = ex.Errors.ToDictionary(); throw; }
-            catch (ApiException ex) when (ex.Status == 409) { _check = await Api.PostAsync<ConflictCheckResponse>("sessions/check", BuildRequest()); throw; }
+            try { result = await Api.PostAsync<CreateSessionResponse>("sessions/batch", BuildRequest() with { AcknowledgeConflicts = _ack }); }
+            catch (ApiException ex) when (ex.Status == 409) { stale = true; throw; }
         });
+        if (stale) await Changed(); // Someone booked the slot meanwhile: refresh the clash list.
         if (ok && result is not null)
         {
-            Toasts.Show(result.SessionIds.Count > 1 ? $"{result.SessionIds.Count} sessions scheduled." : "Session scheduled.");
-            foreach (var w in result.Warnings) Toasts.Show(w, ToastKind.Info);
-            Nav.NavigateTo($"/sessions/{result.SessionIds[0]}");
+            var created = result.SessionIds.Count > 1 ? $"{result.SessionIds.Count} classes created." : "Class created.";
+            Toasts.Show(IsAdmin ? $"{created} The teacher and the student have been notified." : $"{created} The student has been notified.");
+            foreach (var w in result.Warnings.Where(w => !w.Contains("holiday"))) Toasts.Show(w, ToastKind.Info);
+            Nav.NavigateTo(result.SessionIds.Count > 1 ? "/sessions" : $"/sessions/{result.SessionIds[0]}");
         }
     }
+
+    public void Dispose() { _checkCts?.Cancel(); _checkCts?.Dispose(); }
 }

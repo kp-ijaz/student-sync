@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
@@ -33,6 +34,9 @@ builder.Services.AddScoped<IRealtimeNotifier, SignalRNotifier>();
 var jobsMode = builder.Configuration["Jobs:Mode"] ?? "Hangfire";
 if (jobsMode == "Inline")
 {
+    // AddInfrastructure registers the Hangfire adapter; drop it so service validation (on in Development) does not
+    // try to construct it without Hangfire.
+    builder.Services.RemoveAll<IBackgroundJobs>();
     builder.Services.AddSingleton<InlineBackgroundJobs>();
     builder.Services.AddScoped<IBackgroundJobs>(sp => sp.GetRequiredService<InlineBackgroundJobs>());
 }
@@ -101,7 +105,7 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o => 
 var app = builder.Build();
 
 // ---------- Command-line maintenance commands ----------
-if (args.Length > 0 && args[0] is "migrate" or "seed-demo" or "reset-demo")
+if (args.Length > 0 && args[0] is "migrate" or "seed-demo" or "reset-demo" or CreateInstitutionCommand.Name)
 {
     await RunCommandAsync(app, args);
     return;
@@ -165,6 +169,11 @@ static async Task RunCommandAsync(WebApplication app, string[] args)
             await db.Database.MigrateAsync();
             await sp.GetRequiredService<ReferenceDataSeeder>().SeedAsync(CancellationToken.None);
             log.LogInformation("Database migrated.");
+            break;
+        case CreateInstitutionCommand.Name:
+            await db.Database.MigrateAsync();
+            await sp.GetRequiredService<ReferenceDataSeeder>().SeedAsync(CancellationToken.None);
+            Environment.ExitCode = await CreateInstitutionCommand.RunAsync(sp, args, Console.Out, CancellationToken.None);
             break;
         case "seed-demo":
             if (!app.Environment.IsDevelopment()) throw new InvalidOperationException("Demo data can only be seeded in the Development environment.");

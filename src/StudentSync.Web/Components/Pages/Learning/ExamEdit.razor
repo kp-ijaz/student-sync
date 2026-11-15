@@ -11,7 +11,7 @@
             <div class="field full"><label for="et">Title *</label><input id="et" class="input" @bind="_title" /></div>
             <div class="field"><label for="ep">Purpose</label><select id="ep" class="select" @bind="_purpose"><option value="@ExamPurpose.Regular">Exam or quiz</option><option value="@ExamPurpose.Diagnostic">Diagnostic (entry assessment)</option></select>
                 <span class="help">@(_purpose == ExamPurpose.Diagnostic ? "Questions may come from several subjects; answers can be entered from a paper sheet." : "A timed exam taken online.")</span></div>
-            <div class="field"><label for="es">@(_purpose == ExamPurpose.Diagnostic ? "Main subject *" : "Subject *")</label><select id="es" class="select" @bind="_subjectId" @bind:after="SubjectChanged"><option value="">Choose…</option>@foreach (var s in _subjects.OrderBy(s => s.CourseName).ThenBy(s => s.Name)) { <option value="@s.Id">@s.Name (@s.CourseName)</option> }</select></div>
+            <div class="field"><label for="es">@(_purpose == ExamPurpose.Diagnostic ? "Main subject *" : "Subject *")</label><select id="es" class="select" @bind="_subjectId" @bind:after="SubjectChanged"><option value="">Choose…</option>@foreach (var s in _subjects.OrderBy(s => s.CourseName).ThenBy(s => s.Name)) { <option value="@s.Id">@s.Name (@s.CourseName)</option> }</select>@if (IsTeacher && _subjects.Count == 0) { <span class="help">No subjects on your profile yet. Ask the admin to add the subjects you teach (People ▸ Teachers).</span> }</div>
             @if (_purpose == ExamPurpose.Diagnostic)
             {
                 <div class="field"><label for="eg">Class</label><select id="eg" class="select" @bind="_gradeId"><option value="">—</option>@foreach (var g in _grades) { <option value="@g.Id">@g.Name</option> }</select></div>
@@ -83,7 +83,7 @@
     {
         try
         {
-            _subjects = await Api.GetAsync<List<SubjectDto>>("academics/subjects");
+            _subjects = await Api.GetAsync<List<SubjectDto>>("academics/subjects?mine=true");
             _batches = await Api.GetAsync<List<BatchDto>>("academics/batches");
             _sessions = await Api.GetAsync<List<SessionListItemDto>>($"sessions?fromUtc={DateTime.UtcNow.AddDays(-7):O}&toUtc={DateTime.UtcNow.AddDays(60):O}&limit=200");
             _grades = await Api.GetAsync<List<GradeLevelDto>>("academics/grades");

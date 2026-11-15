@@ -58,12 +58,12 @@ Text colours: primary `#0B2854`, body `#1E293B`, secondary text `#475569` (≥7:
 | Tablet portrait | 768–1023 px | Same mobile-app shell (app bar + floating tab bar + drawer); 2-column grids |
 | Tablet landscape / desktop | ≥ 1024 px | Fixed 248 px navy side menu (always visible); content max-width 1280 px |
 
-Navigation is a single side menu with collapsible groups (for example *Classes ▸ Timetable / Schedule a class / Pre-recorded videos*), defined per role in `Navigation.For` (`Services/UiServices.cs`). The group containing the current page opens automatically, and exactly one link is marked current (the longest matching path). There is no top navigation.
+Navigation is a single side menu with collapsible groups (for example *Classes ▸ Timetable / Add classes / Pre-recorded videos*), defined per role in `Navigation.For` (`Services/UiServices.cs`). The group containing the current page opens automatically, and exactly one link is marked current (the longest matching path). There is no top navigation.
 
 **Phones and tablets (< 1024 px) use the Flutter app's shell (owner request 2026-11-04: the PWA must match the mobile app).** `Navigation.Tabs(role)` defines the same four tabs as `role_shell.dart` — student *Home · Subjects · Learning · Doubts*, teacher *Home · Classes · Students · Tasks*, admin *Home · Students · Classes · Reports* — rendered by `MainLayout` as a floating bar (16 px side margins, 12 px above the home indicator via `env(safe-area-inset-bottom)`, 72 px high, 28 px radius, frosted white, floating shadow). The selected tab is a navy pill with icon + label and grows to twice the width; the others are icon-only fill tiles with tooltips. A tab also owns its child routes (for highlighting only, e.g. `/timetable` and class pages under *Subjects*; `/assignments`, `/exams`, `/videos`, `/learning-plan` under *Learning*). Everything not in the four tabs stays reachable from the drawer (menu button). Content keeps 100 px + safe area of bottom padding so the last card and the toasts clear the bar; a page's single primary action may float above the bar with `.fab-mobile` (used by Doubt Centre's *Ask a doubt*, like the mobile FAB). On desktop (≥ 1024 px) nothing changes: docked side menu, no tab bar.
 
 - **Student:** Dashboard · Subjects (`/subjects`) · Timetable (`/timetable`) · Learning (`/learning`, one page with pill tabs Assignments · Exams · Videos; `/assignments`, `/exams`, `/videos` keep working) · Doubt Centre · AI assistant · *Communication ▸* Messages, Announcements. No Library (notes belong to each class page; `/library` still works for existing links) and no Progress item (it opens from Profile → *My progress*).
-- **Teacher:** Dashboard · *Classes ▸* Timetable (`/sessions` calendar), Schedule a class, Pre-recorded videos, Availability · *Teaching ▸* Students, Tasks (`/teacher/tasks`), Assignments, Exams, Question bank, Doubt Centre · *Communication ▸*.
+- **Teacher:** Dashboard · *Classes ▸* Timetable (`/sessions` calendar), Add classes, Pre-recorded videos, Availability · *Teaching ▸* Students, Tasks (`/teacher/tasks`), Assignments, Exams, Question bank, Doubt Centre · *Communication ▸*.
 - **Admin:** unchanged.
 
 The top bar sits on the page background (translucent, no white strip). On desktop it holds, at the end, white circle buttons for Messages, Notifications (with a red count) and Sign out, then the user's photo avatar (initials fallback) linking to Profile. Below 1024 px it becomes the mobile app bar: menu button, the **page title** (published by `PageHeader` through `ShellState`, 22/28 Jakarta navy; the page's own `h1` is then visually hidden but kept for assistive tech and focus; dashboards without a `PageHeader` show the tab name), then only the bell and the avatar — Messages moves to the drawer (with its unread count) and Sign out to Profile, as in the app. The dashboards use the app's `HomeGreeting` header (photo, "Good evening", first name).
@@ -102,6 +102,7 @@ A live gallery of the web components with sample data is at **`/dev/ui`** (devel
 | `DataView` | `AsyncView` | Every data region: loading → error (offline/server/403/404 illustration, Retry) → empty (`EmptyIllustration`, or derived from `EmptyIcon`) → content. `Compact` for tight cards |
 | `SessionItem` / SessionCard | `SessionCard` | Time in viewer's zone (+ organiser zone when different), type badge, Join |
 | `Modal`, `Toasts` | dialogs, snack bar | Focus-trapped dialogs (28 px radius; bottom sheet on phones); toasts announced politely |
+| `InstallBanner` | — (native app) | Offer to install the PWA: a white strip at the very top of the sign-in page and of the shell (above the app bar, scrolls away) with the mark, "Install Student Sync", an **Install** button (36 px; 44 px below 1024 px) and a 44 px *Not now* icon button. Rendered hidden; `js/app.js` shows it when the browser reports the app is installable (`beforeinstallprompt`), or with the Share-menu steps on iOS, which has no install API. Never shown inside the installed app; hidden for 14 days after *Not now*. Present in both layouts, so it also appears on `/dev/ui` |
 | `.badge.removable` + `.chip-remove` | — | A chip whose text wraps, with an icon remove button (`aria-label` names what is removed); 44 px target on phones |
 | `PhotoEditor` | profile photo sheet | Upload/change/remove a photo; optional `Info` content beside the photo |
 | `TimeZoneSelect` | time-zone picker | IANA ids with the current offset |
@@ -161,3 +162,111 @@ The Flutter app shares the brand colours, typefaces and voice above. Since 2026-
 - **Controls:** inputs are filled (`#EFF3FA`) without a resting border and gain a 1.6 px blue border on focus; buttons are 48 px tall. The only switch left (Classes: Calendar / Upcoming / Past) is `SsSegmented`: a fully rounded track with a gradient pill that slides under the choice — never a square-edged segment.
 - **States:** loading shows the turning star (still under reduced motion); empty, error, forbidden and 404 states show an illustration (or the icon on two soft discs where space is tight).
 - Extra mobile tokens: `blueDeep #0A4BB0` (gradient middle), `fill #EFF3FA`, `orangeDeep #C2410C` / `orangeText #9A5B00` (AA-contrast orange for icons/text on light surfaces).
+
+### Student-first daily journeys (2026-11-12)
+
+The three role dashboards use `DailyPath` for three direct, role-specific tasks, with
+real navigation targets and tinted `IconTile` components. Cards stack below 768px;
+hover and entrance motion stay within 200ms and respect reduced-motion preferences.
+`DailyPath` is web/PWA only while Flutter is parked, and is demonstrated in `/dev/ui`.
+
+### Add classes — tuition-centre booking (2026-11-12, replaces the three-step planner)
+
+`/sessions/new` ("Add classes" in the menu, dashboards, student list and profile) is one page
+with three numbered cards that follow how the centre writes a student's week
+("Hafiz · 4:30 pm · Mon Maths, Tue Science, …"), plus a summary of the student's week:
+
+1. **Student.** Search list, or preselected via `?studentId=`; the picked card shows the student's code and tuition subjects.
+2. **Dates and time.** Labelled rows (`.bk-row`: a 96 px label column, hairline between rows, stacked below 768 px):
+   Starts (Today / Tomorrow / Next week / Pick a date), For (Just once / 1 week / 2 weeks / 1 month / 3 months /
+   Until a date), a From → To strip (`.bk-range`) with the real dates and "N weeks · N classes" (a side becomes a
+   date box when it is the admin's to choose), Days, Start time and Length. The time is in the user's zone
+   (e.g. UAE time); when the student lives elsewhere a two-way switch offers "<Name>'s time" and the summary says
+   what each side sees. Students always see their own time.
+3. **Subjects and teachers.** "Same every day" / "Different each day" switch, then the **week list** (`.wk-list`):
+   one row per chosen day with its time, subject · teacher (or the per-day `SubjectTeacherPicker`) and a status chip
+   (`.wk-state`: "✓ 4 classes", "Clash", "<Name> busy", "Outside hours"). `SubjectTeacherPicker` lists only the
+   student's own subjects with **Other subject…**, and only that subject's teachers with **Other teacher…**.
+   "Online class?" is an optional disclosure; default is at the centre.
+
+**Booking controls** (Add classes, admission): `.pick` chips — filled pills, 40 px (44 on phones), navy fill when
+chosen; `.pick-group.multi` adds a ✓ for multi-select (admission subjects); `.cols-2/.cols-3` give even grids on
+phones. `.day-pick` = round 44 px day buttons. `.pair` = two-way switch (white thumb on the fill track; not the
+gradient `Segmented` component, whose `.seg` class it must not reuse).
+
+**Clashes** sit inside their day's row (`.wk-row.bad` red edge for a teacher clash, `.warn` amber when only the
+student is busy): one sentence ("Daniel is busy then. Daniel and Aisha have Class 10 — Science, 4:30–5:30 PM (2 dates).")
+and `.fix` chips from `POST /sessions/batch/check` → `parts[]`: "Use <teacher>" (free teachers of that subject within
+their hours; switches that day to per-day subjects), up to two "Move to <time>" (nearby free times 06:00–22:00 for
+teacher and student; a per-weekday time), "Skip these N dates" (`SkipDates`).
+
+**Summary** (`.bk-summary`, sticky on desktop): "<Name>'s classes", a 7-day strip (`.wk-strip`: booked days navy with
+the subject's initials, clashing days red), the status, plan lines, notes and Create. Below 1024 px the summary follows
+the form and `.bk-bar` floats above the tab bar with the status and the Create button.
+
+Not asked: title ("Subject · Student first name"), frequency/interval, chapter, objectives.
+Days with the same subject and teacher become one series; the whole plan is checked with
+`POST /sessions/batch/check` ~300ms after each change and saved with `POST /sessions/batch`
+in one transaction (all classes or none). Saving needs a current check, at least one date, no
+teacher clash and "Book anyway" for a student-only clash. Teachers get a "New classes for you"
+notification when an admin books them, so the schedule no longer has to be posted in a group chat.
+
+### Admin home — the front desk (2026-11-12)
+
+`/admin` greets like the other dashboards (photo, "Good evening", first name, date · centre) with **Admit student**
+and **Add classes**, then: shortcut pills (`.quick-links`: Students, Teachers, Calendar, Doubts, Reports; a sideways
+scroller on phones; Fees replaced Doubts on 2026-11-13); one metric strip (`.metric-strip`: Students, Teachers, Classes in
+the next 7 days, open Doubts, Fees due "from N students" — each a link, hairline dividers, not five separate cards; Fees
+is last so it spans both columns on phones); **Coming up**
+(`.home-agenda`: classes grouped Today / Tomorrow / date, large aligned times, a subject-colour bar from the class-cover
+keyword groups using the `.tone-*` palette, teacher avatar, an orange "Live now"/"Next" marker); **Needs you**
+(`.home-needs`: each alert led by its count with a Review link, or "All caught up"); **Fees due** (`.home-fees`, replaced
+the attendance card 2026-11-13: "To collect" total with its counts, the five most urgent students, "collected this
+month") and recent activity. Attendance stays on Reports.
+Below 1200 px **Needs you** comes first. "Active courses" is not shown (a tuition centre does not work in courses).
+
+### Fees & hours (2026-11-13)
+
+Prepaid hour packages, admin only. **Fees** (`/admin/fees`, side menu, wallet icon): a four-number strip (To collect,
+Overdue, Low on hours, Collected this month — not links, so no hover) and `FeesDueList` filtered with `PillTabs`
+(All / Owing / Overdue / Low on hours). `FeesDueList` (shared, also on the dashboard card): avatar, short name, "Overdue
+by N days" / "Due 3 Nov" / "Paid up · renew hours", the amount (orange-deep when overdue) and an amber/red hours badge
+("1.5 h left", "Out of hours", "2 h over"); each row opens `/students/{id}#fees`. **Fees & hours** panel on the student
+profile (`StudentFeesPanel`, above progress): three tinted tiles (Hours left with a used/bought meter — green, amber at
+≤ 2 h, red at 0 or below; Fees due; Paid), a red note when hours are used up ("Sell more hours or put the student on
+hold"), one bordered row per package with its payments, **Take payment** (defaults to the amount due) and **Cancel
+package** (only with no payments), and a collapsed list of the classes that used hours. Dialogs: **Sell hours** (10/20/30/50
+pills or a number, price, hours count from, pay by, paid now + `MethodPicker` pills), **Take payment**, **Remove payment**
+(reason required; the payment stays, struck through). Money reads "AED 4,000" (`Money.Format`, tenant currency).
+
+### Home pattern — the same design on every home and profile (2026-11-13)
+
+Owner request: "keep the same design in every screen". The admin front desk is now the pattern for every role, built
+from shared components (do not hand-roll these again):
+
+- `HomeGreeting` — photo (links to /profile), greeting line, first name as the h1, "Friday 13 November · caption",
+  one or two pill actions (`.home-head-actions`, sharing the width on phones).
+- `QuickLinks` — up to five shortcut pills (`.quick-links`), a sideways scroller on phones.
+- `MetricStrip` (`MetricStrip.Item(Label, Value, Note, Icon, Href?)`) — one card of numbers split by hairlines; the
+  note says what the number counts; cells with a link open where it is managed. Replaces grids of `StatCard`s
+  (Reports, exam results, platform overview, Fees). Two columns on phones; an odd last cell spans both.
+- `ClassAgenda` — "Coming up"/"Your classes": classes grouped by day, large time, subject-colour bar, title and
+  who/how, orange "Live now"/"Next". Options: `ShowTeacher` (off for a teacher's own classes), `ShowStudentCount`,
+  `MarkNext` (off for past lists such as "Attendance to mark"), `HrefFor` (e.g. the attendance tab), `ChildContent`
+  for the `.next-bar` (Join / Prepare for the next class; the student sees it only while Join is open).
+- `NeedsList` (`NeedsList.Item(Count, Text, Href, Warning, Action)`) — count-led rows with a pill action, or the green
+  "All caught up" line (`.all-clear`).
+- Layout: `.home-main` (1.7fr agenda / 1fr `.home-side`); below 1200 px "Needs you" moves first; one column on phones.
+
+Where it is used: admin, teacher and student homes; Fees; the student profile header (`.person-head`: big avatar,
+name, facts caption, "Fees & hours" + "Add classes" pills) and its "Upcoming classes". Page actions in every
+`PageHeader` are pills. The teacher and student homes replaced the older next-class cover hero, stat cards and
+"daily path" tiles; Progress keeps its attendance ring (a chart, not a header).
+
+### One screen per job, scoped by role (2026-11-13)
+
+Admins and teachers use the same page for the same job; the role only hides actions. `/teacher/students` is the admin
+Students table (no Edit / Admit, only the students they teach); `/students/{id}` is one profile for both (Fees, Tuition
+subjects editing and parent phone numbers are admin-only). Teacher subject pickers list only the teacher's own subjects
+(`?mine=true`) and show "No subjects on your profile yet. Ask the admin…" when empty.
+

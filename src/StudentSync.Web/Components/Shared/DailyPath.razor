@@ -1,0 +1,15 @@
+<section class="daily-path" aria-label="Your daily learning flow">
+    <div class="daily-path-heading"><IconTile Icon="sparkle" Tone="blue" /><div><h2>@Title</h2><p class="caption">@Description</p></div></div>
+    <div class="daily-path-links">
+        @foreach (var item in Items)
+        {
+            <a href="@item.Href"><IconTile Icon="@item.Icon" Tone="@item.Tone" /><strong>@item.Label</strong><Icon Name="chevron-right" /></a>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter] public string Title { get; set; } = "Your day, made simple";
+    [Parameter] public string Description { get; set; } = "Everything you need, one step at a time.";
+    [Parameter, EditorRequired] public IReadOnlyList<ShortcutItem> Items { get; set; } = [];
+}

@@ -15,7 +15,7 @@
                     <td data-label="Type"><Badge Style="StatusStyles.For(a.Type == ArrangementType.OneToOne ? SessionType.OneToOne : SessionType.PrivateGroup)" /></td>
                     <td data-label="Teacher">@a.TeacherName</td><td data-label="Students">@string.Join(", ", a.Students.Select(s => s.Name))</td>
                     <td data-label="Status">@a.Status</td>
-                    <td><button class="btn btn-ghost btn-sm" @onclick="() => Edit(a)">Edit</button><a class="btn btn-ghost btn-sm" href="/sessions/new?type=@(a.Type == ArrangementType.OneToOne ? "OneToOne" : "PrivateGroup")">Schedule</a></td></tr>
+                    <td><button class="btn btn-ghost btn-sm" @onclick="() => Edit(a)">Edit</button><a class="btn btn-ghost btn-sm" href="/sessions/new">Add classes</a></td></tr>
             }</tbody>
         </table></div>
     </DataView>

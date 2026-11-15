@@ -1,0 +1,26 @@
+@* "Needs you": what the person should deal with, each row led by its count with a Review link; "All caught up" when empty. *@
+@if (Items.Count == 0)
+{
+    <p class="all-clear"><Icon Name="check-circle" /> @AllClearText</p>
+}
+else
+{
+    <ul class="needs-list">
+        @foreach (var n in Items)
+        {
+            <li class="@(n.Warning ? "warn" : "info")">
+                @if (n.Count is { } c) { <strong class="needs-count">@c</strong> }
+                else { <IconTile Icon="@(n.Warning ? "alert" : "info")" Tone="@(n.Warning ? "amber" : "blue")" Size="sm" /> }
+                <span class="needs-text">@n.Text</span>
+                @if (n.Href is not null) { <a class="btn btn-secondary btn-sm btn-pill" href="@n.Href">@n.Action<span class="sr-only">: @(n.Count is { } k ? $"{k} " : "")@n.Text</span></a> }
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    public sealed record Item(string? Count, string Text, string? Href, bool Warning = true, string Action = "Review");
+
+    [Parameter, EditorRequired] public IReadOnlyList<Item> Items { get; set; } = [];
+    [Parameter] public string AllClearText { get; set; } = "All caught up. Nothing is waiting for you.";
+}

@@ -1,0 +1,31 @@
+@* Students who owe money or are running out of hours (admin). Each row opens the student's Fees & hours panel. *@
+<ul class="fee-list">
+    @foreach (var i in Items)
+    {
+        var low = i.HoursLeft <= LowHoursAt;
+        <li>
+            <a href="@($"/students/{i.StudentId}#fees")">
+                <Avatar Name="@i.StudentName" PhotoUrl="@i.PhotoUrl" Size="sm" Decorative="true" />
+                <span class="fee-who">
+                    <strong>@People.ShortName(i.StudentName)</strong>
+                    <span class="caption">@DueLine(i)</span>
+                </span>
+                @if (i.Due > 0) { <span class="fee-amount @(i.DaysOverdue > 0 ? "late" : "")">@Money.Format(i.Due, Currency)</span> }
+                @if (low) { <span class="badge @(i.HoursLeft <= 0 ? "red" : "amber")">@Money.HoursLeft(i.HoursLeft)</span> }
+            </a>
+        </li>
+    }
+</ul>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<FeeDueItemDto> Items { get; set; } = [];
+    [Parameter, EditorRequired] public string Currency { get; set; } = "";
+    [Parameter] public decimal LowHoursAt { get; set; } = 2;
+
+    private static string DueLine(FeeDueItemDto i) => i switch
+    {
+        { Due: > 0, DaysOverdue: > 0 } => i.DaysOverdue == 1 ? "Overdue by 1 day" : $"Overdue by {i.DaysOverdue} days",
+        { Due: > 0, DueOn: { } d } => $"Due {d:d MMM}",
+        _ => "Paid up · renew hours",
+    };
+}

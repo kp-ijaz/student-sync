@@ -63,16 +63,20 @@ The owner decided Student Sync is for **one institute only** (not white-label Sa
 | Exams & question bank (8 question types, timed attempts, autosave, server deadline, idempotent submit, auto/manual grading, release results, auto-finalise job) | Done | Unit grading; integration attempt/autosave/idempotent submit/answer keys hidden |
 | Doubt Centre (attachments, routing, status machine, replies, student confirmation, automatic follow-up into next session agenda, no duplicate reminders) | Done | Unit transitions; integration full flow incl. follow-up run twice; E2E ask doubt |
 | Messaging (permission-based contacts, direct conversations, unread counts, real-time) & announcements | Done | Browser-checked; not covered by automated tests |
+| Tuition-centre flow (2026-11-12): one-page *Add classes* with per-day subject/teacher weekly plans (`POST /sessions/batch[/check]`, all-or-nothing, overlap check), UAE/student time-zone choice, teacher "New classes for you" notification; teacher profile (subjects incl. whole-subject pick, qualifications, phone, experience, languages, joined; migration `TeacherProfileDetails`); student admission page (contact, guardian, class/syllabus, centre tuition subjects via `POST /academics/centre-subjects`, last school result with marks and PDF/photo report, joining date, goal; migration `StudentAdmissionAndSchoolReports`; `GET/POST/DELETE /students/{id}/school-reports`, file purpose `SchoolReport`) | Done (fees/hour packages and the student 360 overview still to do) | Integration: WeeklyPlanTests 3, TeacherProfileTests 2, StudentAdmissionTests 2, teacher read of student subjects 1 — all pass; 125 unit tests pass. Puppeteer: `daily-class-planner.mjs` (Hafiz-style 20-class week, India-time summary), `teacher-profile.mjs`, `admission.mjs` at 375/768/1440, no console errors (missing local profile-photo files excluded). Full integration suite: `MySubjectsTests.Classes_without_a_chapter…` fails because the earlier one-to-one-only rule rejects its group session (test needs updating); `LearningProfileTests` seeder count and a SQL TLS handshake failed once in the parallel run and pass alone |
 | Notifications (in-app, dedupe, SignalR push, preferences, quiet hours, email via SMTP, delivery records) | Done | Unit quiet hours; integration dedupe; real SMTP delivery to Mailpit verified manually (not an automated test) |
 | AI Class Assistant (consent & policy gates, transcript upload/parse/correct, idempotent jobs, structured output validation, retries, name redaction, review/edit/version/approve/reject/publish, student assistant over approved notes, usage & quota) | Done, **provider inactive** | Unit: approval gate, parsing/validation, redaction; integration: consent required, blocked without provider, cannot publish unapproved, students can't open drafts, publish makes note visible. **No live Claude call has been made** (no API key configured; paid use needs approval) |
 | Dashboards (admin, teacher, student, parent, platform) from live data | Done | Integration + E2E + screenshots |
 | Progress (evidence-based metrics with explanations) & institution reports + CSV | Done | Browser-checked |
 | SaaS administration (institutions, plans, features, subscriptions + history, usage limits, suspension, audit) | Done | Integration (super admin isolation); browser-checked |
 | Web app: design system, responsive shell, all role screens, loading/empty/error/forbidden states | Done | 27 Playwright tests pass incl. axe WCAG 2.1 AA (5 pages) and 375 px overflow checks (4 pages); screenshots reviewed at 375/768/1440 |
-| PWA (manifest, icons, service worker for static assets, offline page with explicitly saved notes) | Done | Files served; install prompt/offline behaviour **not** browser-tested |
+| PWA (manifest, icons, service worker for static assets, offline page with explicitly saved notes; 2026-11-06: in-app install banner on the sign-in page and the shell, manifest `id` and icon purposes, iOS home-screen title) | Done | Chrome reports no manifest or installability errors on the hosted site and fires `beforeinstallprompt`. `puppeteer/install-banner.mjs` (38 checks) at 375/768/1440: hidden until installable, Install calls the browser prompt, *Not now* remembered 14 days, iPhone shows the Share steps, hidden in standalone, keyboard focus, touch targets, no overflow, axe clean on the sign-in page and student dashboard, no console errors. Playwright visual baselines unchanged. **Not** verified: a real install on an Android or iOS device; offline behaviour |
+| Stay signed in (2026-11-06): *Keep me signed in* on the sign-in page (ticked by default; choice kept after a failed attempt) gives a persistent HttpOnly/SameSite=Lax cookie sliding for `Sessions:PersistentDays` (30); unticked = browser-session cookie. Web session store encrypted with Data Protection and kept on disk (`FileDistributedCache`, `Sessions:StorePath`, `websessions` volume) so restarts and deploys keep people signed in | Done | Unit: 9 `FileDistributedCacheTests` (restart survival, expiry, relative/no expiry, sliding refused, atomic overwrite, remove, key never on disk, truncated file, hourly sweep). Puppeteer `session-persistence.mjs` (26 checks, local stack): option ticked by default with hint, 44 px on phones, keyboard order, axe clean at 1440/375; cookie persistent ~30 days, HttpOnly, Lax; stored session has no readable tokens; still signed in after closing the browser **and** after restarting the web server, dashboard data loads; sign-out removes cookie and stored session and an old copied cookie no longer works; unticked = session cookie, signed out after closing the browser. Same check against the old in-memory store fails the restart step. Sign-in visual baselines updated for the new option; full Playwright suite 60 passed. **Not** verified with a real sign-in on the hosted site (no test account there) |
 | Localisation (English; Arabic RTL and Malayalam for shell/navigation) | Partial | Navigation strings translated; page content is English only |
 | Flutter mobile app — **parked 2026-11-04** (owner decision: web + PWA only this phase; CI job commented out, code unchanged, not maintained) | Done as of 2026-11-02, then parked | 65 tests pass; iOS simulator walkthrough against the live API passes (2026-11-02); Android debug build **not re-run** after the 2026-11-02 changes (the machine ran out of disk space) — see "Mobile" |
 | Docker images & compose | Done | Images build; full E2E suite passes against the containerised stack — see "Containers" |
+| Free demo hosting (2026-11-06): `deploy/oracle/` (two Oracle Always Free micro VMs, Caddy HTTPS, Azure SQL free offer, `Jobs__Mode=Inline`), `deploy.sh` redeploy script; fix so `Jobs:Mode=Inline` also starts in Development | Done (demo only, fictional data; not production) | Live over HTTPS: health endpoints 200, API docs and port 8080 not public, HTTP redirects. Puppeteer against the live site: admin sign-in forced to change password, a demo student changed password and reached the dashboard at 1440 and 375 px, no console errors or failed requests. `HostStartupTests` fails without the fix and passes with it. Limits listed in DEPLOYMENT.md |
+| First-admin set-up (2026-11-06): `create-institution` maintenance command creates the institute (active subscription, no trial) and its first administrator on an empty database; refused once any institution exists; temporary password generated or supplied via `Bootstrap__AdminPassword`, always changed at first sign-in; policy-violating supplied password needs `--allow-weak-temporary-password`; audited as `tenant.bootstrapped` | Done | Integration (`CreateInstitutionTests`, 3 tests on their own empty databases): weak password refused without the flag and nothing created; with the flag one institution + one admin, password not echoed, sign-in forced to change, weak new password rejected, strong accepted, old password dead, repeat run refused; generated-password path; missing/invalid options; refused on a database with institutions. Run for real on the hosted environment after clearing the demo data; browser check at 1440 and 375 px |
 | CI (GitHub Actions: build, format, unit, integration, E2E; Flutter job commented out) | Written | Not run on GitHub (no remote configured) |
 | Documentation | Done | README, ARCHITECTURE, DESIGN, DEVELOPMENT, DEPLOYMENT, user guide |
 
@@ -113,7 +117,18 @@ The owner decided Student Sync is for **one institute only** (not white-label Sa
 ## Not implemented / limitations (honest list)
 
 * **External providers not configured:** Claude API key (AI drafts and assistant inactive), automatic transcription provider (teachers upload transcripts), push notifications (FCM/APNs adapter not implemented — interface + device registration only), Google Meet/Calendar OAuth (manual meeting links and ICS export instead), payment/billing provider (subscriptions managed manually).
-* **Fees module** (optional in the spec) is not implemented and is hidden (feature flag `fees_module` off).
+* **Teacher subjects connect everything (2026-11-13):** a teacher creates classes, questions, exams and assignments only
+  in the subjects on their profile (`AccessPolicy.EnsureTeachesSubjectAsync`, 400 with a plain reason; admins unlimited);
+  subject pickers call `GET /academics/subjects?mine=true`. `TeacherSubjectsTests` covers it. The teacher's Students menu
+  opens the admin's Students table (`/teacher/students`, API-scoped, no Edit/Admit); the old phone-style list was removed.
+* **Fees (prepaid hours), first slice (2026-11-13):** admin sells hour packages (hours, price, start, pay-by, optional
+  first payment), records payments (amount ≤ due, not in the future), voids mistaken payments (kept with reason) and
+  cancels unpaid packages; `GET /students/{id}/fees`, `POST /students/{id}/packages[/{pid}/payments|/{pid}/cancel]`,
+  `POST /students/{id}/payments/{pid}/void`, `GET /fees/due`; migration `HourPackagesAndFees`. Hours used are counted
+  from attendance (present/late, class not cancelled, exact minutes, from the first active package's start) — so a
+  class is never charged twice. Not yet: a stored hour ledger with manual hour adjustments, institute billing policy
+  settings (absence/late charging, rounding), package catalogue/price list, expiry, teacher/student views of hours,
+  low-hours notifications and an "On hold" student status.
 * **Exceptional super-admin support access** (time-limited, audited access to institution content) is not implemented; super admins have no access to learning content at all.
 * **Role permissions** are a fixed matrix shown read-only; per-institution permission customisation is not implemented.
 * **Recurring series** are materialised up-front (≤400 sessions / 3 years); there is no "edit all future occurrences" — reschedule individually or cancel the rest of the series and create a new one.
@@ -131,3 +146,43 @@ The owner decided Student Sync is for **one institute only** (not white-label Sa
 2. `dotnet run --project src/StudentSync.Api -- seed-demo`, then run API and Web (see DEVELOPMENT.md).
 3. Re-run the three test suites before and after changes.
 4. Next increments, in priority order: push notifications (FCM), S3/Azure Blob `IFileStorage`, Google Meet/Calendar OAuth, fees module, full content localisation, visual regression baselines.
+
+## Daily experience and one-to-one scheduling — 2026-11-12
+
+Implemented in source: role-specific daily action cards on admin/teacher/student home,
+illustrated admin/planner heroes, responsive layouts and reduced-motion-safe transitions.
+The student-first class planner supports one selected student, teacher, subject, weekly
+weekday selection, duration, end date or occurrence count, and date/conflict preview.
+Optional chapter/goals and advanced recurrence controls are collapsed. Saving requires
+a preview matching the current request; conflict acknowledgements do not invalidate it.
+The API rejects new non-one-to-one schedules and requests without exactly one student.
+Historical class records are retained. Group/batch entry points were removed from active
+navigation; legacy catalogue routes/data remain for compatibility.
+
+Regression coverage added/updated in `ApiTests.cs`, plus a read-only Puppeteer journey
+in `tests/e2e/puppeteer/daily-class-planner.mjs` for all three roles at 375/768/1440px.
+`node --check` and `git diff --check` pass. Build/test execution is **not verified**:
+.NET build/test projects have no restored `project.assets.json`; npm installation fails
+with registry DNS `ENOTFOUND`; Docker socket access is denied. No screenshots or axe
+results are claimed for these changes. Other detailed modules (exams, assignment entry,
+content management, reports) retain their existing implementations and still need an
+end-to-end usability review before describing the entire UI redesign as complete.
+
+Local follow-through: improved student-directory identity rows and account-creation
+help, corrected daily/interval schedule summaries, kept action focus order aligned
+with visual order, and guarded saving against unacknowledged or empty previews.
+Added integration coverage for an admin previewing and creating six Monday/Thursday
+classes for one student with the same teacher and local time. Extended the browser
+journey to verify editing duration invalidates a preview. These tests remain unrun:
+`dotnet build --no-restore` reports NETSDK1004; `npm ci --offline --ignore-scripts`
+reports ENOTCACHED; the Puppeteer command reports ERR_MODULE_NOT_FOUND. JavaScript
+syntax and whitespace checks pass. Changes are local; no Oracle deployment was made.
+
+Usability review follow-up: replaced the long planner with three guided steps and
+preserved inputs across Back/Next; added step validation, keyboard heading focus,
+busy-state form disabling and reduced dashboard decoration for active institutes.
+Puppeteer checks now cover step validation, input retention, stale previews and all
+three steps at each viewport. `node --check` and `git diff --check` pass. Local :5090
+is not running, `project.assets.json` is absent, and DNS resolution for api.nuget.org
+and registry.npmjs.org fails in this environment. No live UI, screenshot, accessibility,
+compiled build or end-to-end success is claimed for this follow-up.

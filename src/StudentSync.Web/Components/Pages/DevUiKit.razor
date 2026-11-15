@@ -11,6 +11,8 @@ else
 {
     <PageHeader Title="UI kit" Subtitle="Shared components for the unified web + mobile look (development only)." />
 
+    <DailyPath Items="@(new ShortcutItem[] { new("Students", "/admin/students", "users"), new("Add classes", "/sessions/new", "calendar", "violet"), new("Reports", "/admin/reports", "bar-chart", "green") })" />
+
     <SectionHeader Title="HeroCard, GlassPill, TagPill, StatusBadge" Icon="sparkle" />
     <div class="grid grid-2">
         <HeroCard>

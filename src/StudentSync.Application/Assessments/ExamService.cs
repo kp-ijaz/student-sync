@@ -47,8 +47,7 @@ public sealed class ExamService(IAppDbContext db, ICurrentUser user, AccessPolic
     {
         access.Require(Permissions.ExamsManage);
         if (!await db.Subjects.AnyAsync(s => s.Id == r.SubjectId, ct)) throw RequestValidationException.For("subjectId", "Subject not found.");
-        if (!access.IsAdmin && !await db.TeacherSubjects.AnyAsync(t => t.SubjectId == r.SubjectId && t.TeacherId == user.UserId, ct))
-            throw new ForbiddenException("You are not assigned to this subject.");
+        await access.EnsureTeachesSubjectAsync(r.SubjectId, "add questions", ct);
         if (r.ChapterId is { } c && !await db.Chapters.AnyAsync(x => x.Id == c && x.SubjectId == r.SubjectId, ct)) throw RequestValidationException.For("chapterId", "Chapter not found.");
         if (r.Options.Count > 12) throw RequestValidationException.For("options", "At most 12 options.");
 
@@ -147,6 +146,7 @@ public sealed class ExamService(IAppDbContext db, ICurrentUser user, AccessPolic
         else db.Exams.Add(e = new Exam { TeacherId = user.UserId });
 
         if (!await db.Subjects.AnyAsync(s => s.Id == r.SubjectId, ct)) throw RequestValidationException.For("subjectId", "Subject not found.");
+        await access.EnsureTeachesSubjectAsync(r.SubjectId, "set exams", ct);
         if (r.SessionId is { } sid) await access.GetManageableSessionAsync(sid, ct);
         if (r.BatchId is { } bid && !await db.Batches.AnyAsync(b => b.Id == bid && (access.IsAdmin || b.TeacherId == user.UserId), ct)) throw RequestValidationException.For("batchId", "Batch not found.");
         if (r.MaxAttempts is < 1 or > 10) throw RequestValidationException.For("maxAttempts", "Attempts must be between 1 and 10.");

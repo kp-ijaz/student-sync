@@ -76,8 +76,8 @@ Pair with `api-integration` (pagination/bounded queries) and `puppeteer-browser-
 
 ## Security / permission notes
 
-Performance work must not cache or prefetch data across roles/users (the web session store is in-memory
-per node; never put per-student data in the service worker cache beyond the explicitly saved offline
+Performance work must not cache or prefetch data across roles/users (the web session store is per node — on disk when `Sessions:StorePath` is set, else in memory;
+never put per-student data in the service worker cache beyond the explicitly saved offline
 notes). Signed file links stay short-lived even when "preloading" media.
 
 ## Required checks

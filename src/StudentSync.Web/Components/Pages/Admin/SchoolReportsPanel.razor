@@ -1,0 +1,130 @@
+@inherits AppComponent
+
+@* School results the student or parent shared: overall %, marks per subject and the scanned report.
+   Admins add and remove them; the student's teachers read them (the API decides who may see what). *@
+<section class="card" aria-labelledby="sr-h">
+    <div class="card-head">
+        <div><h2 id="sr-h">School results</h2><div class="caption">Marks and progress reports from the student’s school.</div></div>
+        @if (CanManage) { <button class="btn btn-secondary btn-sm" @onclick="New"><Icon Name="plus" /> Add result</button> }
+    </div>
+    <DataView Loading="_items is null && _error is null" Error="_error" OnRetry="LoadAsync" IsEmpty="_items?.Count == 0"
+              EmptyTitle="No school results yet" EmptyText="@(CanManage ? "Add the last exam result the student or parent shared." : "None recorded yet.")" EmptyIcon="bar-chart">
+        <ul class="list">
+            @foreach (var r in _items ?? [])
+            {
+                <li class="school-report">
+                    <div class="row-between">
+                        <div>
+                            <strong>@r.Title</strong>
+                            <div class="caption">@(r.ExamDate?.ToString("d MMM yyyy") ?? "Date not given")@(r.OverallPercent is { } p ? $" · Overall {p:0.#}%" : "")</div>
+                        </div>
+                        <div class="row">
+                            @if (r.File is { } f) { <FileButton FileId="f.Id" Label="Open report" /> }
+                            @if (CanManage) { <button class="btn btn-ghost btn-sm" @onclick="() => Delete(r)" disabled="@Busy">Remove<span class="sr-only"> @r.Title</span></button> }
+                        </div>
+                    </div>
+                    @if (r.Marks.Count > 0)
+                    {
+                        <div class="pill-list" style="margin-top:8px">
+                            @foreach (var m in r.Marks) { <span class="badge @Tone(m)">@m.Subject @MarkLabel(m)</span> }
+                        </div>
+                    }
+                    @if (r.Notes is not null) { <p class="small" style="margin:8px 0 0">@r.Notes</p> }
+                </li>
+            }
+        </ul>
+    </DataView>
+</section>
+
+<Modal @bind-Open="_open" Title="Add school result" Wide="true">
+    <div class="form-grid">
+        <div class="field"><label for="srt">Exam *</label><input id="srt" class="input" placeholder="e.g. Term 1 2026" @bind="_title" /></div>
+        <div class="field"><label for="srd">Exam date</label><input id="srd" type="date" class="input" @bind="_date" /></div>
+        <div class="field"><label for="srp">Overall marks (%)</label><input id="srp" type="number" min="0" max="100" step="0.1" class="input" @bind="_overall" /></div>
+        <div class="field">
+            <label for="srf">Progress report (PDF or photo)</label>
+            <InputFile id="srf" accept="application/pdf,image/png,image/jpeg,image/webp" OnChange="Upload" disabled="@Busy" />
+            @if (_file is not null) { <span class="help">Attached: @_file.FileName</span> }
+        </div>
+    </div>
+    <ul class="teacher-quals" style="margin-top:12px">
+        @foreach (var (m, i) in _marks.Select((m, i) => (m, i)))
+        {
+            <li class="teacher-qual admit-mark">
+                <div class="field"><label for="@($"srs{i}")">Subject</label><input id="@($"srs{i}")" class="input" @bind="m.Subject" /></div>
+                <div class="field"><label for="@($"srm{i}")">Marks</label><input id="@($"srm{i}")" type="number" min="0" step="0.5" class="input" @bind="m.Marks" /></div>
+                <div class="field"><label for="@($"srx{i}")">Out of</label><input id="@($"srx{i}")" type="number" min="1" step="0.5" class="input" @bind="m.MaxMarks" /></div>
+                <div class="field"><label for="@($"srg{i}")">Grade</label><input id="@($"srg{i}")" class="input" maxlength="10" @bind="m.Grade" /></div>
+                <button type="button" class="btn btn-ghost btn-sm teacher-qual-remove" @onclick="() => _marks.RemoveAt(i)">Remove</button>
+            </li>
+        }
+    </ul>
+    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => _marks.Add(new())"><Icon Name="plus" /> Add subject marks</button>
+    <div class="field" style="margin-top:12px"><label for="srn">Notes</label><input id="srn" class="input" @bind="_notes" /></div>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _open = false">Cancel</button><button class="btn btn-primary" @onclick="Save" disabled="@(Busy || string.IsNullOrWhiteSpace(_title))">Save result</button></div>
+</Modal>
+
+@code {
+    private sealed class MarkRow { public string Subject { get; set; } = ""; public decimal? Marks { get; set; } public decimal? MaxMarks { get; set; } public string? Grade { get; set; } }
+
+    [Parameter, EditorRequired] public Guid StudentId { get; set; }
+    /// <summary>Subject names to pre-fill the marks rows (the student's tuition subjects).</summary>
+    [Parameter] public IReadOnlyList<string> SubjectNames { get; set; } = [];
+    private bool CanManage => Me.Role == UserRole.InstitutionAdmin;
+
+    private List<SchoolReportDto>? _items;
+    private ApiException? _error;
+    private bool _open;
+    private string _title = "";
+    private string? _notes;
+    private DateOnly? _date;
+    private decimal? _overall;
+    private FileDto? _file;
+    private List<MarkRow> _marks = [];
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+    private async Task LoadAsync() => (_items, _error) = await Fetch(() => Api.GetAsync<List<SchoolReportDto>>($"students/{StudentId}/school-reports"));
+
+    private static string MarkLabel(SchoolMarkDto m) =>
+        m.Marks is { } got && m.MaxMarks is { } max ? $"{got:0.#}/{max:0.#}" + (m.Grade is null ? "" : $" ({m.Grade})") : m.Grade ?? (m.Marks?.ToString("0.#") ?? "");
+
+    /// <summary>Colour plus text: below 50% amber, 75% and above green; the numbers are always shown.</summary>
+    private static string Tone(SchoolMarkDto m) => m.Marks is { } got && m.MaxMarks is { } max && max > 0
+        ? (got / max) switch { < 0.5m => "amber", >= 0.75m => "green", _ => "blue" } : "slate";
+
+    private void New()
+    {
+        (_title, _notes, _date, _overall, _file) = ("", null, null, null, null);
+        _marks = SubjectNames.Select(n => new MarkRow { Subject = n }).ToList();
+        _open = true;
+    }
+
+    private async Task Upload(InputFileChangeEventArgs e)
+    {
+        await Run(async () =>
+        {
+            using var form = new MultipartFormDataContent();
+            var c = new StreamContent(e.File.OpenReadStream(15_000_000));
+            c.Headers.ContentType = new(string.IsNullOrEmpty(e.File.ContentType) ? "application/octet-stream" : e.File.ContentType);
+            form.Add(c, "file", e.File.Name);
+            form.Add(new StringContent("SchoolReport"), "purpose");
+            _file = await Api.PostFormAsync<FileDto>("files", form);
+        });
+    }
+
+    private async Task Save()
+    {
+        var marks = _marks.Where(m => !string.IsNullOrWhiteSpace(m.Subject) && (m.Marks is not null || m.MaxMarks is not null || !string.IsNullOrWhiteSpace(m.Grade)))
+            .Select(m => new SchoolMarkDto(m.Subject, m.Marks, m.MaxMarks, m.Grade)).ToList();
+        if (await Run(() => Api.PostAsync($"students/{StudentId}/school-reports", new SaveSchoolReportRequest(_title, _date, _overall, _notes, marks, _file?.Id)), "School result saved."))
+        {
+            _open = false;
+            await LoadAsync();
+        }
+    }
+
+    private async Task Delete(SchoolReportDto r)
+    {
+        if (await Run(() => Api.DeleteAsync($"students/{StudentId}/school-reports/{r.Id}"), "School result removed.")) await LoadAsync();
+    }
+}

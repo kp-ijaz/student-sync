@@ -17,12 +17,12 @@
 <DataView Loading="_r is null && _error is null" Error="_error" OnRetry="LoadAsync">
     @if (_r is not null)
     {
-        <div class="stat-grid" style="margin-bottom:16px">
-            <StatCard Icon="calendar" Tone="info" Label="Sessions held" Value="@_r.SessionsByType.Sum(x => x.Sessions).ToString()" Hint="Excludes cancelled" />
-            <StatCard Icon="user-check" Tone="green" Label="Attendance rate" Value="@(_r.Attendance.AttendanceRatePercent is { } rate ? $"{rate:0.#}%" : "—")" />
-            <StatCard Icon="help" Tone="orange" Label="Doubts resolved" Value="@($"{_r.Doubts.Resolved} / {_r.Doubts.Raised}")" Hint="@(_r.Doubts.AvgResolutionHours is { } hours ? $"avg {hours:0.#} h to resolve" : null)" />
-            <StatCard Icon="clipboard" Tone="blue" Label="Assignments submitted" Value="@($"{_r.Assignments.Submitted} / {_r.Assignments.ExpectedSubmissions}")" Hint="@($"{_r.Assignments.Late} late · {_r.Assignments.Graded} graded")" />
-        </div>
+        <MetricStrip AriaLabel="This period at a glance" Items="@([
+            new("Classes held", _r.SessionsByType.Sum(x => x.Sessions).ToString(), "cancelled classes not counted", "calendar"),
+            new("Attendance", _r.Attendance.AttendanceRatePercent is { } rate ? $"{rate:0.#}%" : "—", "present or late of marked", "user-check"),
+            new("Doubts resolved", $"{_r.Doubts.Resolved} / {_r.Doubts.Raised}", _r.Doubts.AvgResolutionHours is { } hours ? $"avg {hours:0.#} h to resolve" : "raised in this period", "help"),
+            new("Assignments", $"{_r.Assignments.Submitted} / {_r.Assignments.ExpectedSubmissions}", $"submitted · {_r.Assignments.Late} late · {_r.Assignments.Graded} graded", "clipboard"),
+        ])" />
         <div class="grid grid-2" style="margin-bottom:16px">
             <div class="card"><div class="card-head"><h2>By teaching mode</h2></div>
                 <div class="table-wrap"><table class="table"><thead><tr><th>Mode</th><th>Sessions</th><th>Student places</th></tr></thead>

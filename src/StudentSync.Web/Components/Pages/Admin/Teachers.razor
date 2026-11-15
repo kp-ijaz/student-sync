@@ -2,58 +2,189 @@
 @attribute [Authorize(Roles = "InstitutionAdmin")]
 @inherits AppPage
 
-<PageHeader Title="Teachers"><Actions><button class="btn btn-primary" @onclick="New"><Icon Name="plus" /> Add teacher</button></Actions></PageHeader>
+@* Teachers come first in the centre's flow: their subjects decide who is offered in "Add classes". *@
+<PageHeader Title="Teachers" Subtitle="Add each teacher with the subjects they teach. They are then offered for those subjects when you add classes.">
+    <Actions><button class="btn btn-primary" @onclick="New"><Icon Name="plus" /> Add teacher</button></Actions>
+</PageHeader>
 <div class="card">
     <input class="input" style="max-width:320px;margin-bottom:16px" placeholder="Search teachers" aria-label="Search teachers" @bind="_search" @bind:after="() => Load(1)" />
-    <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0" EmptyTitle="No teachers yet" EmptyIcon="user-check">
+    <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0" EmptyTitle="No teachers yet" EmptyText="Add your first teacher with the subjects they teach." EmptyIcon="user-check">
         <div class="table-wrap"><table class="table stack-mobile">
-            <thead><tr><th>Name</th><th>Subjects</th><th>Specialisations</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Teacher</th><th>Subjects</th><th>Qualifications</th><th>Experience</th><th>Status</th><th></th></tr></thead>
             <tbody>@foreach (var t in _page?.Items ?? [])
             {
-                <tr><td data-label="Name"><strong>@t.FullName</strong><div class="caption">@t.Email · @t.TimeZoneId</div></td>
-                    <td data-label="Subjects"><div class="pill-list">@foreach (var s in t.Subjects) { <span class="badge blue">@s.Name</span> }</div></td>
-                    <td data-label="Specialisations" class="small">@t.Specialisations</td>
+                <tr><td data-label="Teacher"><div class="student-directory-name"><Avatar Name="@t.FullName" PhotoUrl="@t.PhotoUrl" Size="sm" Decorative="true" /><div><strong>@t.FullName</strong><div class="caption">@(t.Phone ?? t.Email)</div></div></div></td>
+                    <td data-label="Subjects">@if (t.Subjects.Count == 0) { <span class="caption">None yet — edit to add</span> } else { <div class="pill-list">@foreach (var g in t.Subjects.GroupBy(x => x.Name)) { <span class="badge blue" title="@string.Join(", ", g.Select(x => x.Detail))">@g.Key@(g.Count() > 1 ? $" · {g.Count()} classes" : "")</span> }</div> }</td>
+                    <td data-label="Qualifications" class="small">@string.Join(", ", (t.Qualifications ?? []).Select(q => q.Title))</td>
+                    <td data-label="Experience" class="small">@ExperienceLabel(t)</td>
                     <td data-label="Status"><Badge Style="StatusStyles.For(t.Status)" /></td>
-                    <td><button class="btn btn-ghost btn-sm" @onclick="() => Edit(t)">Edit</button><a class="btn btn-ghost btn-sm" href="/teacher/availability?teacherId=@t.Id">Availability</a></td></tr>
+                    <td><button class="btn btn-ghost btn-sm" @onclick="() => Edit(t)">Edit<span class="sr-only"> @t.FullName</span></button><a class="btn btn-ghost btn-sm" href="/teacher/availability?teacherId=@t.Id">Availability</a></td></tr>
             }</tbody>
         </table></div>
         @if (_page is not null) { <Pager Page="_page.Page" TotalPages="_page.TotalPages" Total="_page.TotalCount" OnPage="Load" /> }
     </DataView>
 </div>
-<Modal @bind-Open="_open" Title="@(_editId is null ? "Add teacher" : "Edit teacher")">
-    <div class="form-grid">
-        @if (_editId is not null)
-        {
-            <div class="field full"><span class="label">Profile photo</span>
-                <PhotoEditor Name="@_name" PhotoUrl="@_photoUrl" Upload="UploadPhoto" Remove="RemovePhoto" OnChanged="PhotoChanged" /></div>
-        }
-        <div class="field full"><label for="tn">Full name *</label><input id="tn" class="input" @bind="_name" /></div>
-        @if (_editId is null) { <div class="field full"><label for="te">Email *</label><input id="te" type="email" class="input" @bind="_email" /></div> }
-        <div class="field"><label for="tc">Employee code</label><input id="tc" class="input" @bind="_code" /></div>
-        <div class="field"><label for="ttz">Time zone</label><TimeZoneSelect Id="ttz" @bind-Value="_tz" /></div>
-        <div class="field full"><label for="tsp">Specialisations</label><input id="tsp" class="input" @bind="_spec" /></div>
-        <div class="field full"><label for="tb">Bio</label><textarea id="tb" class="textarea" @bind="_bio"></textarea></div>
-        @if (_editId is not null) { <div class="field"><label for="tst">Status</label><select id="tst" class="select" @bind="_status">@foreach (var s in Enum.GetValues<PersonStatus>()) { <option value="@s">@StatusStyles.For(s).Label</option> }</select></div> }
+
+<Modal @bind-Open="_open" Title="@(_editId is null ? "Add teacher" : "Edit teacher")" Wide="true">
+    <div class="stack teacher-form">
+        <section aria-labelledby="tf-basic">
+            <h3 id="tf-basic" class="teacher-form-h">Basic details</h3>
+            <div class="form-grid">
+                @if (_editId is not null)
+                {
+                    <div class="field full"><span class="label">Profile photo</span>
+                        <PhotoEditor Name="@_name" PhotoUrl="@_photoUrl" Upload="UploadPhoto" Remove="RemovePhoto" OnChanged="PhotoChanged" /></div>
+                }
+                <div class="field"><label for="tn">Full name *</label><input id="tn" class="input" @bind="_name" /></div>
+                @if (_editId is null) { <div class="field"><label for="te">Email (for sign-in) *</label><input id="te" type="email" class="input" @bind="_email" /></div> }
+                <div class="field"><label for="tph">Phone / WhatsApp</label><input id="tph" type="tel" class="input" placeholder="+971 50 123 4567" @bind="_phone" /></div>
+                <div class="field"><label for="tc">Employee code</label><input id="tc" class="input" @bind="_code" /></div>
+                <div class="field"><label for="ttz">Time zone</label><TimeZoneSelect Id="ttz" @bind-Value="_tz" /></div>
+                @if (_editId is not null) { <div class="field"><label for="tst">Status</label><select id="tst" class="select" @bind="_status">@foreach (var s in Enum.GetValues<PersonStatus>()) { <option value="@s">@StatusStyles.For(s).Label</option> }</select></div> }
+            </div>
+        </section>
+
+        <section aria-labelledby="tf-subjects">
+            <h3 id="tf-subjects" class="teacher-form-h">Subjects they teach</h3>
+            @if (_subjectIds.Count == 0) { <p class="caption">No subjects yet. The teacher is only offered in “Add classes” for subjects chosen here.</p> }
+            else
+            {
+                <div class="pill-list" style="margin-bottom:8px">
+                    @foreach (var g in ChosenByName)
+                    {
+                        var label = g.Count() == 1 ? g.First().CourseName : $"{g.Count()} classes";
+                        <span class="badge removable blue" title="@string.Join(", ", g.Select(x => x.CourseName))"><span>@g.Key <span class="caption">@label</span></span><button type="button" class="chip-remove" aria-label="@($"Remove {g.Key} ({label})")" @onclick="() => RemoveSubjectName(g.Key)"><Icon Name="x" /></button></span>
+                    }
+                </div>
+            }
+            <label for="tsadd" class="sr-only">Add a subject</label>
+            @* @key resets the box to "Add a subject…" after every pick. *@
+            <select id="tsadd" class="select" @key="_subjectIds.Count" value="" @onchange="AddSubject">
+                <option value="">Add a subject…</option>
+                @if (WholeSubjects.Any())
+                {
+                    <optgroup label="Whole subject (every class)">
+                        @foreach (var (name, count) in WholeSubjects) { <option value="@($"all:{name}")">@name — all classes (@count)</option> }
+                    </optgroup>
+                }
+                @foreach (var course in _subjects.Where(s => !_subjectIds.Contains(s.Id)).GroupBy(s => s.CourseName))
+                {
+                    <optgroup label="@course.Key">@foreach (var s in course) { <option value="@s.Id">@s.Name</option> }</optgroup>
+                }
+            </select>
+            <span class="help">Pick a subject for one class, or the whole subject to cover every class (e.g. Mathematics for Class 1–12).</span>
+        </section>
+
+        <section aria-labelledby="tf-quals">
+            <h3 id="tf-quals" class="teacher-form-h">Qualifications</h3>
+            @if (_quals.Count == 0) { <p class="caption">For example B.Ed, MSc Mathematics, TESOL.</p> }
+            <ul class="teacher-quals">
+                @foreach (var (q, i) in _quals.Select((q, i) => (q, i)))
+                {
+                    <li class="teacher-qual">
+                        <div class="field"><label for="@($"qt{i}")">Qualification *</label><input id="@($"qt{i}")" class="input" placeholder="B.Ed" @bind="q.Title" /></div>
+                        <div class="field"><label for="@($"qi{i}")">Institution</label><input id="@($"qi{i}")" class="input" placeholder="University of Calicut" @bind="q.Institution" /></div>
+                        <div class="field"><label for="@($"qy{i}")">Year</label><input id="@($"qy{i}")" class="input" type="number" min="1950" max="@(DateTime.UtcNow.Year + 1)" @bind="q.Year" /></div>
+                        <button type="button" class="btn btn-ghost btn-sm teacher-qual-remove" @onclick="() => _quals.RemoveAt(i)">Remove<span class="sr-only"> @q.Title</span></button>
+                    </li>
+                }
+            </ul>
+            <button type="button" class="btn btn-secondary btn-sm" @onclick="() => _quals.Add(new())"><Icon Name="plus" /> Add qualification</button>
+        </section>
+
+        <section aria-labelledby="tf-exp">
+            <h3 id="tf-exp" class="teacher-form-h">Experience</h3>
+            <div class="form-grid">
+                <div class="field"><label for="tex">Years of teaching experience</label><input id="tex" class="input" type="number" min="0" max="60" @bind="_years" /></div>
+                <div class="field"><label for="tjo">Joined the centre on</label><input id="tjo" class="input" type="date" @bind="_joined" /></div>
+                <div class="field full"><label for="tla">Teaching languages</label><input id="tla" class="input" placeholder="English, Malayalam, Arabic" @bind="_languages" /></div>
+                <div class="field full"><label for="tsp">Speciality</label><input id="tsp" class="input" placeholder="e.g. Board exam preparation, primary classes" @bind="_spec" /></div>
+            </div>
+        </section>
+
+        <section aria-labelledby="tf-about">
+            <h3 id="tf-about" class="teacher-form-h">About</h3>
+            <div class="field"><label for="tb" class="sr-only">About the teacher</label><textarea id="tb" class="textarea" placeholder="A short introduction students and parents may read." @bind="_bio"></textarea></div>
+        </section>
     </div>
     <div class="form-actions">
         @if (_editId is not null) { <button class="btn btn-ghost" style="margin-right:auto" @onclick="ResetPassword" disabled="@Busy"><Icon Name="key" /> Reset password</button> }
-        <button class="btn btn-secondary" @onclick="() => _open = false">Cancel</button><button class="btn btn-primary" @onclick="Save" disabled="@Busy">Save</button></div>
+        <button class="btn btn-secondary" @onclick="() => _open = false">Cancel</button><button class="btn btn-primary" @onclick="Save" disabled="@Busy">Save teacher</button></div>
 </Modal>
 <TempPasswordDialog @bind-Password="_tempPassword" Title="@_tempTitle" />
 
 @code {
+    private sealed class QualificationRow { public string Title { get; set; } = ""; public string? Institution { get; set; } public int? Year { get; set; } }
+
     private PagedResult<TeacherDto>? _page;
     private ApiException? _error;
+    private List<SubjectDto> _subjects = [];
     private bool _open;
     private Guid? _editId;
     private string _search = "", _name = "", _email = "", _tz = "UTC";
-    private string? _code, _spec, _bio, _tempPassword, _photoUrl;
+    private string? _code, _spec, _bio, _tempPassword, _photoUrl, _phone, _languages;
+    private int? _years;
+    private DateOnly? _joined;
+    private List<Guid> _subjectIds = [];
+    private List<QualificationRow> _quals = [];
     private string _tempTitle = "Account created";
     private PersonStatus _status;
-    protected override Task LoadAsync() => Load(1);
+
+    protected override async Task LoadAsync()
+    {
+        _subjects = (await Fetch(() => Api.GetAsync<List<SubjectDto>>("academics/subjects"))).Value?.Where(s => s.Status == CatalogStatus.Active).ToList() ?? [];
+        await Load(1);
+    }
     private async Task Load(int p) => (_page, _error) = await Fetch(() => Api.GetAsync<PagedResult<TeacherDto>>($"teachers?page={p}&pageSize=25&search={Uri.EscapeDataString(_search)}"));
-    private void New() { (_editId, _name, _email, _code, _spec, _bio, _tz) = (null, "", "", null, null, null, Tz); _tempTitle = "Account created"; _open = true; }
-    private void Edit(TeacherDto t) { (_editId, _name, _code, _spec, _bio, _tz, _status, _photoUrl) = (t.Id, t.FullName, t.EmployeeCode, t.Specialisations, t.Bio, t.TimeZoneId, t.Status, t.PhotoUrl); _open = true; }
+
+    private static string ExperienceLabel(TeacherDto t)
+    {
+        var parts = new List<string>();
+        if (t.ExperienceYears is { } y) parts.Add(y == 1 ? "1 year" : $"{y} years");
+        if (t.JoinedOn is { } j) parts.Add($"here since {j:MMM yyyy}");
+        return string.Join(" · ", parts);
+    }
+
+    private void New()
+    {
+        (_editId, _name, _email, _code, _spec, _bio, _tz, _phone, _languages, _years, _joined) = (null, "", "", null, null, null, Tz, null, null, null, DateOnly.FromDateTime(DateTime.Today));
+        _subjectIds = [];
+        _quals = [];
+        _tempTitle = "Account created";
+        _open = true;
+    }
+
+    private void Edit(TeacherDto t)
+    {
+        (_editId, _name, _code, _spec, _bio, _tz, _status, _photoUrl) = (t.Id, t.FullName, t.EmployeeCode, t.Specialisations, t.Bio, t.TimeZoneId, t.Status, t.PhotoUrl);
+        (_phone, _languages, _years, _joined) = (t.Phone, t.Languages, t.ExperienceYears, t.JoinedOn);
+        _subjectIds = t.Subjects.Select(s => s.Id).ToList();
+        _quals = (t.Qualifications ?? []).Select(q => new QualificationRow { Title = q.Title, Institution = q.Institution, Year = q.Year }).ToList();
+        _open = true;
+    }
+
+    private IEnumerable<IGrouping<string, SubjectDto>> ChosenByName =>
+        _subjectIds.Select(id => _subjects.FirstOrDefault(x => x.Id == id)).OfType<SubjectDto>().GroupBy(x => x.Name);
+
+    /// <summary>Subjects taught in more than one class that are not fully added yet, e.g. ("Mathematics", 12).</summary>
+    private IEnumerable<(string Name, int Count)> WholeSubjects => _subjects.GroupBy(x => x.Name)
+        .Where(g => g.Count() > 1 && g.Any(x => !_subjectIds.Contains(x.Id)))
+        .OrderBy(g => g.Key).Select(g => (g.Key, g.Count()));
+
+    private void AddSubject(ChangeEventArgs e)
+    {
+        var value = e.Value as string ?? "";
+        if (value.StartsWith("all:", StringComparison.Ordinal))
+        {
+            var name = value[4..];
+            _subjectIds.AddRange(_subjects.Where(x => x.Name == name && !_subjectIds.Contains(x.Id)).Select(x => x.Id));
+        }
+        else if (Guid.TryParse(value, out var id) && !_subjectIds.Contains(id)) _subjectIds.Add(id);
+    }
+
+    private void RemoveSubjectName(string name) =>
+        _subjectIds.RemoveAll(id => _subjects.FirstOrDefault(x => x.Id == id)?.Name == name);
+
     private Task UploadPhoto(MultipartFormDataContent form) => Api.PutFormAsync($"teachers/{_editId}/photo", form);
     private Task RemovePhoto() => Api.DeleteAsync($"teachers/{_editId}/photo");
     // The photo is saved immediately (separately from the form); refresh the list to show the stored result.
@@ -66,12 +197,20 @@
     {
         if (await Run(async () => { _tempTitle = "Temporary password issued"; _tempPassword = (await Api.PostAsync<TemporaryPasswordResponse>($"teachers/{_editId}/password-reset", null)).TemporaryPassword; })) _open = false;
     }
+
     private async Task Save()
     {
+        // Empty qualification rows (nothing typed) are ignored rather than rejected.
+        var quals = _quals.Where(q => !string.IsNullOrWhiteSpace(q.Title) || !string.IsNullOrWhiteSpace(q.Institution) || q.Year is not null)
+            .Select(q => new TeacherQualificationDto(q.Title, q.Institution, q.Year)).ToList();
         if (await Run(async () =>
         {
-            if (_editId is null) _tempPassword = (await Api.PostAsync<CreatedPersonResponse>("teachers", new CreateTeacherRequest(_name, _email, _code, _spec, _bio, _tz))).TemporaryPassword;
-            else await Api.PutAsync($"teachers/{_editId}", new UpdateTeacherRequest(_name, _code, _spec, _bio, _status, _tz));
+            if (_editId is null)
+                _tempPassword = (await Api.PostAsync<CreatedPersonResponse>("teachers", new CreateTeacherRequest(_name, _email, _code, _spec, _bio, _tz,
+                    _subjectIds, _phone, _years, _languages, _joined, quals))).TemporaryPassword;
+            else
+                await Api.PutAsync($"teachers/{_editId}", new UpdateTeacherRequest(_name, _code, _spec, _bio, _status, _tz,
+                    _subjectIds, _phone, _years, _languages, _joined, quals));
         }, "Teacher saved.")) { _open = false; await Load(_page?.Page ?? 1); }
     }
 }

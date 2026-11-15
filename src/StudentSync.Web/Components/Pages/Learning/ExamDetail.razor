@@ -16,12 +16,12 @@
         <div class="row" style="margin:-12px 0 16px"><Badge Style="StatusStyles.For(_e.Status)" />@if (_e.Purpose == ExamPurpose.Diagnostic) { <span class="badge violet">Diagnostic</span> }@if (_e.ResultsReleased) { <span class="badge green">Results released</span> }</div>
         @if (_r is not null)
         {
-            <div class="grid grid-4" style="margin-bottom:16px">
-                <StatCard Label="Attempts" Value="@_r.Attempts.Count.ToString()" />
-                <StatCard Label="Average" Value="@(_r.Average?.ToString() ?? "—")" Hint="@($"out of {_r.TotalMarks}")" />
-                <StatCard Label="Highest" Value="@(_r.Highest?.ToString() ?? "—")" />
-                <StatCard Label="Awaiting manual grading" Value="@_r.PendingManualGrading.ToString()" />
-            </div>
+            <MetricStrip AriaLabel="Results at a glance" Items="@([
+                new("Attempts", _r.Attempts.Count.ToString(), "submitted so far", "users"),
+                new("Average", _r.Average?.ToString() ?? "—", $"out of {_r.TotalMarks}", "bar-chart"),
+                new("Highest", _r.Highest?.ToString() ?? "—", $"out of {_r.TotalMarks}", "trending-up"),
+                new("To grade", _r.PendingManualGrading.ToString(), "answers needing your marks", "clipboard-check"),
+            ])" />
         }
         <div class="grid grid-main">
             <div class="card">

@@ -30,6 +30,8 @@ public sealed class FileService(IAppDbContext db, ICurrentUser user, ITenantCont
         [FilePurpose.MessageAttachment] = (15_000_000, ["application/pdf", "image/png", "image/jpeg", "image/webp"]),
         // Profile photos: metadata (EXIF GPS etc.) is stripped before storage, so only formats we can strip are accepted.
         [FilePurpose.Avatar] = (5_000_000, ["image/jpeg", "image/png"]),
+        // A school progress report: a PDF or a phone photo of the printed report.
+        [FilePurpose.SchoolReport] = (15_000_000, ["application/pdf", "image/png", "image/jpeg", "image/webp"]),
     };
 
     // Magic numbers for formats where a mismatched declared type is a realistic attack vector.
@@ -177,6 +179,12 @@ public sealed class FileService(IAppDbContext db, ICurrentUser user, ITenantCont
                         return await db.ExamQuestions.AnyAsync(eq => questionIds.Contains(eq.QuestionId)
                             && db.Exams.Any(e => e.Id == eq.ExamId && e.Status != ExamStatus.Draft && e.Recipients.Any(r => r.StudentId == user.UserId)), ct);
                     return false;
+                }
+            case FilePurpose.SchoolReport:
+                {
+                    // Same people who may view the student's profile: admins, the student's teachers, the student.
+                    var studentId = await db.StudentSchoolReports.Where(r => r.FileId == id).Select(r => (Guid?)r.StudentId).FirstOrDefaultAsync(ct);
+                    return studentId is { } sid && await (await access.VisibleStudentIdsAsync(ct)).AnyAsync(x => x == sid, ct);
                 }
             case FilePurpose.Transcript:
                 return staff && await db.Transcripts.AnyAsync(t => sessions.Any(s => s.Id == t.SessionId && (access.IsAdmin || s.TeacherId == user.UserId)), ct);

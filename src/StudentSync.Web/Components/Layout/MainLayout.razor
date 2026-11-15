@@ -44,6 +44,7 @@
     </aside>
     <div class="scrim" @onclick="() => _navOpen = false"></div>
     <div class="main">
+        <InstallBanner />
         <header class="topbar">
             <button class="icon-btn menu-btn" aria-label="@I18n.T(Lang, "Open navigation")" aria-expanded="@(Aria.Bool(_navOpen))" @onclick="() => _navOpen = !_navOpen"><Icon Name="menu" /></button>
             @* Phones/tablets only (CSS): the page title in the app bar, as in the mobile app. Rendered from data-title by CSS so it is

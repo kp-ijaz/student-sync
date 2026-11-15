@@ -1,0 +1,14 @@
+@* Offers to install the web app (PWA). Browsers do not reliably offer this themselves and iOS never does, so the app
+   shows its own strip at the top of the page. It is rendered hidden; wwwroot/js/app.js reveals it when the browser
+   reports the app can be installed (Install button) or on iOS (the Share-menu steps), and keeps it hidden once the
+   app is installed or for 14 days after "Not now". *@
+<ss-install-banner class="install-banner" role="region" aria-label="Install the Student Sync app" hidden>
+    <BrandMark Alt="" />
+    <div class="install-text">
+        <strong>Install Student Sync</strong>
+        <span data-install-mode="prompt">Add it to your home screen and open it like any other app.</span>
+        <span data-install-mode="ios">Tap your browser's Share button, then “Add to Home Screen”.</span>
+    </div>
+    <button type="button" class="btn btn-primary btn-sm" data-install-mode="prompt" data-install-action="install">Install</button>
+    <button type="button" class="icon-btn" data-install-action="dismiss" aria-label="Not now"><Icon Name="x" /></button>
+</ss-install-banner>

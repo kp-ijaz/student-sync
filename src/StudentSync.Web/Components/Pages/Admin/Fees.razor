@@ -1,0 +1,58 @@
+@page "/admin/fees"
+@attribute [Authorize(Roles = "InstitutionAdmin")]
+@inherits AppPage
+
+@* The front desk's money list: who owes fees (most overdue first) and who is running out of prepaid hours.
+   Hours are sold and payments recorded on each student's profile (Fees & hours). *@
+<PageTitle>Fees · Student Sync</PageTitle>
+<PageHeader Title="Fees" Subtitle="Who owes fees and who is running out of hours. Open a student to sell hours or take a payment." />
+
+<DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_d is { } d)
+    {
+        <MetricStrip AriaLabel="Fees at a glance" Items="@([
+            new("To collect", Money.Format(d.TotalDue, d.CurrencyCode), $"{Plural(d.StudentsOwing, "student")} with unpaid packages", "wallet"),
+            new("Overdue", d.OverdueCount.ToString(), "past the day they should have paid", "alert"),
+            new("Low on hours", d.LowHoursCount.ToString(), $"{Money.Hours(d.LowHoursAt)} or less left", "timer"),
+            new("Collected", Money.Format(d.CollectedThisMonth, d.CurrencyCode), "this month", "check-circle"),
+        ])" />
+
+        <section class="card" aria-labelledby="due-h">
+            <div class="card-head"><h2 id="due-h">Students to follow up</h2></div>
+            <PillTabs TKey="string" Tabs="Tabs" @bind-Active="_filter" Label="Show students">
+                @if (Shown.Count == 0)
+                {
+                    <InlineEmpty Icon="check-circle" Text="@(d.TotalItems == 0 ? "Everyone is paid up and has hours left. Sell hours from a student's profile (Fees & hours)." : "No students in this view.")" />
+                }
+                else
+                {
+                    <FeesDueList Items="Shown" Currency="@d.CurrencyCode" LowHoursAt="d.LowHoursAt" />
+                }
+            </PillTabs>
+            @if (d.TotalItems > d.Items.Count) { <p class="caption" style="margin-top:12px">Showing the @d.Items.Count most urgent of @d.TotalItems students.</p> }
+        </section>
+    }
+</DataView>
+
+@code {
+    private FeesDueDto? _d;
+    private ApiException? _error;
+    private string _filter = "all";
+
+    // Counts are in the number strip above; the tabs stay short so four fit on a phone.
+    private static readonly List<PillTabs<string>.Tab> Tabs = [new("all", "All"), new("owing", "Owing"), new("overdue", "Overdue"), new("hours", "Low hours")];
+
+    private bool Matches(FeeDueItemDto i, string filter) => filter switch
+    {
+        "owing" => i.Due > 0,
+        "overdue" => i.DaysOverdue > 0,
+        "hours" => i.HoursLeft <= (_d?.LowHoursAt ?? 2),
+        _ => true,
+    };
+
+    private List<FeeDueItemDto> Shown => (_d?.Items ?? []).Where(i => Matches(i, _filter)).ToList();
+
+    private static string Plural(int n, string word) => n == 1 ? $"1 {word}" : $"{n} {word}s";
+
+    protected override async Task LoadAsync() => (_d, _error) = await Fetch(() => Api.GetAsync<FeesDueDto>("fees/due?take=200"));
+}

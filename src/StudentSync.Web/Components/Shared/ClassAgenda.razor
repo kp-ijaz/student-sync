@@ -1,0 +1,92 @@
+@* "Coming up" card used on every home and profile (DESIGN.md "Home pattern"): classes grouped Today / Tomorrow / date, a
+   large aligned start time, a subject-colour bar (class-cover keyword groups → .tone-*), title and who/how, and an
+   orange "Live now" / "Next" marker. ChildContent renders above the list (e.g. the Join bar for the next class). *@
+<section class="card home-agenda @Class" aria-labelledby="@_id">
+    <div class="card-head"><h2 id="@_id">@Title</h2>@if (LinkHref is not null) { <a href="@LinkHref">@LinkLabel</a> }</div>
+    @ChildContent
+    @if (Sessions.Count == 0)
+    {
+        <div class="agenda-empty">
+            <img src="illustrations/all_done.svg" width="160" height="128" alt="" />
+            <h3>@EmptyTitle</h3>
+            @if (EmptyText is not null) { <p class="muted">@EmptyText</p> }
+            @EmptyAction
+        </div>
+    }
+    else
+    {
+        var now = DateTime.UtcNow;
+        var live = !MarkNext ? null : Sessions.FirstOrDefault(s => s.Status != SessionStatus.Cancelled && s.StartUtc <= now && s.EndUtc > now)?.Id;
+        var next = !MarkNext ? null : Sessions.FirstOrDefault(s => s.Status != SessionStatus.Cancelled && s.StartUtc > now)?.Id;
+        @foreach (var day in Sessions.GroupBy(s => TeachingRules.DayLabel(s.StartUtc, now, Tz)))
+        {
+            <h3 class="agenda-day">@day.Key <span>@day.Count() @(day.Count() == 1 ? "class" : "classes")</span></h3>
+            <ol class="agenda-list">
+                @foreach (var s in day)
+                {
+                    var flag = s.Id == live ? "live" : s.Id == next ? "next" : "";
+                    var start = Time.ToLocal(s.StartUtc, Tz);
+                    <li class="agenda-class @flag @(s.Status == SessionStatus.Cancelled ? "cancelled" : "")">
+                        <a href="@(HrefFor?.Invoke(s) ?? $"/sessions/{s.Id}")">
+                            <span class="agenda-time"><strong>@start.ToString("h:mm")</strong><span>@start.ToString("tt") · @((int)(s.EndUtc - s.StartUtc).TotalMinutes) min</span></span>
+                            <span class="agenda-bar tone-@ToneFor(s.SubjectName ?? s.Title)" aria-hidden="true"></span>
+                            <span class="agenda-what">
+                                <strong>@s.Title</strong>
+                                <span>@Line(s)</span>
+                            </span>
+                            @if (flag == "live") { <span class="agenda-flag live">Live now</span> }
+                            else if (flag == "next") { <span class="agenda-flag next">Next</span> }
+                            @if (ShowTeacher) { <Avatar Name="@s.TeacherName" PhotoUrl="@s.TeacherPhotoUrl" Size="sm" Decorative="true" /> }
+                        </a>
+                    </li>
+                }
+            </ol>
+        }
+    }
+</section>
+
+@code {
+    private readonly string _id = "agenda-" + Guid.NewGuid().ToString("N")[..8];
+
+    [Parameter, EditorRequired] public IReadOnlyList<SessionListItemDto> Sessions { get; set; } = [];
+    [Parameter, EditorRequired] public string Tz { get; set; } = "UTC";
+    [Parameter] public string Title { get; set; } = "Coming up";
+    [Parameter] public string? LinkHref { get; set; }
+    [Parameter] public string LinkLabel { get; set; } = "Open calendar";
+    /// <summary>Teacher name and avatar on each row (admin and student views); off for a teacher's own classes.</summary>
+    [Parameter] public bool ShowTeacher { get; set; } = true;
+    /// <summary>"· 5 students" on each row (staff views).</summary>
+    [Parameter] public bool ShowStudentCount { get; set; } = true;
+    [Parameter] public string EmptyTitle { get; set; } = "No classes booked yet";
+    [Parameter] public string? EmptyText { get; set; }
+    [Parameter] public RenderFragment? EmptyAction { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public string? Class { get; set; }
+    /// <summary>Where a row opens (default: the class page), e.g. the attendance tab for "Attendance to mark".</summary>
+    [Parameter] public Func<SessionListItemDto, string>? HrefFor { get; set; }
+    /// <summary>Off for lists of past classes, where "Next" would be meaningless.</summary>
+    [Parameter] public bool MarkNext { get; set; } = true;
+
+    private string Line(SessionListItemDto s)
+    {
+        var parts = new List<string>();
+        if (ShowTeacher) parts.Add(People.ShortName(s.TeacherName));
+        else if (s.SubjectName is { } subject && !s.Title.Contains(subject, StringComparison.OrdinalIgnoreCase)) parts.Add(subject);
+        parts.Add(TeachingRules.DeliveryModeLabel(s.DeliveryMode));
+        if (ShowStudentCount && s.ParticipantCount > 1) parts.Add($"{s.ParticipantCount} students");
+        if (s.Status == SessionStatus.Cancelled) parts.Add("Cancelled");
+        return string.Join(" · ", parts.Where(p => p.Length > 0));
+    }
+
+    /// <summary>A subject colour for the bar, from the same keyword groups as the class covers.</summary>
+    public static string ToneFor(string subject) => System.IO.Path.GetFileNameWithoutExtension(ClassCovers.For(subject, null)) switch
+    {
+        "maths" => "blue",
+        "science" or "physics" or "chemistry" => "green",
+        "english" => "violet",
+        "languages" => "info",
+        "social" => "amber",
+        "commerce" => "orange",
+        _ => "navy",
+    };
+}

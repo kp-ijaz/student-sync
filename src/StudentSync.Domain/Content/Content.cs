@@ -3,7 +3,7 @@ using StudentSync.Domain.Scheduling;
 
 namespace StudentSync.Domain.Content;
 
-public enum FilePurpose { Material, NoteImage, Recording, Transcript, AssignmentAttachment, Submission, DoubtAttachment, MessageAttachment, Avatar, PrerecordedVideo, QuestionImage }
+public enum FilePurpose { Material, NoteImage, Recording, Transcript, AssignmentAttachment, Submission, DoubtAttachment, MessageAttachment, Avatar, PrerecordedVideo, QuestionImage, SchoolReport }
 
 /// <summary>Metadata for a file held in private object storage. Bytes never live in the database.
 /// Access is always decided by the owning record (session, assignment, doubt…), never by the file id alone.</summary>

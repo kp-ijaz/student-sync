@@ -17,8 +17,22 @@ BASE_URL=none npm run puppeteer:smoke        # no app needed: proves Chrome laun
 * `edge-check.mjs [width]` — elements past the right gutter at phone width (`html { overflow-x: hidden }` hides
   these from a plain `scrollWidth` check).
 * `ui-refresh-detail.mjs` — viewport-sized captures of dashboards, stacked tables and the bottom-sheet dialog.
+* `install-banner.mjs` — the PWA install banner on the sign-in page and the shell at 375/768/1440 (synthetic install
+  event, Install / Not now / 14-day snooze, iPhone Share steps, standalone, keyboard, touch targets, axe). `INSTALL_USER`
+  overrides the account that signs in.
+* `session-persistence.mjs` — *Keep me signed in*: persistent cookie, still signed in after closing the browser and after
+  a web restart (`RESTART_WEB="<command>"`), encrypted store (`SESSION_DIR=<Sessions:StorePath>`), sign-out, unticked case.
 * `screenshots/` — git-ignored output; copy reviewed images into `docs/screenshots/` if they should be kept.
 * Credentials: `E2E_PASSWORD` or `DEMO_PASSWORD` in the git-ignored repo `.env`; demo users are fictional
   (`*@horizon.example.test`). Never put real student data or secrets in scripts or screenshots.
 
 Write new checks as `puppeteer/<flow>.mjs` importing from `browser.mjs`; run with `node puppeteer/<flow>.mjs`.
+
+Daily role journeys and the student-first planner (read-only, no records created):
+
+```bash
+node puppeteer/daily-class-planner.mjs
+```
+
+Covers admin, teacher and student home at 375/768/1440px, student selection,
+one-to-one-only planner controls, and the required preview before saving.

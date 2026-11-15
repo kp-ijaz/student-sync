@@ -61,6 +61,23 @@ public sealed partial class PlatformService(IAppDbContext db, AccessPolicy acces
     public async Task<CreateTenantResponse> CreateTenantAsync(CreateTenantRequest r, CancellationToken ct)
     {
         access.Require(Permissions.PlatformTenantsManage);
+        return await CreateTenantCoreAsync(r, SubscriptionStatus.Trialing, clock.UtcNow.AddDays(30), "tenant.created", ct);
+    }
+
+    /// <summary>
+    /// One-off set-up of the institute and its first administrator on an empty database (the <c>create-institution</c>
+    /// maintenance command). Nobody can be signed in yet, so instead of a permission the guard is that this only
+    /// works while no institution exists. The administrator gets a temporary password to change at first sign-in.
+    /// </summary>
+    public async Task<CreateTenantResponse> BootstrapFirstInstitutionAsync(CreateTenantRequest r, CancellationToken ct)
+    {
+        if (await db.Tenants.AnyAsync(ct))
+            throw new ConflictException("An institution already exists. Sign in as its administrator instead.", "institution_exists");
+        return await CreateTenantCoreAsync(r, SubscriptionStatus.Active, null, "tenant.bootstrapped", ct);
+    }
+
+    private async Task<CreateTenantResponse> CreateTenantCoreAsync(CreateTenantRequest r, SubscriptionStatus status, DateTime? periodEndUtc, string auditAction, CancellationToken ct)
+    {
         var slug = Text.Required(r.Slug, "slug", 40).ToLowerInvariant();
         if (!SlugPattern().IsMatch(slug)) throw RequestValidationException.For("slug", "Use 3–40 lowercase letters, digits or hyphens.");
         if (await db.Tenants.AnyAsync(t => t.Slug == slug, ct)) throw RequestValidationException.For("slug", "This institution code is already taken.");
@@ -85,17 +102,17 @@ public sealed partial class PlatformService(IAppDbContext db, AccessPolicy acces
         {
             TenantId = tenant.Id,
             PlanId = plan.Id,
-            Status = SubscriptionStatus.Trialing,
+            Status = status,
             StartedAtUtc = clock.UtcNow,
-            TrialEndsAtUtc = clock.UtcNow.AddDays(30),
-            CurrentPeriodEndUtc = clock.UtcNow.AddDays(30),
+            TrialEndsAtUtc = status == SubscriptionStatus.Trialing ? periodEndUtc : null,
+            CurrentPeriodEndUtc = periodEndUtc,
             BillingEmail = tenant.ContactEmail,
         };
         db.Subscriptions.Add(sub);
-        db.SubscriptionEvents.Add(new SubscriptionEvent { TenantId = tenant.Id, SubscriptionId = sub.Id, EventType = "created", ToPlanId = plan.Id, ToStatus = SubscriptionStatus.Trialing });
+        db.SubscriptionEvents.Add(new SubscriptionEvent { TenantId = tenant.Id, SubscriptionId = sub.Id, EventType = "created", ToPlanId = plan.Id, ToStatus = status });
         await db.SaveChangesAsync(ct);
         var admin = await accounts.CreateAsync(tenant.Id, r.AdminEmail, Text.Required(r.AdminFullName, "adminFullName", 150), UserRole.InstitutionAdmin, r.DefaultTimeZoneId, null, false, ct);
-        audit.Record("tenant.created", "Tenant", tenant.Id, $"{tenant.Name} ({slug}) on {plan.Code}");
+        audit.Record(auditAction, "Tenant", tenant.Id, $"{tenant.Name} ({slug}) on {plan.Code}");
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return new CreateTenantResponse(tenant.Id, admin.UserId, admin.TemporaryPassword!);
