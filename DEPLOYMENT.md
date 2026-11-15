@@ -91,6 +91,13 @@ docker exec -i studentsync-postgres-1 pg_restore -U postgres -d StudentSync --cl
 docker compose -f compose.api.yml start api
 ```
 
+**Institute integrations (Settings ▸ Integrations).** An admin can connect the institute's own SMTP server, an SMS
+provider (Twilio or MSG91) and a payment gateway (Razorpay or Stripe). Passwords and secret keys are stored in the
+`InstitutionIntegrations` table encrypted with the API's Data Protection keys (`apikeys` volume). Those keys are not in
+the nightly backup on purpose (a backup alone cannot reveal the secrets); after restoring onto a new VM, the admin
+re-enters the secrets (the page shows them as not saved). Notification email uses the institute's SMTP server when it is
+switched on, else `Email__Smtp__*`. Tests call the providers from the API VM, which needs outbound HTTPS and SMTP.
+
 **Limits you accept**
 
 * One VM holds the API, the database and the uploads: if the boot volume is lost, restore from the off-VM backup (up to a day of changes can be lost).

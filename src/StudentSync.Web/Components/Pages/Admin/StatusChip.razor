@@ -1,0 +1,10 @@
+@* Integration status for a Settings ▸ Integrations card: Off, On, or On with the last test's result. Text, not colour alone. *@
+@if (!Enabled) { <span class="badge slate">Off</span> }
+else if (Check is { Ok: false }) { <span class="badge red dot">On · last test failed</span> }
+else if (Check is { Ok: true }) { <span class="badge green dot">On · working</span> }
+else { <span class="badge blue dot">On · not tested</span> }
+
+@code {
+    [Parameter] public bool Enabled { get; set; }
+    [Parameter] public IntegrationCheckDto? Check { get; set; }
+}

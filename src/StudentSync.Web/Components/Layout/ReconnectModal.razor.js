@@ -1,63 +1,68 @@
-// Set up event handlers
+// Reconnect behaviour for the Blazor Server connection (ReconnectModal.razor).
+// Phones drop the connection whenever the screen locks or the app goes to the background. The dialog opens at once (so taps
+// wait instead of being lost) but stays invisible for a moment: quick reconnects show nothing. After that a shimmer sweeps
+// over the page. A paused session is resumed automatically and the page reloads when the server no longer has the session.
+// Only a real offline state shows a card with Try again.
 const reconnectModal = document.getElementById("components-reconnect-modal");
 reconnectModal.addEventListener("components-reconnect-state-changed", handleReconnectStateChanged);
+document.getElementById("components-reconnect-button").addEventListener("click", retry);
 
-const retryButton = document.getElementById("components-reconnect-button");
-retryButton.addEventListener("click", retry);
+const QUIET_MS = 1200;
+let revealTimer = 0;
 
-const resumeButton = document.getElementById("components-resume-button");
-resumeButton.addEventListener("click", resume);
+function open() {
+    if (!reconnectModal.open) reconnectModal.showModal();
+    clearTimeout(revealTimer);
+    revealTimer = setTimeout(() => reconnectModal.classList.add("reconnect-visible"), QUIET_MS);
+}
+
+function close() {
+    clearTimeout(revealTimer);
+    reconnectModal.classList.remove("reconnect-visible");
+    if (reconnectModal.open) reconnectModal.close();
+}
 
 function handleReconnectStateChanged(event) {
-    if (event.detail.state === "show") {
-        reconnectModal.showModal();
-    } else if (event.detail.state === "hide") {
-        reconnectModal.close();
-    } else if (event.detail.state === "failed") {
+    const state = event.detail.state;
+    if (state === "show") {
+        open();
+    } else if (state === "hide") {
+        close();
+    } else if (state === "failed") {
+        // Out of automatic attempts (offline): show the card now, and try again as soon as the page is visible again.
+        open();
+        reconnectModal.classList.add("reconnect-visible");
         document.addEventListener("visibilitychange", retryWhenDocumentBecomesVisible);
-    } else if (event.detail.state === "rejected") {
+        if (document.visibilityState === "visible") setTimeout(retry, 1500);
+    } else if (state === "paused") {
+        open();
+        resume();
+    } else if (state === "rejected" || state === "resume-failed") {
         location.reload();
     }
 }
 
 async function retry() {
     document.removeEventListener("visibilitychange", retryWhenDocumentBecomesVisible);
-
     try {
-        // Reconnect will asynchronously return:
-        // - true to mean success
-        // - false to mean we reached the server, but it rejected the connection (e.g., unknown circuit ID)
-        // - exception to mean we didn't reach the server (this can be sync or async)
+        // true = reconnected; false = the server is reachable but no longer has this session.
         const successful = await Blazor.reconnect();
-        if (!successful) {
-            // We have been able to reach the server, but the circuit is no longer available.
-            // We'll reload the page so the user can continue using the app as quickly as possible.
-            const resumeSuccessful = await Blazor.resumeCircuit();
-            if (!resumeSuccessful) {
-                location.reload();
-            } else {
-                reconnectModal.close();
-            }
-        }
-    } catch (err) {
-        // We got an exception, server is currently unavailable
+        if (!successful) await resume();
+    } catch {
+        // Still offline: wait for the page to become visible again or a tap on Try again.
         document.addEventListener("visibilitychange", retryWhenDocumentBecomesVisible);
     }
 }
 
 async function resume() {
     try {
-        const successful = await Blazor.resumeCircuit();
-        if (!successful) {
-            location.reload();
-        }
+        if (await Blazor.resumeCircuit()) close();
+        else location.reload();
     } catch {
-        reconnectModal.classList.replace("components-reconnect-paused", "components-reconnect-resume-failed");
+        location.reload();
     }
 }
 
 async function retryWhenDocumentBecomesVisible() {
-    if (document.visibilityState === "visible") {
-        await retry();
-    }
+    if (document.visibilityState === "visible") await retry();
 }

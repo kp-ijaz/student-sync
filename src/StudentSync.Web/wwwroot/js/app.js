@@ -82,7 +82,11 @@ window.ss = {
     update();
   });
   // A custom element so the state is applied whenever Blazor creates the banner (first load, prerender → interactive).
-  customElements.define("ss-install-banner", class extends HTMLElement { connectedCallback() { update(); } });
+  // Blazor attaches the element before appending its children, so apply again once they exist (otherwise both
+  // instruction lines stayed visible).
+  customElements.define("ss-install-banner", class extends HTMLElement {
+    connectedCallback() { update(); queueMicrotask(update); requestAnimationFrame(update); }
+  });
   // Enhanced navigation re-applies the server markup (hidden); restore the state afterwards.
   if (window.Blazor && window.Blazor.addEventListener) window.Blazor.addEventListener("enhancedload", update);
 })();

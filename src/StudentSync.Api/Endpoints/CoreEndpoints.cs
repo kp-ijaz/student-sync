@@ -77,6 +77,15 @@ public static class CoreEndpoints
         i.MapGet("/permissions", (InstitutionService s) => s.PermissionMatrix()).RequirePermission(Permissions.InstitutionSettingsManage);
         i.MapGet("/audit", ([AsParameters] AuditQuery q, InstitutionService s, CancellationToken ct) => s.AuditAsync(q, ct));
         i.MapGet("/integrations", (PlatformService s) => s.IntegrationStatuses()).RequirePermission(Permissions.InstitutionSettingsManage);
+        // The institute's own connections (SMTP, SMS, payment gateway). Secrets are write-only.
+        var c = i.MapGroup("/connections").RequirePermission(Permissions.InstitutionSettingsManage);
+        c.MapGet("", (IntegrationSettingsService s, CancellationToken ct) => s.GetAsync(ct));
+        c.MapPut("/email", async (SaveEmailIntegrationRequest r, IntegrationSettingsService s, CancellationToken ct) => { await s.SaveEmailAsync(r, ct); return Results.NoContent(); });
+        c.MapPost("/email/test", (TestEmailRequest r, IntegrationSettingsService s, CancellationToken ct) => s.TestEmailAsync(r, ct));
+        c.MapPut("/sms", async (SaveSmsIntegrationRequest r, IntegrationSettingsService s, CancellationToken ct) => { await s.SaveSmsAsync(r, ct); return Results.NoContent(); });
+        c.MapPost("/sms/test", (TestSmsRequest r, IntegrationSettingsService s, CancellationToken ct) => s.TestSmsAsync(r, ct));
+        c.MapPut("/payments", async (SavePaymentIntegrationRequest r, IntegrationSettingsService s, CancellationToken ct) => { await s.SavePaymentsAsync(r, ct); return Results.NoContent(); });
+        c.MapPost("/payments/verify", (IntegrationSettingsService s, CancellationToken ct) => s.VerifyPaymentsAsync(ct));
     }
 
     public static void MapPeople(this RouteGroupBuilder api)

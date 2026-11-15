@@ -50,3 +50,23 @@ public class FeatureFlag : AuditableEntity
     public string Description { get; set; } = "";
     public bool Enabled { get; set; }
 }
+
+public enum IntegrationKind { Email, Sms, Payments }
+
+/// <summary>
+/// An institute's own connection to an outside service (its SMTP server, SMS provider or payment gateway), set by an
+/// institution admin. One row per kind. Non-secret settings are plain JSON; passwords, tokens and secret keys are kept
+/// only in <see cref="EncryptedSecrets"/> (ASP.NET Core Data Protection) and are never returned to a browser.
+/// </summary>
+public class InstitutionIntegration : TenantEntity
+{
+    public IntegrationKind Kind { get; set; }
+    /// <summary>"Smtp", "Twilio", "Msg91", "Razorpay" or "Stripe".</summary>
+    public string Provider { get; set; } = "";
+    public bool IsEnabled { get; set; }
+    public string SettingsJson { get; set; } = "{}";
+    public string? EncryptedSecrets { get; set; }
+    public DateTime? LastCheckedAtUtc { get; set; }
+    public bool? LastCheckOk { get; set; }
+    public string? LastCheckMessage { get; set; }
+}

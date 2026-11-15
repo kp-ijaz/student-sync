@@ -585,8 +585,27 @@ public static class People
 /// <summary>Money and hours as the front desk reads them: "AED 4,000", "AED 1,250.50", "2.5 h".</summary>
 public static class Money
 {
-    public static string Format(decimal amount, string currency) =>
-        $"{currency} {amount.ToString(amount == decimal.Truncate(amount) ? "#,0" : "#,0.00", System.Globalization.CultureInfo.InvariantCulture)}";
+    /// <summary>"AED 4,000", "AED 12.50"; rupees as "₹1,00,000" with Indian (lakh/crore) grouping.</summary>
+    public static string Format(decimal amount, string currency)
+    {
+        var whole = amount == decimal.Truncate(amount);
+        if (string.Equals(currency, "INR", StringComparison.OrdinalIgnoreCase)) return (amount < 0 ? "-₹" : "₹") + IndianGrouping(Math.Abs(amount), whole);
+        return $"{currency} {amount.ToString(whole ? "#,0" : "#,0.00", System.Globalization.CultureInfo.InvariantCulture)}";
+    }
+
+    // 1234567.5 → "12,34,567.50": the last three digits, then pairs. Done by hand so it does not depend on the server's ICU data.
+    private static string IndianGrouping(decimal amount, bool whole)
+    {
+        var text = amount.ToString(whole ? "0" : "0.00", System.Globalization.CultureInfo.InvariantCulture);
+        var dot = text.IndexOf('.');
+        var digits = dot < 0 ? text : text[..dot];
+        var fraction = dot < 0 ? "" : text[dot..];
+        if (digits.Length <= 3) return digits + fraction;
+        var head = digits[..^3];
+        var groups = new List<string>();
+        for (var i = head.Length; i > 0; i -= 2) groups.Insert(0, head[Math.Max(0, i - 2)..i]);
+        return string.Join(",", groups) + "," + digits[^3..] + fraction;
+    }
 
     public static string Hours(decimal hours) => $"{hours.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)} h";
 

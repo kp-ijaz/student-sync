@@ -1,0 +1,39 @@
+@* Skeleton: shimmering placeholders shaped like the content that is loading (instead of a spinner).
+   Variant: "list" (rows with an avatar and two lines; the default for DataView), "page" (a header and two cards, for a
+   whole page), "block" (one tall block, e.g. a video). Announced once as "Loading…" for screen readers. *@
+<div class="sk-wrap sk-@(Variant == "block" ? "video" : Variant)" role="status" aria-busy="true" aria-live="polite">
+    <span class="sr-only">@Label…</span>
+    @switch (Variant)
+    {
+        case "page":
+            <div class="sk sk-line w40 tall" aria-hidden="true"></div>
+            <div class="sk sk-line w70" aria-hidden="true"></div>
+            <div class="sk-card" aria-hidden="true">@Rows(3)</div>
+            <div class="sk-card" aria-hidden="true">@Rows(2)</div>
+            break;
+        case "block":
+            <div class="sk sk-block" aria-hidden="true"></div>
+            break;
+        default:
+            <div aria-hidden="true">@Rows(Count)</div>
+            break;
+    }
+</div>
+
+@code {
+    [Parameter] public string Variant { get; set; } = "list";
+    [Parameter] public string Label { get; set; } = "Loading";
+    /// <summary>Rows for the list variant.</summary>
+    [Parameter] public int Count { get; set; } = 3;
+
+    private static RenderFragment Rows(int n) => __builder =>
+    {
+        for (var i = 0; i < n; i++)
+        {
+            <div class="sk-row">
+                <div class="sk sk-avatar"></div>
+                <div class="sk-lines"><div class="sk sk-line @(i % 2 == 0 ? "w60" : "w50")"></div><div class="sk sk-line w80 thin"></div></div>
+            </div>
+        }
+    };
+}

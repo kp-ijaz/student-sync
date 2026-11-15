@@ -84,37 +84,6 @@ public sealed class SmtpOptions
     public string FromName { get; set; } = "Student Sync";
 }
 
-/// <summary>SMTP delivery. Reports Accepted only when the SMTP server accepts the message.</summary>
-public sealed class SmtpEmailSender(IOptions<SmtpOptions> options, ILogger<SmtpEmailSender> logger) : IEmailSender
-{
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(options.Value.Host);
-
-    public async Task<DeliveryResult> SendAsync(EmailMessage m, CancellationToken ct)
-    {
-        if (!IsConfigured) return new DeliveryResult(false, null, "Email provider not configured.");
-        var o = options.Value;
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(o.FromName, o.FromAddress));
-        message.To.Add(new MailboxAddress(m.ToName, m.ToAddress));
-        message.Subject = m.Subject;
-        message.Body = new TextPart("plain") { Text = m.TextBody };
-        try
-        {
-            using var client = new SmtpClient();
-            await client.ConnectAsync(o.Host!, o.Port, o.UseStartTls ? SecureSocketOptions.StartTls : SecureSocketOptions.Auto, ct);
-            if (!string.IsNullOrEmpty(o.Username)) await client.AuthenticateAsync(o.Username, o.Password ?? "", ct);
-            var response = await client.SendAsync(message, ct);
-            await client.DisconnectAsync(true, ct);
-            return new DeliveryResult(true, message.MessageId ?? response, null);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogWarning(ex, "SMTP delivery failed");
-            return new DeliveryResult(false, null, ex.GetType().Name + ": " + ex.Message);
-        }
-    }
-}
-
 /// <summary>No push provider (e.g. Firebase Cloud Messaging) credentials are configured; nothing is sent.</summary>
 public sealed class NotConfiguredPushSender : IPushSender
 {

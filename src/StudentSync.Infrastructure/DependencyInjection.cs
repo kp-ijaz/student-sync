@@ -61,7 +61,11 @@ public static class DependencyInjection
         services.AddSingleton<IFileAccessTokens, FileAccessTokens>();
 
         services.Configure<SmtpOptions>(config.GetSection("Email:Smtp"));
-        services.AddSingleton<IEmailSender, SmtpEmailSender>();
+        // Email goes through the institute's own SMTP server when it has one, else the server-wide Email:Smtp.
+        services.AddScoped<IEmailSender, InstitutionEmailSender>();
+        services.AddSingleton<IIntegrationSecrets, IntegrationSecrets>();
+        services.AddHttpClient(IntegrationClients.HttpClientName, c => { c.Timeout = TimeSpan.FromSeconds(20); c.DefaultRequestHeaders.UserAgent.ParseAdd("StudentSync/1.0"); });
+        services.AddScoped<IIntegrationClients, IntegrationClients>();
         services.AddSingleton<IPushSender, NotConfiguredPushSender>();
         services.AddSingleton<ITranscriptionProvider, NotConfiguredTranscriptionProvider>();
         services.Configure<AnthropicOptions>(config.GetSection("Ai:Anthropic"));
@@ -72,7 +76,7 @@ public static class DependencyInjection
         {
             var llm = sp.GetRequiredService<ILanguageModel>();
             return new IntegrationFlags(
-                Email: sp.GetRequiredService<IEmailSender>().IsConfigured,
+                Email: !string.IsNullOrWhiteSpace(config["Email:Smtp:Host"]),
                 Push: sp.GetRequiredService<IPushSender>().IsConfigured,
                 LanguageModel: llm.IsConfigured,
                 Transcription: sp.GetRequiredService<ITranscriptionProvider>().IsConfigured,

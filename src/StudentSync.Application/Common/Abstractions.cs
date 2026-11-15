@@ -11,6 +11,7 @@ using StudentSync.Domain.Doubts;
 using StudentSync.Domain.Fees;
 using StudentSync.Domain.Identity;
 using StudentSync.Domain.People;
+using StudentSync.Contracts;
 using StudentSync.Domain.Platform;
 using StudentSync.Domain.Scheduling;
 using StudentSync.Domain.Tenancy;
@@ -104,6 +105,7 @@ public interface IAppDbContext
     DbSet<AuditLog> AuditLogs { get; }
     DbSet<IdempotencyRecord> IdempotencyRecords { get; }
     DbSet<IntegrationConnection> Integrations { get; }
+    DbSet<InstitutionIntegration> InstitutionIntegrations { get; }
     DbSet<FeatureFlag> FeatureFlags { get; }
 
     DatabaseFacade Database { get; }
@@ -155,13 +157,38 @@ public interface IRealtimeNotifier
     Task SendToUsersAsync(IEnumerable<Guid> userIds, string eventName, object payload, CancellationToken ct = default);
 }
 
-public sealed record EmailMessage(string ToAddress, string ToName, string Subject, string TextBody);
+/// <summary>An email to send. TenantId picks the institute's own SMTP server when it has one (Settings ▸ Integrations).</summary>
+public sealed record EmailMessage(string ToAddress, string ToName, string Subject, string TextBody, Guid? TenantId = null);
 public sealed record DeliveryResult(bool Accepted, string? ProviderMessageId, string? Error);
 
 public interface IEmailSender
 {
+    /// <summary>True when the server-wide SMTP server is configured.</summary>
     bool IsConfigured { get; }
+    /// <summary>True when email can be sent for this institute (its own SMTP server, or the server-wide one).</summary>
+    Task<bool> IsConfiguredForAsync(Guid? tenantId, CancellationToken ct) => Task.FromResult(IsConfigured);
     Task<DeliveryResult> SendAsync(EmailMessage message, CancellationToken ct);
+}
+
+/// <summary>Encrypts an institute's integration secrets (passwords, tokens, secret keys) for storage.</summary>
+public interface IIntegrationSecrets
+{
+    string Protect(IReadOnlyDictionary<string, string> secrets);
+    /// <summary>Empty when nothing is stored or the stored value can no longer be decrypted (e.g. keys were lost).</summary>
+    Dictionary<string, string> Unprotect(string? protectedValue);
+}
+
+public sealed record SmtpSettings(string Host, int Port, bool UseStartTls, string? Username, string? Password, string FromAddress, string FromName);
+public sealed record SmsSettings(SmsProvider Provider, string? AccountId, string? Sender, string? TemplateId, string Secret);
+public sealed record PaymentSettings(PaymentProvider Provider, string KeyId, string Secret);
+
+/// <summary>Talks to the outside services an institute connects (SMTP, Twilio/MSG91, Razorpay/Stripe).</summary>
+public interface IIntegrationClients
+{
+    Task<DeliveryResult> SendEmailAsync(SmtpSettings settings, EmailMessage message, CancellationToken ct);
+    Task<DeliveryResult> SendSmsAsync(SmsSettings settings, string toE164, string text, CancellationToken ct);
+    /// <summary>Makes a read-only call with the keys; Accepted = the gateway accepted them.</summary>
+    Task<DeliveryResult> VerifyPaymentKeysAsync(PaymentSettings settings, CancellationToken ct);
 }
 
 public interface IPushSender

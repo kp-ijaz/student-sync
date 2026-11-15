@@ -1,10 +1,9 @@
-@* LoadingView: BrandSpinner with a short label, for a whole region (Page="true" centres it in the viewport). *@
-<div class="loading-view @(Page ? "page" : "")" aria-busy="true">
-    <BrandSpinner Size="@(Page ? 64 : 48)" Label="@Label" />
-    <span aria-hidden="true">@Label…</span>
-</div>
+@* LoadingView: shimmering placeholders while something loads (Skeleton), shaped like what is coming so nothing jumps
+   when it arrives. Page="true" draws a whole page (header and cards); Variant overrides the shape ("list", "page", "block"). *@
+<Skeleton Variant="@(Variant ?? (Page ? "page" : "list"))" Label="@Label" />
 
 @code {
     [Parameter] public string Label { get; set; } = "Loading";
     [Parameter] public bool Page { get; set; }
+    [Parameter] public string? Variant { get; set; }
 }

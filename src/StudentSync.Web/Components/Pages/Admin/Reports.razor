@@ -31,12 +31,19 @@
             <div class="card"><div class="card-head"><h2>Attendance</h2></div><AttendanceBars Summary="_r.Attendance" /></div>
         </div>
         <div class="card" style="margin-bottom:16px"><div class="card-head"><h2>Teachers</h2></div>
+            @if (_r.Teachers.Count == 0) { <InlineEmpty Icon="user-check" Text="No classes taught in this period." /> }
+            else {
             <div class="table-wrap"><table class="table stack-mobile"><thead><tr><th>Teacher</th><th>Delivered</th><th>Cancelled</th><th>Attendance</th><th>Doubts resolved</th><th>Avg resolution</th><th>Graded</th></tr></thead>
                 <tbody>@foreach (var t in _r.Teachers) { <tr><td data-label="Teacher">@t.TeacherName</td><td data-label="Delivered" class="num">@t.SessionsDelivered</td><td data-label="Cancelled" class="num">@t.SessionsCancelled</td>
-                    <td data-label="Attendance" class="num">@(t.AttendanceRatePercent is { } a ? $"{a:0.#}%" : "—")</td><td data-label="Doubts" class="num">@t.DoubtsResolved</td><td data-label="Avg resolution" class="num">@(t.AvgDoubtResolutionHours is { } h ? $"{h:0.#} h" : "—")</td><td data-label="Graded" class="num">@t.SubmissionsGraded</td></tr> }</tbody></table></div></div>
+                    <td data-label="Attendance" class="num">@(t.AttendanceRatePercent is { } a ? $"{a:0.#}%" : "—")</td><td data-label="Doubts" class="num">@t.DoubtsResolved</td><td data-label="Avg resolution" class="num">@(t.AvgDoubtResolutionHours is { } h ? $"{h:0.#} h" : "—")</td><td data-label="Graded" class="num">@t.SubmissionsGraded</td></tr> }</tbody></table></div>
+            }</div>
+        @* Batches are a legacy teaching format (new classes are one-to-one); the card only appears when there are some. *@
+        @if (_r.Batches.Count > 0)
+        {
         <div class="card"><div class="card-head"><h2>Batches</h2></div>
             <div class="table-wrap"><table class="table stack-mobile"><thead><tr><th>Batch</th><th>Students</th><th>Sessions</th><th>Attendance</th></tr></thead>
                 <tbody>@foreach (var b in _r.Batches) { <tr><td data-label="Batch">@b.BatchName</td><td data-label="Students" class="num">@b.Students</td><td data-label="Sessions" class="num">@b.Sessions</td><td data-label="Attendance" class="num">@(b.AttendanceRatePercent is { } a ? $"{a:0.#}%" : "—")</td></tr> }</tbody></table></div></div>
+        }
     }
 </DataView>
 

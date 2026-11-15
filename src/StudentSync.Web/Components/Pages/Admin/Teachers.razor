@@ -7,9 +7,18 @@
     <Actions><button class="btn btn-primary" @onclick="New"><Icon Name="plus" /> Add teacher</button></Actions>
 </PageHeader>
 <div class="card">
-    <input class="input" style="max-width:320px;margin-bottom:16px" placeholder="Search teachers" aria-label="Search teachers" @bind="_search" @bind:after="() => Load(1)" />
+    <div class="list-tools"><input class="input" type="search" placeholder="Search teachers" aria-label="Search teachers" @bind="_search" @bind:after="() => Load(1)" /></div>
     <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0" EmptyTitle="No teachers yet" EmptyText="Add your first teacher with the subjects they teach." EmptyIcon="user-check">
-        <div class="table-wrap"><table class="table stack-mobile">
+        @* Phones: a compact list (the row opens the teacher); larger screens: the table. *@
+        <ul class="plist" aria-label="Teachers">@foreach (var t in _page?.Items ?? [])
+        {
+            <PersonRow Name="@t.FullName" PhotoUrl="@t.PhotoUrl" OnOpen="() => Edit(t)" Meta="@SubjectsLine(t)">
+                <Detail>@BackgroundLine(t)</Detail>
+                <Status>@if (t.Status != PersonStatus.Active) { <Badge Style="StatusStyles.For(t.Status)" /> }</Status>
+                <Actions><a class="icon-btn" href="/teacher/availability?teacherId=@t.Id" aria-label="@($"Availability of {t.FullName}")" title="Availability"><Icon Name="clock" /></a></Actions>
+            </PersonRow>
+        }</ul>
+        <div class="table-wrap desk-list"><table class="table">
             <thead><tr><th>Teacher</th><th>Subjects</th><th>Qualifications</th><th>Experience</th><th>Status</th><th></th></tr></thead>
             <tbody>@foreach (var t in _page?.Items ?? [])
             {
@@ -136,6 +145,10 @@
         await Load(1);
     }
     private async Task Load(int p) => (_page, _error) = await Fetch(() => Api.GetAsync<PagedResult<TeacherDto>>($"teachers?page={p}&pageSize=25&search={Uri.EscapeDataString(_search)}"));
+
+    private static string SubjectsLine(TeacherDto t) => t.Subjects.Count == 0 ? "No subjects yet — tap to add"
+        : string.Join(", ", t.Subjects.GroupBy(x => x.Name).Select(g => g.Count() > 1 ? $"{g.Key} ({g.Count()})" : g.Key));
+    private static string BackgroundLine(TeacherDto t) => string.Join(" · ", new[] { string.Join(", ", (t.Qualifications ?? []).Select(q => q.Title)), ExperienceLabel(t) }.Where(x => x.Length > 0));
 
     private static string ExperienceLabel(TeacherDto t)
     {

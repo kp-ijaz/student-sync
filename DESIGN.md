@@ -97,12 +97,13 @@ A live gallery of the web components with sample data is at **`/dev/ui`** (devel
 | `Avatar` | `UserAvatar` | Photo or initials (first + last, bracketed suffixes ignored) on the gradient. `Name`, `PhotoUrl`, `Size` (sm/""/md/lg/xl), `Ring`, `Decorative` |
 | `TeacherPhotoCard` | `TeacherPhotoCard` | Portrait card: photo (or initials), name + subject over a fade, arrow tile when `Href` is set |
 | `StatCard`, `MetricTile` | `StatCard`, `MetricTile` | Figures from the API only. `StatCard`: `Label`, `Value`, `Hint`, optional `Icon` + `Tone` (an `IconTile` beside the label; dashboard stats map their `StatDto.Key` through `StatIcons.For`, never the label). Lay out stat rows with `.stat-grid` (rows always fill: 2-up on phones, no holes). `MetricTile` expands (details/summary) to "How is this calculated?" |
-| `BrandSpinner`, `LoadingView` | `BrandSpinner`, `LoadingView` | The logo's book with its star turning and pulsing (still under reduced motion). Used by `DataView`, route authorisation and redirects |
+| `BrandSpinner`, `LoadingView` / `Skeleton` | `BrandSpinner`, `LoadingView` | `LoadingView` renders a `Skeleton` (shimmering placeholders shaped like the content: `list`, `page`, `block`), used by `DataView`, route authorisation and redirects. `BrandSpinner` (the logo's turning star) remains for the native app |
 | `StateView` | `EmptyState`/`ErrorState`/`ForbiddenState` | Illustration (`Illustrations.*`: empty, search, offline, server_error, access_denied, not_found, all_done, questions, mailbox) + title + message + actions; `Compact` shows the icon on two soft discs |
 | `DataView` | `AsyncView` | Every data region: loading → error (offline/server/403/404 illustration, Retry) → empty (`EmptyIllustration`, or derived from `EmptyIcon`) → content. `Compact` for tight cards |
 | `SessionItem` / SessionCard | `SessionCard` | Time in viewer's zone (+ organiser zone when different), type badge, Join |
 | `Modal`, `Toasts` | dialogs, snack bar | Focus-trapped dialogs (28 px radius; bottom sheet on phones); toasts announced politely |
 | `InstallBanner` | — (native app) | Offer to install the PWA: a white strip at the very top of the sign-in page and of the shell (above the app bar, scrolls away) with the mark, "Install Student Sync", an **Install** button (36 px; 44 px below 1024 px) and a 44 px *Not now* icon button. Rendered hidden; `js/app.js` shows it when the browser reports the app is installable (`beforeinstallprompt`), or with the Share-menu steps on iOS, which has no install API. Never shown inside the installed app; hidden for 14 days after *Not now*. Present in both layouts, so it also appears on `/dev/ui` |
+| `PersonRow` (`ul.plist`) | — | Compact person list for phones and tablets (< 1024 px; desktop keeps the table, wrapped in `.desk-list`): avatar, name (two lines max), one facts line (`Meta`), optional `Detail` line, optional `Status` badge (only for a non-normal state, e.g. Inactive), up to two 44 px `icon-btn` `Actions` each named for the person. The row opens the person (`Href`) or a dialog (`OnOpen`). Used by Students and Teachers |
 | `.badge.removable` + `.chip-remove` | — | A chip whose text wraps, with an icon remove button (`aria-label` names what is removed); 44 px target on phones |
 | `PhotoEditor` | profile photo sheet | Upload/change/remove a photo; optional `Info` content beside the photo |
 | `TimeZoneSelect` | time-zone picker | IANA ids with the current offset |
@@ -262,6 +263,54 @@ Where it is used: admin, teacher and student homes; Fees; the student profile he
 name, facts caption, "Fees & hours" + "Add classes" pills) and its "Upcoming classes". Page actions in every
 `PageHeader` are pills. The teacher and student homes replaced the older next-class cover hero, stat cards and
 "daily path" tiles; Progress keeps its attendance ring (a chart, not a header).
+
+### Phone polish (2026-11-15)
+
+Owner request: "make every screen better aligned and easier to use on the phone". Rules added (all in the
+"Phone polish" block at the end of `app.css`; tokens unchanged):
+
+- **Lists of people are rows, not cards.** Students and Teachers use `PersonRow` below 1024 px: about five people per
+  screen instead of one and a half. Actions are icon buttons (`pencil`, `calendar-plus`, `clock`) with the person's name in
+  the accessible label; "Active" is not repeated on every row.
+- **Stacked tables are half as tall.** `table.stack-mobile` rows on phones lay labelled cells two-up (label above value);
+  the first cell (title) and unlabelled action cells span the card, actions as an even row of buttons. `.kv` detail lists
+  stay two columns (label | value).
+- **Card and row headers with a `.btn-group`** wrap on phones: title first, then the buttons as one even full-width row.
+- **Toolbars and filters fill the width.** `.list-tools` (search + status) and filter rows stretch on phones; report
+  filters pair up two per row; the Classes toolbar (`.cal-tools`) is three rows on phones — List/Month + Today, the two
+  filters side by side, and the period on a filled strip with 44 px arrows. Long button labels may shorten on phones with
+  `.desk-text` (the full text stays in `aria-label`).
+- **Tabs never cut labels.** `PillTabs` with four or more tabs scroll sideways on phones (selected tab keeps the gradient);
+  `.tabs` bars fade at the end to show there is more.
+- **Shell:** below 1024 px content fades into the background above the floating tab bar (no text showing around it while
+  scrolling), the bar is solid white, drawer rows and the avatar are 44 px, a breadcrumb shows as one "‹ Back" link
+  (the title is already in the app bar), and the install strip is one compact line (the iOS Share steps stay).
+- **Participants** are one line each (avatar, name, attendance badge, 44 px remove icon); video actions are a 2×2 grid;
+  progress figures are two-up.
+
+Checked with `tests/e2e/puppeteer/mobile-audit.mjs` (every menu screen per role at 375 px, or `AUDIT_WIDTH=768/1440`):
+no horizontal overflow, nothing off-screen, touch targets ≥ 44 px apart from checkboxes inside 44 px label rows and
+whole-card links.
+
+### Phone type scale, reconnect and integrations (2026-11-15, second pass)
+
+- **Phone type scale (< 768 px):** h1 22, h2 18, h3 15, card titles 16, app-bar title 20, page subtitles 13; buttons and
+  inputs 44 px with 14 px text; home greeting name 24, metric numbers 24, shortcut pills 13 px / 44 px. Body text stays
+  14 px. Narrow phones (< 390 px) use 12 px page and card padding. Checked at 360 px (common Android width).
+- **Reconnect** (`ReconnectModal`): Blazor Server keeps a live connection per page; phones drop it when the screen locks,
+  so it must be restored before taps work. Nothing shows for the first 1.2 s (quick reconnects are invisible); then a
+  light shimmer sweeps over the page that is still on screen with a thin moving bar at the top — no text, no buttons,
+  taps wait. A paused session resumes by itself; when the server no longer has the session the page reloads. Only a real
+  offline state shows a small card ("You seem to be offline" · Try again). The server keeps a dropped session 10 minutes.
+- **Loading = skeletons.** `LoadingView` (and so every `DataView` loading state) draws shimmering placeholders shaped like
+  the content (`Skeleton`: `list` rows with avatar + two lines, `page` header + cards, `block` for video) instead of a
+  spinner. Classes `sk-wrap`, `sk`, `sk-row`, `sk-line`, `sk-card`; motion stops under reduced motion.
+- **Settings ▸ Integrations** (admin only): three cards — Email (SMTP), SMS (Twilio / MSG91), Online payments (Razorpay /
+  Stripe) — each with an icon tile, a status chip (Off · On · not tested · working · last test failed, text not colour
+  alone), a plain note on what the connection is used for, the form (secret boxes say "Saved — leave blank to keep"),
+  Save, and a real test (send test email / SMS, verify keys) whose answer shows as a green or red line with the time.
+  Provider choice uses `Segmented`. **General** has region presets: "India · ₹ INR" / "UAE · AED" set country, currency
+  and time zone together. Rupee amounts read "₹1,00,000" (Indian grouping) via `Money.Format`.
 
 ### One screen per job, scoped by role (2026-11-13)
 

@@ -43,7 +43,7 @@ public sealed class NotificationDeliveryJob(IAppDbContext db, IEmailSender email
         }
 
         if (EmailTypes.Contains(n.Type))
-            await DeliverEmailAsync(n, u.Email!, u.FullName, !email.IsConfigured ? "Email provider not configured" : muted || !prefs.EmailEnabled ? "Disabled by user preference" : u.IsDemo ? "Demo account" : null, ct);
+            await DeliverEmailAsync(n, u.Email!, u.FullName, !await email.IsConfiguredForAsync(n.TenantId, ct) ? "Email provider not configured" : muted || !prefs.EmailEnabled ? "Disabled by user preference" : u.IsDemo ? "Demo account" : null, ct);
 
         var devices = await db.Devices.Where(d => d.UserId == u.Id).ToListAsync(ct);
         if (devices.Count > 0)
@@ -71,7 +71,7 @@ public sealed class NotificationDeliveryJob(IAppDbContext db, IEmailSender email
         if (skipReason is not null) { Complete(delivery, DeliveryStatus.Skipped, null, skipReason); return; }
         delivery.Attempts++;
         var body = $"{n.Body}\n\n{(n.Link is null ? "" : $"Open Student Sync: {n.Link}\n\n")}You can change email preferences in your Student Sync profile.";
-        var result = await email.SendAsync(new EmailMessage(address, name, $"Student Sync: {n.Title}", body), ct);
+        var result = await email.SendAsync(new EmailMessage(address, name, $"Student Sync: {n.Title}", body, n.TenantId), ct);
         if (result.Accepted) Complete(delivery, DeliveryStatus.Accepted, result.ProviderMessageId, null);
         else if (delivery.Attempts >= 3) Complete(delivery, DeliveryStatus.Failed, null, result.Error);
         else

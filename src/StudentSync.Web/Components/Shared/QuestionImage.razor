@@ -7,7 +7,7 @@
 {
     @if (_src is not null) { <img class="question-image" src="@_src" alt="@Alt" style="max-width:100%;max-height:420px;border-radius:12px;display:block;margin:8px 0" /> }
     else if (_failed) { <p class="caption">The image could not be loaded.</p> }
-    else { <div class="skeleton" style="height:120px;border-radius:12px;margin:8px 0" aria-label="Loading image"></div> }
+    else { <div class="sk" style="height:120px;margin:8px 0" role="img" aria-label="Loading image"></div> }
 }
 
 @code {

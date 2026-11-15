@@ -1,0 +1,24 @@
+@* "Send a test … to [box] [Send test]" with the last result underneath (Settings ▸ Integrations). *@
+<div class="int-test">
+    <div class="field"><label for="@_id">@Label</label>
+        <div class="int-test-row">
+            <input id="@_id" class="input" type="@Type" placeholder="@Placeholder" value="@Value" @onchange="e => ValueChanged.InvokeAsync(e.Value?.ToString())" />
+            <button class="btn btn-secondary" @onclick="OnTest" disabled="@Busy"><Icon Name="send" /> @Button</button>
+        </div>
+    </div>
+    <CheckLine Check="Check" Tz="@Tz" />
+</div>
+
+@code {
+    private readonly string _id = "t" + Guid.NewGuid().ToString("N")[..8];
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public string Type { get; set; } = "text";
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    [Parameter, EditorRequired] public string Button { get; set; } = "";
+    [Parameter] public EventCallback OnTest { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public IntegrationCheckDto? Check { get; set; }
+    [Parameter] public string Tz { get; set; } = "UTC";
+}

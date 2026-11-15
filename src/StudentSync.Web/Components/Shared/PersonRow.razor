@@ -1,0 +1,39 @@
+@* PersonRow: one person in a compact phone list (Students, Teachers): photo or initials, name, one facts line, an
+   optional status badge and up to two 44 px icon actions. The whole row opens the person (Href, or OnOpen for a dialog);
+   the actions sit above that hit area. Use inside <ul class="plist"> (shown below 1024 px); desktop keeps the table. *@
+<li class="prow">
+    <Avatar Name="@Name" PhotoUrl="@PhotoUrl" Size="md" Decorative="true" />
+    <div class="prow-main">
+        @if (Href is not null)
+        {
+            <a class="prow-title stretched" href="@Href">@Name</a>
+        }
+        else if (OnOpen.HasDelegate)
+        {
+            <button type="button" class="prow-title stretched" @onclick="OnOpen">@Name</button>
+        }
+        else
+        {
+            <span class="prow-title">@Name</span>
+        }
+        @if (!string.IsNullOrWhiteSpace(Meta)) { <span class="prow-meta">@Meta</span> }
+        @if (Detail is not null) { <span class="prow-detail">@Detail</span> }
+    </div>
+    @if (Status is not null) { <span class="prow-badge">@Status</span> }
+    @if (Actions is not null) { <span class="prow-actions">@Actions</span> }
+</li>
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+    [Parameter] public string? PhotoUrl { get; set; }
+    /// <summary>One short line of facts, e.g. "HZ-001 · Class 10 · CBSE".</summary>
+    [Parameter] public string? Meta { get; set; }
+    /// <summary>Optional second line (wraps to two lines at most), e.g. the subjects a teacher teaches.</summary>
+    [Parameter] public RenderFragment? Detail { get; set; }
+    [Parameter] public string? Href { get; set; }
+    [Parameter] public EventCallback OnOpen { get; set; }
+    /// <summary>Optional status badge (leave empty for the normal state, e.g. only show non-active people).</summary>
+    [Parameter] public RenderFragment? Status { get; set; }
+    /// <summary>Icon buttons/links (class "icon-btn", each with an aria-label naming the person).</summary>
+    [Parameter] public RenderFragment? Actions { get; set; }
+}

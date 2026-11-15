@@ -108,6 +108,7 @@ public sealed class AppDbContext(
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<IntegrationConnection> Integrations => Set<IntegrationConnection>();
+    public DbSet<InstitutionIntegration> InstitutionIntegrations => Set<InstitutionIntegration>();
     public DbSet<FeatureFlag> FeatureFlags => Set<FeatureFlag>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder b)

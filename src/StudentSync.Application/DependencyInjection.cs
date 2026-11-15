@@ -48,6 +48,7 @@ public static class DependencyInjection
         services.AddScoped<ReportService>();
         services.AddScoped<PlatformService>();
         services.AddScoped<InstitutionService>();
+        services.AddScoped<IntegrationSettingsService>();
         services.AddScoped<NotificationDeliveryJob>();
         services.AddScoped<MaintenanceJobs>();
         return services;

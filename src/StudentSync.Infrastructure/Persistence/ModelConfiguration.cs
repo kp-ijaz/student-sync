@@ -95,6 +95,14 @@ internal static class ModelConfiguration
         b.Entity<IntegrationConnection>().HasIndex(x => new { x.UserId, x.Provider }).IsUnique();
         Max<IntegrationConnection>(b, x => x.EncryptedTokens);
         Fk<IntegrationConnection, AppUser>(b, x => x.UserId);
+        // One connection per kind per institute; settings JSON and encrypted secrets can be long.
+        b.Entity<InstitutionIntegration>(e =>
+        {
+            e.HasIndex(x => new { x.TenantId, x.Kind }).IsUnique();
+            e.Property(x => x.Provider).HasMaxLength(20);
+            e.Property(x => x.LastCheckMessage).HasMaxLength(500);
+        });
+        Max<InstitutionIntegration>(b, x => x.SettingsJson, x => x.EncryptedSecrets);
 
         // ---------- People ----------
         foreach (var (type, nav) in new[] { (typeof(Teacher), nameof(Teacher.User)), (typeof(Student), nameof(Student.User)), (typeof(Parent), nameof(Parent.User)) })

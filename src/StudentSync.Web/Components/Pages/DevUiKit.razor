@@ -66,6 +66,19 @@ else
                 <ListRow Icon="building" Tone="navy" Title="Institution" Subtitle="Sample Academy" />
                 <ListRow Icon="refresh" Title="Button row" Subtitle="Runs an action" OnClick="() => _clicks++"><Trailing><span class="count-pill">@_clicks</span></Trailing></ListRow>
             </ListGroup>
+            <SectionHeader Title="PersonRow (phones and tablets; resize below 1024 px)" Icon="users" />
+            <ul class="plist" aria-label="Sample people">
+                <PersonRow Name="Sample Student (Demo)" Href="/dev/ui" Meta="HZ-001 · Class 10 · CBSE / NCERT">
+                    <Actions>
+                        <button type="button" class="icon-btn" aria-label="Edit Sample Student" title="Edit" @onclick="() => _clicks++"><Icon Name="pencil" /></button>
+                        <a class="icon-btn" href="/dev/ui" aria-label="Add classes for Sample Student" title="Add classes"><Icon Name="calendar-plus" /></a>
+                    </Actions>
+                </PersonRow>
+                <PersonRow Name="Sample Teacher (Demo)" OnOpen="() => _clicks++" Meta="Mathematics, Physics (2)">
+                    <Detail>B.Ed · 6 years · here since Nov 2026</Detail>
+                    <Status><Badge Style="StatusStyles.For(PersonStatus.Inactive)" /></Status>
+                </PersonRow>
+            </ul>
         </div>
     </div>
 
@@ -93,6 +106,8 @@ else
     <SectionHeader Title="States" Icon="alert" Tone="red" />
     <div class="grid grid-3">
         <div class="card"><LoadingView /></div>
+        <div class="card"><LoadingView Page="true" /></div>
+        <div class="card"><LoadingView Variant="block" Label="Opening video" /></div>
         <div class="card"><DataView IsEmpty="true" EmptyTitle="No doubts yet" EmptyText="Questions you ask appear here." EmptyIcon="help" /></div>
         <div class="card"><DataView Error="_offline" OnRetry="() => _clicks++" /></div>
         <div class="card"><DataView Error="_forbidden" /></div>

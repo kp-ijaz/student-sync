@@ -13,7 +13,13 @@ using StudentSync.Web.Services;
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseSerilog((ctx, cfg) => cfg.ReadFrom.Configuration(ctx.Configuration).Enrich.FromLogContext().WriteTo.Console());
 
-builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+// Phones drop the live connection whenever the screen locks or the browser goes to the background. Keep a dropped
+// session for 10 minutes (default 3) so coming back resumes where people were instead of reloading the page.
+builder.Services.AddRazorComponents().AddInteractiveServerComponents(o =>
+{
+    o.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(10);
+    o.DisconnectedCircuitMaxRetained = 200;
+});
 // Cookie and antiforgery keys; persisted when a path is configured so restarts don't sign everyone out.
 var dataProtection = builder.Services.AddDataProtection().SetApplicationName("StudentSync.Web");
 if (builder.Configuration["DataProtection:KeysPath"] is { Length: > 0 } keysPath) dataProtection.PersistKeysToFileSystem(new DirectoryInfo(keysPath));

@@ -41,13 +41,12 @@
         <ul class="list">
             @foreach (var p in Session.Participants.Where(p => p.Status == ParticipantStatus.Active))
             {
-                <li class="row-between">
-                    <div class="row"><span class="avatar">@p.StudentName[..1]</span><span>@p.StudentName</span></div>
-                    <div class="row">
-                        @if (p.Attendance is { } a) { <Badge Style="StatusStyles.For(a)" /> }
-                        @if (Session.CanManage && Session.SessionType != SessionType.OneToOne && Session.Status == SessionStatus.Scheduled)
-                        { <button class="btn btn-ghost btn-sm" @onclick="() => _removing = p">Remove</button> }
-                    </div>
+                <li class="participant-row">
+                    <Avatar Name="@p.StudentName" Size="sm" Decorative="true" />
+                    <span class="participant-name">@p.StudentName</span>
+                    @if (p.Attendance is { } a) { <Badge Style="StatusStyles.For(a)" /> }
+                    @if (Session.CanManage && Session.SessionType != SessionType.OneToOne && Session.Status == SessionStatus.Scheduled)
+                    { <button type="button" class="icon-btn" title="Remove" aria-label="@($"Remove {p.StudentName}")" @onclick="() => _removing = p"><Icon Name="x" /></button> }
                 </li>
             }
         </ul>

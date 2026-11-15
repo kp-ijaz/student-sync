@@ -1,0 +1,10 @@
+@* The last test/verify result of an integration, with when it ran. *@
+@if (Check is { } c)
+{
+    <p class="int-check @(c.Ok ? "ok" : "bad")"><Icon Name="@(c.Ok ? "check-circle" : "alert")" /><span>@c.Message <span class="caption">· @Time.Short(c.CheckedAtUtc, Tz)</span></span></p>
+}
+
+@code {
+    [Parameter] public IntegrationCheckDto? Check { get; set; }
+    [Parameter] public string Tz { get; set; } = "UTC";
+}

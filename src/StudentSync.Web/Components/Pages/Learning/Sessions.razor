@@ -4,41 +4,39 @@
 
 <PageHeader Title="@(IsStudent ? "My classes" : IsParent ? "Calendar" : "Classes")" Subtitle="@($"Times shown in your time zone ({Tz}).")">
     <Actions>
-        <button class="btn btn-secondary" @onclick="ExportIcs"><Icon Name="download" /> Export calendar (.ics)</button>
+        <button class="btn btn-secondary" @onclick="ExportIcs" aria-label="Export calendar (.ics)"><Icon Name="download" /> Export<span class="desk-text"> calendar (.ics)</span></button>
         @if (IsStaff) { <a class="btn btn-primary" href="/sessions/new"><Icon Name="plus" /> Add classes</a> }
     </Actions>
 </PageHeader>
 
-<div class="card" style="margin-bottom:16px">
-    <div class="row">
+@* Toolbar: one row on desktop; on phones the view switch + Today, then the period, then the filters two-up. *@
+<div class="card cal-tools">
+    <div class="cal-view">
         <div class="segmented" role="group" aria-label="View">
             <button aria-pressed="@(Aria.Bool(_view == "list"))" @onclick='() => SetView("list")'><Icon Name="list" /> List</button>
             <button aria-pressed="@(Aria.Bool(_view == "month"))" @onclick='() => SetView("month")'><Icon Name="calendar" /> Month</button>
         </div>
-        <div class="field" style="min-width:160px">
-            <label for="status" class="sr-only">Status</label>
-            <select id="status" class="select" @bind="_status" @bind:after="Reload">
-                <option value="">Any status</option>
-                @foreach (var s in Enum.GetValues<SessionStatus>()) { <option value="@s">@StatusStyles.For(s).Label</option> }
-            </select>
-        </div>
+        <button class="btn btn-ghost btn-sm cal-today" @onclick="Today">Today</button>
+    </div>
+    <div class="cal-filters">
+        <label for="status" class="sr-only">Status</label>
+        <select id="status" class="select" @bind="_status" @bind:after="Reload">
+            <option value="">Any status</option>
+            @foreach (var s in Enum.GetValues<SessionStatus>()) { <option value="@s">@StatusStyles.For(s).Label</option> }
+        </select>
         @if (IsAdmin && _teachers is not null)
         {
-            <div class="field" style="min-width:200px">
-                <label for="teacher" class="sr-only">Teacher</label>
-                <select id="teacher" class="select" @bind="_teacher" @bind:after="Reload">
-                    <option value="">All teachers</option>
-                    @foreach (var t in _teachers) { <option value="@t.Id">@t.FullName</option> }
-                </select>
-            </div>
+            <label for="teacher" class="sr-only">Teacher</label>
+            <select id="teacher" class="select" @bind="_teacher" @bind:after="Reload">
+                <option value="">All teachers</option>
+                @foreach (var t in _teachers) { <option value="@t.Id">@t.FullName</option> }
+            </select>
         }
-        <div class="grow"></div>
-        <div class="btn-group" role="group" aria-label="Period">
-            <button class="btn btn-secondary btn-sm" @onclick="() => Shift(-1)" aria-label="Previous period"><Icon Name="chevron-left" /></button>
-            <span class="small" style="align-self:center;min-width:140px;text-align:center"><strong>@PeriodLabel</strong></span>
-            <button class="btn btn-secondary btn-sm" @onclick="() => Shift(1)" aria-label="Next period"><Icon Name="chevron-right" /></button>
-            <button class="btn btn-ghost btn-sm" @onclick="Today">Today</button>
-        </div>
+    </div>
+    <div class="cal-period" role="group" aria-label="Period">
+        <button class="btn btn-secondary btn-sm" @onclick="() => Shift(-1)" aria-label="Previous period"><Icon Name="chevron-left" /></button>
+        <strong class="cal-period-label" aria-live="polite">@PeriodLabel</strong>
+        <button class="btn btn-secondary btn-sm" @onclick="() => Shift(1)" aria-label="Next period"><Icon Name="chevron-right" /></button>
     </div>
 </div>
 

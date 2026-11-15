@@ -9,12 +9,23 @@
     <Actions>@if (IsAdmin) { <a class="btn btn-primary" href="/admin/students/new"><Icon Name="plus" /> Admit student</a> }</Actions>
 </PageHeader>
 <div class="card">
-    <div class="row" style="margin-bottom:16px">
-        <input class="input" style="max-width:320px" placeholder="Search name, email or code" aria-label="Search students" @bind="_search" @bind:after="() => Load(1)" />
-        <select class="select" style="max-width:180px" @bind="_status" @bind:after="() => Load(1)" aria-label="Status"><option value="">Any status</option>@foreach (var s in Enum.GetValues<PersonStatus>()) { <option value="@s">@StatusStyles.For(s).Label</option> }</select>
+    <div class="list-tools">
+        <input class="input" type="search" placeholder="Search name, email or code" aria-label="Search students" @bind="_search" @bind:after="() => Load(1)" />
+        <select class="select" @bind="_status" @bind:after="() => Load(1)" aria-label="Status"><option value="">Any status</option>@foreach (var s in Enum.GetValues<PersonStatus>()) { <option value="@s">@StatusStyles.For(s).Label</option> }</select>
     </div>
     <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0" EmptyTitle="No students found" EmptyText="Try a different name or status. Add a student to start their learning journey." EmptyIcon="users">
-        <div class="table-wrap"><table class="table stack-mobile">
+        @* Phones: a compact list (the row opens the profile); larger screens: the table. *@
+        <ul class="plist" aria-label="Students">@foreach (var s in _page?.Items ?? [])
+        {
+            <PersonRow Name="@s.FullName" PhotoUrl="@s.PhotoUrl" Href="@($"/students/{s.Id}")" Meta="@Facts(s)">
+                <Status>@if (s.Status != PersonStatus.Active) { <Badge Style="StatusStyles.For(s.Status)" /> }</Status>
+                <Actions>
+                    @if (IsAdmin) { <button type="button" class="icon-btn" aria-label="@($"Edit {s.FullName}")" title="Edit" @onclick="() => Edit(s)"><Icon Name="pencil" /></button> }
+                    <a class="icon-btn" href="/sessions/new?studentId=@s.Id" aria-label="@($"Add classes for {s.FullName}")" title="Add classes"><Icon Name="calendar-plus" /></a>
+                </Actions>
+            </PersonRow>
+        }</ul>
+        <div class="table-wrap desk-list"><table class="table">
             <thead><tr><th>Name</th><th>Code</th><th>Class</th><th>Syllabus</th><th>Status</th><th></th></tr></thead>
             <tbody>@foreach (var s in _page?.Items ?? [])
             {
@@ -75,6 +86,7 @@
         _years = (await Fetch(() => Api.GetAsync<List<AcademicYearDto>>("academics/years"))).Value ?? [];
         await Load(1);
     }
+    private static string Facts(StudentDto s) => string.Join(" · ", new[] { s.StudentCode, s.GradeLevelName, s.CurriculumName }.Where(x => !string.IsNullOrWhiteSpace(x)));
     private async Task Load(int p) => (_page, _error) = await Fetch(() => Api.GetAsync<PagedResult<StudentDto>>($"students?page={p}&pageSize=25&search={Uri.EscapeDataString(_search)}" + (_status == "" ? "" : $"&status={_status}")));
     private void Edit(StudentDto s) { (_editId, _name, _code, _grade, _school, _tz, _pstatus, _photoUrl) = (s.Id, s.FullName, s.StudentCode, s.GradeLevelId, s.SchoolName, s.TimeZoneId, s.Status, s.PhotoUrl); (_curriculum, _year) = (s.CurriculumId, s.AcademicYearId); (_phone, _guardianName, _guardianPhone, _joined) = (s.Phone, s.GuardianName, s.GuardianPhone, s.JoinedOn); _open = true; }
     private Task UploadPhoto(MultipartFormDataContent form) => Api.PutFormAsync($"students/{_editId}/photo", form);
