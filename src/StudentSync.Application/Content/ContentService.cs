@@ -377,7 +377,7 @@ public sealed class ContentService(
     /// <summary>Retention: removes recordings whose retention period has passed. Runs per tenant.</summary>
     public async Task<int> ApplyRetentionAsync(IFileStorage storage, CancellationToken ct)
     {
-        var expired = await db.Recordings.Include(r => r.File).Where(r => r.Status != RecordingStatus.Deleted && r.RetainUntilUtc < clock.UtcNow).Take(200).ToListAsync(ct);
+        var expired = await db.Recordings.Include(r => r.File).Where(r => r.Status != RecordingStatus.Deleted && r.RetainUntilUtc < clock.UtcNow).OrderBy(r => r.RetainUntilUtc).Take(200).ToListAsync(ct);
         foreach (var rec in expired)
         {
             rec.Status = RecordingStatus.Deleted;

@@ -544,7 +544,7 @@ public sealed class ExamService(IAppDbContext db, ICurrentUser user, AccessPolic
     public async Task<int> FinaliseExpiredAsync(CancellationToken ct)
     {
         var now = clock.UtcNow;
-        var expired = await db.ExamAttempts.Where(a => a.Status == AttemptStatus.InProgress && a.DeadlineUtc < now.AddSeconds(-30)).Take(200).ToListAsync(ct);
+        var expired = await db.ExamAttempts.Where(a => a.Status == AttemptStatus.InProgress && a.DeadlineUtc < now.AddSeconds(-30)).OrderBy(a => a.DeadlineUtc).Take(200).ToListAsync(ct);
         foreach (var a in expired) await FinaliseAsync(a, now, ct);
         await db.SaveChangesAsync(ct);
         return expired.Count;
