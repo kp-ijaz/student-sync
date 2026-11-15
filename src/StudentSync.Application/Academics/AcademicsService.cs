@@ -27,7 +27,7 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
         Manage();
         var name = Text.Required(r.Name, "name", 50);
         if (r.EndDate <= r.StartDate) throw RequestValidationException.For("endDate", "The year must end after it starts.");
-        if (await db.AcademicYears.AnyAsync(y => y.Name == name && y.Id != id, ct)) throw RequestValidationException.For("name", "An academic year with this name exists.");
+        if (await db.AcademicYears.AnyAsync(y => y.Name.ToLower() == name.ToLowerInvariant() && y.Id != id, ct)) throw RequestValidationException.For("name", "An academic year with this name exists.");
         var y = id is { } yid ? await db.AcademicYears.FirstOrDefaultAsync(x => x.Id == yid, ct) ?? throw new NotFoundException("Academic year") : db.AcademicYears.Add(new AcademicYear()).Entity;
         y.Name = name; y.StartDate = r.StartDate; y.EndDate = r.EndDate;
         if (r.IsCurrent) await db.AcademicYears.Where(x => x.IsCurrent && x.Id != y.Id).ExecuteUpdateAsync(u => u.SetProperty(x => x.IsCurrent, false), ct);
@@ -60,7 +60,7 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
     {
         Manage();
         var name = Text.Required(r.Name, "name", 50);
-        if (await db.GradeLevels.AnyAsync(g => g.Name == name && g.Id != id, ct)) throw RequestValidationException.For("name", "This grade already exists.");
+        if (await db.GradeLevels.AnyAsync(g => g.Name.ToLower() == name.ToLowerInvariant() && g.Id != id, ct)) throw RequestValidationException.For("name", "This grade already exists.");
         var g = id is { } gid ? await db.GradeLevels.FirstOrDefaultAsync(x => x.Id == gid, ct) ?? throw new NotFoundException("Grade") : db.GradeLevels.Add(new GradeLevel()).Entity;
         g.Name = name; g.SortOrder = r.SortOrder;
         await db.SaveChangesAsync(ct);
@@ -83,7 +83,7 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
         var code = Text.Required(r.Code, "code", 30).ToUpperInvariant();
         var name = Text.Required(r.Name, "name", 100);
         if (await db.Curricula.AnyAsync(c => c.Code == code && c.Id != id, ct)) throw RequestValidationException.For("code", "This curriculum code already exists.");
-        if (await db.Curricula.AnyAsync(c => c.Name == name && c.Id != id, ct)) throw RequestValidationException.For("name", "This curriculum already exists.");
+        if (await db.Curricula.AnyAsync(c => c.Name.ToLower() == name.ToLowerInvariant() && c.Id != id, ct)) throw RequestValidationException.For("name", "This curriculum already exists.");
         var c = id is { } cid ? await db.Curricula.FirstOrDefaultAsync(x => x.Id == cid, ct) ?? throw new NotFoundException("Curriculum") : db.Curricula.Add(new Curriculum()).Entity;
         c.Code = code; c.Name = name; c.Status = r.Status;
         audit.Record(id is null ? "curriculum.created" : "curriculum.updated", "Curriculum", c.Id, $"{code} {name}");
@@ -154,7 +154,7 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
         }
         else
         {
-            var existing = await db.Subjects.FirstOrDefaultAsync(s => s.CourseId == course.Id && s.Name == name, ct);
+            var existing = await db.Subjects.FirstOrDefaultAsync(s => s.CourseId == course.Id && s.Name.ToLower() == name.ToLowerInvariant(), ct);
             if (existing is not null)
             {
                 if (existing.Status != CatalogStatus.Active) { existing.Status = CatalogStatus.Active; await db.SaveChangesAsync(ct); }

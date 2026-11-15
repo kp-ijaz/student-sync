@@ -80,7 +80,7 @@ any question of "who may do what", any workflow from the student journey (master
 ## Required tests
 
 - Unit (`tests/StudentSync.UnitTests`): the pure rule (e.g. deduction amount, allowed status transition).
-- Integration (`tests/StudentSync.IntegrationTests`, Testcontainers SQL Server 2022): other institute → 404,
+- Integration (`tests/StudentSync.IntegrationTests`, Testcontainers PostgreSQL 18): other institute → 404,
   wrong role → 403, student cannot read another student's record, idempotent replay.
 - Browser: via `puppeteer-browser-testing` for every user-visible flow.
 

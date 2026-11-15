@@ -8,22 +8,24 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using StudentSync.Contracts;
 using StudentSync.Infrastructure.Seeding;
-using Testcontainers.MsSql;
+using Npgsql;
+using Testcontainers.PostgreSql;
 
 [assembly: AssemblyFixture(typeof(StudentSync.IntegrationTests.ApiFixture))]
 
 namespace StudentSync.IntegrationTests;
 
 /// <summary>
-/// Runs the real API against SQL Server 2022 with the demo dataset. Uses Testcontainers by default; set
-/// STUDENTSYNC_TEST_SQL to an existing server's connection string (without a database name) to reuse a running server.
+/// Runs the real API against PostgreSQL 18 with the demo dataset. Uses Testcontainers by default; set
+/// STUDENTSYNC_TEST_SQL to an existing PostgreSQL server's connection string (without a database name, as a user that
+/// can create databases) to reuse a running server.
 /// Each run gets its own uniquely named database, which is dropped afterwards.
 /// </summary>
 public sealed class ApiFixture : IAsyncLifetime
 {
     public const string Password = "Integration-Test-Pass1";
     public static readonly JsonSerializerOptions Json = CreateJson();
-    private MsSqlContainer? _container;
+    private PostgreSqlContainer? _container;
     private string _connection = "";
     public WebApplicationFactory<Program> Factory { get; private set; } = default!;
     /// <summary>Connection string of this run's database; tests that need an empty database swap the catalog name.</summary>
@@ -41,12 +43,12 @@ public sealed class ApiFixture : IAsyncLifetime
         var database = $"StudentSync_Test_{Guid.NewGuid():N}";
         var external = Environment.GetEnvironmentVariable("STUDENTSYNC_TEST_SQL");
         if (!string.IsNullOrWhiteSpace(external))
-            _connection = $"{external.TrimEnd(';')};Database={database};TrustServerCertificate=True";
+            _connection = new NpgsqlConnectionStringBuilder(external) { Database = database }.ConnectionString;
         else
         {
-            _container = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-CU16-ubuntu-22.04").Build();
+            _container = new PostgreSqlBuilder("postgres:18.7-alpine").Build();
             await _container.StartAsync();
-            _connection = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(_container.GetConnectionString()) { InitialCatalog = database }.ConnectionString;
+            _connection = new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = database }.ConnectionString;
         }
 
         Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>

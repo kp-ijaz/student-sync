@@ -21,7 +21,7 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration config, IHostEnvironment env)
     {
         var connection = config.GetConnectionString("Default") ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured.");
-        services.AddDbContext<AppDbContext>(o => o.UseSqlServer(connection, sql => sql.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)));
+        services.AddDbContext<AppDbContext>(o => o.UseNpgsql(connection, pg => pg.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)));
         services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AppDbContext>());
 
         // Keys protect file-download tokens and integration secrets; persist them so restarts and multiple nodes share them.

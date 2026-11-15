@@ -34,9 +34,11 @@ ship() { # ship <name> <Project> <host> <extra files to copy next to the compose
     && docker compose -f compose.$name.yml ps --format '{{.Service}}: {{.Status}}'"
 }
 
+api_files=("$root/deploy/oracle/postgres-init.sh" "$root/deploy/oracle/backup.sh")
+
 case "$target" in
-  api) ship api Api ss-api ;;
+  api) ship api Api ss-api "${api_files[@]}" ;;
   web) ship web Web ss-web "$root/deploy/oracle/Caddyfile" ;;
-  all) ship api Api ss-api; ship web Web ss-web "$root/deploy/oracle/Caddyfile" ;;
+  all) ship api Api ss-api "${api_files[@]}"; ship web Web ss-web "$root/deploy/oracle/Caddyfile" ;;
   *) echo "usage: $0 [api|web|all]" >&2; exit 2 ;;
 esac

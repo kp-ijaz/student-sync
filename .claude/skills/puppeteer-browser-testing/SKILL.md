@@ -22,7 +22,7 @@ screenshots for a change are done with Puppeteer.
 ## Inspect first
 - `tests/e2e/puppeteer/README.md`, `browser.mjs` (launch, viewports, `signIn`, collectors, `screenshot`), `smoke.mjs`.
 - `tests/e2e/tests/helpers.ts` (demo users, how the Playwright suite signs in) and `tests/e2e/playwright.config.ts`.
-- `DEVELOPMENT.md` for starting the stack: `docker compose up -d sqlserver mailpit`, `dotnet run --project
+- `DEVELOPMENT.md` for starting the stack: `docker compose up -d postgres mailpit`, `dotnet run --project
   src/StudentSync.Api -- seed-demo`, API on :5080, web on :5090.
 - `DESIGN.md` for breakpoints (side menu docks at 1024 px) and the states every screen must show.
 - The page under test under `src/StudentSync.Web/Components/Pages/` to know its route and labels.
@@ -41,7 +41,7 @@ screenshots for a change are done with Puppeteer.
 - Do not trigger `alert`/`confirm` dialogs; prefer the app's own modal components.
 
 ## Workflow
-1. Start the stack (`docker compose up -d sqlserver mailpit`; `dotnet run --project src/StudentSync.Api`;
+1. Start the stack (`docker compose up -d postgres mailpit`; `dotnet run --project src/StudentSync.Api`;
    `dotnet run --project src/StudentSync.Web`) and seed demo data. Confirm `/health` on both.
 2. `cd tests/e2e && npm ci` (once). Prove the browser works: `BASE_URL=none npm run puppeteer:smoke`.
 3. Write `tests/e2e/puppeteer/<flow>.mjs` importing `launch`, `newPage`, `signIn`, `users`, `viewports`,

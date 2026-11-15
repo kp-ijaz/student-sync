@@ -32,7 +32,7 @@ internal static class ModelConfiguration
 
     private static void Max<T>(ModelBuilder b, params Expression<Func<T, string?>>[] props) where T : class
     {
-        foreach (var p in props) b.Entity<T>().Property(p).HasColumnType("nvarchar(max)");
+        foreach (var p in props) b.Entity<T>().Property(p).HasColumnType("text");
     }
 
     public static void Configure(ModelBuilder b)
@@ -63,14 +63,14 @@ internal static class ModelConfiguration
             e.Property(x => x.CurrencyCode).HasMaxLength(3);
             e.Property(x => x.DefaultTimeZoneId).HasMaxLength(64);
             e.Property(x => x.BrandColorHex).HasMaxLength(7);
-            e.ToTable(t => t.HasCheckConstraint("CK_Tenants_Retention", "[RecordingRetentionDays] BETWEEN 7 AND 3650"));
+            e.ToTable(t => t.HasCheckConstraint("CK_Tenants_Retention", "\"RecordingRetentionDays\" BETWEEN 7 AND 3650"));
         });
         b.Entity<InstitutionHoliday>().HasIndex(x => new { x.TenantId, x.Date }).IsUnique();
         b.Entity<SubscriptionPlan>(e =>
         {
             e.HasIndex(x => x.Code).IsUnique();
             e.HasMany(x => x.Features).WithOne().HasForeignKey(x => x.PlanId).OnDelete(C);
-            e.ToTable(t => t.HasCheckConstraint("CK_Plans_Limits", "[MonthlyPrice] >= 0 AND [MaxStudents] > 0 AND [MaxTeachers] > 0"));
+            e.ToTable(t => t.HasCheckConstraint("CK_Plans_Limits", "\"MonthlyPrice\" >= 0 AND \"MaxStudents\" > 0 AND \"MaxTeachers\" > 0"));
         });
         b.Entity<PlanFeature>().HasIndex(x => new { x.PlanId, x.FeatureKey }).IsUnique();
         b.Entity<TenantSubscription>(e =>
@@ -102,7 +102,7 @@ internal static class ModelConfiguration
             b.Entity(type).Property("Id").ValueGeneratedNever();
             b.Entity(type).HasOne(typeof(AppUser), nav).WithOne().HasForeignKey(type, "Id").OnDelete(R);
         }
-        b.Entity<Teacher>().HasIndex(x => new { x.TenantId, x.EmployeeCode }).IsUnique().HasFilter("[EmployeeCode] IS NOT NULL");
+        b.Entity<Teacher>().HasIndex(x => new { x.TenantId, x.EmployeeCode }).IsUnique().HasFilter("\"EmployeeCode\" IS NOT NULL");
         b.Entity<Teacher>().Property(x => x.Bio).HasMaxLength(2000);
         b.Entity<Teacher>().Property(x => x.Phone).HasMaxLength(30);
         b.Entity<Teacher>().Property(x => x.Languages).HasMaxLength(200);
@@ -148,8 +148,8 @@ internal static class ModelConfiguration
             e.Property(x => x.Hours).HasPrecision(7, 2);
             e.ToTable(t =>
             {
-                t.HasCheckConstraint("CK_StudentPackages_Hours", "[Hours] > 0");
-                t.HasCheckConstraint("CK_StudentPackages_Price", "[Price] >= 0");
+                t.HasCheckConstraint("CK_StudentPackages_Hours", "\"Hours\" > 0");
+                t.HasCheckConstraint("CK_StudentPackages_Price", "\"Price\" >= 0");
             });
         });
         b.Entity<FeePayment>(e =>
@@ -158,15 +158,16 @@ internal static class ModelConfiguration
             e.HasOne<Student>().WithMany().HasForeignKey(x => x.StudentId).OnDelete(R);
             e.Property(x => x.Reference).HasMaxLength(100);
             e.Property(x => x.VoidReason).HasMaxLength(300);
-            e.ToTable(t => t.HasCheckConstraint("CK_FeePayments_Amount", "[Amount] > 0"));
+            e.ToTable(t => t.HasCheckConstraint("CK_FeePayments_Amount", "\"Amount\" > 0"));
         });
         Fk<Student, GradeLevel>(b, x => x.GradeLevelId);
         Fk<Student, Curriculum>(b, x => x.CurriculumId);
         Fk<Student, AcademicYear>(b, x => x.AcademicYearId);
         b.Entity<StudentLearningNeed>(e =>
         {
-            // One open need per student/subject/chapter (NULL chapter = the whole subject; SQL Server treats NULLs as equal in a unique index).
-            e.HasIndex(x => new { x.StudentId, x.SubjectId, x.ChapterId }).IsUnique().HasFilter("[Status] = 'Open'");
+            // One open need per student/subject/chapter. A NULL chapter means the whole subject, so NULLs must count as
+            // equal here (NULLS NOT DISTINCT); PostgreSQL treats them as distinct by default.
+            e.HasIndex(x => new { x.StudentId, x.SubjectId, x.ChapterId }).IsUnique().AreNullsDistinct(false).HasFilter("\"Status\" = 'Open'");
             e.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(R);
             e.Property(x => x.Note).HasMaxLength(1000);
             e.Property(x => x.ReviewNote).HasMaxLength(1000);
@@ -192,7 +193,7 @@ internal static class ModelConfiguration
         {
             e.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
             e.HasMany(x => x.Terms).WithOne().HasForeignKey(x => x.AcademicYearId).OnDelete(R);
-            e.ToTable(t => t.HasCheckConstraint("CK_AcademicYears_Dates", "[EndDate] > [StartDate]"));
+            e.ToTable(t => t.HasCheckConstraint("CK_AcademicYears_Dates", "\"EndDate\" > \"StartDate\""));
         });
         b.Entity<GradeLevel>().HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
         b.Entity<Curriculum>(e =>
@@ -219,7 +220,7 @@ internal static class ModelConfiguration
             e.HasIndex(x => new { x.TenantId, x.CourseId, x.Kind });
             // A language option always belongs to a choice group; core subjects never do.
             e.ToTable(t => t.HasCheckConstraint("CK_Subjects_ChoiceGroup",
-                "([Kind] <> 'LanguageOption' OR [ChoiceGroup] IS NOT NULL) AND ([Kind] <> 'Core' OR [ChoiceGroup] IS NULL)"));
+                "(\"Kind\" <> 'LanguageOption' OR \"ChoiceGroup\" IS NOT NULL) AND (\"Kind\" <> 'Core' OR \"ChoiceGroup\" IS NULL)"));
         });
         b.Entity<StudentSubject>(e =>
         {
@@ -249,7 +250,7 @@ internal static class ModelConfiguration
             e.HasOne(x => x.Subject).WithMany().HasForeignKey(x => x.SubjectId).OnDelete(R);
             e.HasOne(x => x.Teacher).WithMany().HasForeignKey(x => x.TeacherId).OnDelete(R);
             e.HasMany(x => x.Enrolments).WithOne(x => x.Batch).HasForeignKey(x => x.BatchId).OnDelete(R);
-            e.ToTable(t => t.HasCheckConstraint("CK_Batches_Capacity", "[Capacity] > 0"));
+            e.ToTable(t => t.HasCheckConstraint("CK_Batches_Capacity", "\"Capacity\" > 0"));
         });
         b.Entity<BatchEnrolment>(e =>
         {
@@ -293,7 +294,7 @@ internal static class ModelConfiguration
             e.HasOne(x => x.Chapter).WithMany().HasForeignKey(x => x.ChapterId).OnDelete(R);
             e.HasOne<SessionSeries>().WithMany().HasForeignKey(x => x.SeriesId).OnDelete(R);
             e.HasMany(x => x.Participants).WithOne(x => x.Session).HasForeignKey(x => x.SessionId).OnDelete(R);
-            e.HasIndex(x => new { x.SeriesId, x.OccurrenceDate }).IsUnique().HasFilter("[SeriesId] IS NOT NULL");
+            e.HasIndex(x => new { x.SeriesId, x.OccurrenceDate }).IsUnique().AreNullsDistinct(false).HasFilter("\"SeriesId\" IS NOT NULL");
             e.HasIndex(x => new { x.TenantId, x.StartUtc });
             e.HasIndex(x => new { x.TeacherId, x.StartUtc });
             e.Property(x => x.TimeZoneId).HasMaxLength(64);
@@ -301,10 +302,10 @@ internal static class ModelConfiguration
             e.Property(x => x.Objectives).HasMaxLength(4000);
             e.ToTable(t =>
             {
-                t.HasCheckConstraint("CK_Sessions_TimeRange", "[EndUtc] > [StartUtc]");
+                t.HasCheckConstraint("CK_Sessions_TimeRange", "\"EndUtc\" > \"StartUtc\"");
                 // Only batch sessions require a batch; one-to-one and private groups never have one.
-                t.HasCheckConstraint("CK_Sessions_BatchRequired", "[SessionType] <> 'Batch' OR [BatchId] IS NOT NULL");
-                t.HasCheckConstraint("CK_Sessions_NoBatchForPrivate", "[SessionType] NOT IN ('OneToOne','PrivateGroup') OR [BatchId] IS NULL");
+                t.HasCheckConstraint("CK_Sessions_BatchRequired", "\"SessionType\" <> 'Batch' OR \"BatchId\" IS NOT NULL");
+                t.HasCheckConstraint("CK_Sessions_NoBatchForPrivate", "\"SessionType\" NOT IN ('OneToOne','PrivateGroup') OR \"BatchId\" IS NULL");
             });
         });
         b.Entity<SessionParticipant>(e =>
@@ -316,7 +317,7 @@ internal static class ModelConfiguration
         Fk<SessionScheduleChange, LearningSession>(b, x => x.SessionId);
         Fk<SessionScheduleChange, Student>(b, x => x.StudentId);
         Fk<SessionScheduleChange, AppUser>(b, x => x.ChangedByUserId);
-        b.Entity<SessionAgendaItem>().HasIndex(x => new { x.SessionId, x.DoubtId }).IsUnique().HasFilter("[DoubtId] IS NOT NULL");
+        b.Entity<SessionAgendaItem>().HasIndex(x => new { x.SessionId, x.DoubtId }).IsUnique().HasFilter("\"DoubtId\" IS NOT NULL");
         Fk<SessionAgendaItem, LearningSession>(b, x => x.SessionId);
         Fk<SessionAgendaItem, Doubt>(b, x => x.DoubtId);
         b.Entity<AttendanceRecord>(e =>
@@ -328,7 +329,7 @@ internal static class ModelConfiguration
         });
         Fk<AttendanceRecord, AppUser>(b, x => x.MarkedByUserId);
         Fk<TeacherAvailability, Teacher>(b, x => x.TeacherId);
-        b.Entity<TeacherAvailability>().ToTable(t => t.HasCheckConstraint("CK_Availability_Range", "[EndLocalTime] > [StartLocalTime]"));
+        b.Entity<TeacherAvailability>().ToTable(t => t.HasCheckConstraint("CK_Availability_Range", "\"EndLocalTime\" > \"StartLocalTime\""));
 
         // ---------- Content ----------
         b.Entity<StoredFile>(e =>
@@ -347,7 +348,7 @@ internal static class ModelConfiguration
             e.HasOne(x => x.File).WithMany().HasForeignKey(x => x.FileId).OnDelete(R);
             e.Property(x => x.Url).HasMaxLength(1000);
             e.Property(x => x.Description).HasMaxLength(2000);
-            e.ToTable(t => t.HasCheckConstraint("CK_Materials_Kind", "([Kind] = 'File' AND [FileId] IS NOT NULL) OR ([Kind] = 'Link' AND [Url] IS NOT NULL)"));
+            e.ToTable(t => t.HasCheckConstraint("CK_Materials_Kind", "(\"Kind\" = 'File' AND \"FileId\" IS NOT NULL) OR (\"Kind\" = 'Link' AND \"Url\" IS NOT NULL)"));
         });
         Fk<LearningMaterial, LearningSession>(b, x => x.SessionId);
         Fk<LearningMaterial, Subject>(b, x => x.SubjectId);
@@ -364,7 +365,7 @@ internal static class ModelConfiguration
             e.HasOne(x => x.File).WithMany().HasForeignKey(x => x.FileId).OnDelete(R);
             e.HasIndex(x => new { x.SessionId, x.DeletedAtUtc });
             e.HasIndex(x => x.FileId).IsUnique();
-            e.ToTable(t => t.HasCheckConstraint("CK_PrerecordedVideos_Offset", "[UnlockOffsetMinutes] >= 0 AND [UnlockOffsetMinutes] <= 20160"));
+            e.ToTable(t => t.HasCheckConstraint("CK_PrerecordedVideos_Offset", "\"UnlockOffsetMinutes\" >= 0 AND \"UnlockOffsetMinutes\" <= 20160"));
         });
         Fk<PrerecordedVideo, LearningSession>(b, x => x.SessionId);
         Fk<PrerecordedVideo, AppUser>(b, x => x.UploadedByUserId);
@@ -392,7 +393,7 @@ internal static class ModelConfiguration
             e.HasOne(x => x.Teacher).WithMany().HasForeignKey(x => x.TeacherId).OnDelete(R);
             e.HasMany(x => x.Recipients).WithOne().HasForeignKey(x => x.AssignmentId).OnDelete(C);
             e.HasMany(x => x.Attachments).WithOne().HasForeignKey(x => x.AssignmentId).OnDelete(C);
-            e.ToTable(t => t.HasCheckConstraint("CK_Assignments_MaxMarks", "[MaxMarks] > 0"));
+            e.ToTable(t => t.HasCheckConstraint("CK_Assignments_MaxMarks", "\"MaxMarks\" > 0"));
         });
         Max<Assignment>(b, x => x.InstructionsMarkdown);
         Fk<Assignment, LearningSession>(b, x => x.SessionId);
@@ -412,7 +413,7 @@ internal static class ModelConfiguration
             e.HasOne(x => x.Assignment).WithMany().HasForeignKey(x => x.AssignmentId).OnDelete(R);
             e.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(R);
             e.HasMany(x => x.Files).WithOne().HasForeignKey(x => x.SubmissionId).OnDelete(C);
-            e.ToTable(t => t.HasCheckConstraint("CK_Submissions_Marks", "[Marks] IS NULL OR [Marks] >= 0"));
+            e.ToTable(t => t.HasCheckConstraint("CK_Submissions_Marks", "\"Marks\" IS NULL OR \"Marks\" >= 0"));
         });
         Max<AssignmentSubmission>(b, x => x.TextAnswer, x => x.Feedback);
         Fk<AssignmentSubmission, AppUser>(b, x => x.GradedByUserId);
@@ -438,7 +439,7 @@ internal static class ModelConfiguration
             e.HasMany(x => x.Questions).WithOne().HasForeignKey(x => x.ExamId).OnDelete(C);
             e.HasMany(x => x.Recipients).WithOne().HasForeignKey(x => x.ExamId).OnDelete(C);
             e.Property(x => x.Instructions).HasMaxLength(10_000);
-            e.ToTable(t => t.HasCheckConstraint("CK_Exams_Window", "[ClosesAtUtc] > [OpensAtUtc] AND [DurationMinutes] > 0 AND [MaxAttempts] >= 1"));
+            e.ToTable(t => t.HasCheckConstraint("CK_Exams_Window", "\"ClosesAtUtc\" > \"OpensAtUtc\" AND \"DurationMinutes\" > 0 AND \"MaxAttempts\" >= 1"));
         });
         Fk<Exam, Teacher>(b, x => x.TeacherId);
         Fk<Exam, Subject>(b, x => x.SubjectId);
@@ -461,8 +462,8 @@ internal static class ModelConfiguration
             e.HasOne(x => x.Exam).WithMany().HasForeignKey(x => x.ExamId).OnDelete(R);
             e.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(R);
             e.HasMany(x => x.Answers).WithOne().HasForeignKey(x => x.AttemptId).OnDelete(C);
-            e.Property(x => x.QuestionOrder).HasColumnType("nvarchar(max)");
-            e.ToTable(t => t.HasCheckConstraint("CK_Attempts_Number", "[AttemptNumber] >= 1"));
+            e.Property(x => x.QuestionOrder).HasColumnType("text");
+            e.ToTable(t => t.HasCheckConstraint("CK_Attempts_Number", "\"AttemptNumber\" >= 1"));
         });
         b.Entity<ExamAnswer>().HasIndex(x => new { x.AttemptId, x.ExamQuestionId }).IsUnique();
         Max<ExamAnswer>(b, x => x.ResponseJson, x => x.Feedback);
@@ -496,7 +497,7 @@ internal static class ModelConfiguration
         // ---------- Communication ----------
         b.Entity<Conversation>(e =>
         {
-            e.HasIndex(x => new { x.TenantId, x.DirectKey }).IsUnique().HasFilter("[DirectKey] IS NOT NULL");
+            e.HasIndex(x => new { x.TenantId, x.DirectKey }).IsUnique().HasFilter("\"DirectKey\" IS NOT NULL");
             e.HasMany(x => x.Participants).WithOne().HasForeignKey(x => x.ConversationId).OnDelete(C);
         });
         b.Entity<ConversationParticipant>().HasIndex(x => new { x.ConversationId, x.UserId }).IsUnique();

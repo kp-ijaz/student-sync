@@ -15,11 +15,11 @@
 
   <ItemGroup>
     <PackageReference Include="Anthropic" />
-    <PackageReference Include="Hangfire.SqlServer" />
+    <PackageReference Include="Hangfire.PostgreSql" />
     <PackageReference Include="MailKit" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
   </ItemGroup>
 
 </Project>

@@ -35,7 +35,7 @@ public sealed class AssignmentService(
             items = items.Where(a => a.Recipients.Any(r => r.StudentId == studentId));
             focus = studentId;
         }
-        if (!string.IsNullOrWhiteSpace(q.Search)) items = items.Where(a => a.Title.Contains(q.Search));
+        if (!string.IsNullOrWhiteSpace(q.Search)) items = items.Where(a => a.Title.ToLower().Contains(q.Search.ToLowerInvariant()));
         var total = await items.CountAsync(ct);
         var page = await Project(items.OrderByDescending(a => a.DueAtUtc), focus).Skip((q.SafePage - 1) * q.SafePageSize).Take(q.SafePageSize).ToListAsync(ct);
         return new PagedResult<AssignmentListItemDto>(page, q.SafePage, q.SafePageSize, total);
@@ -185,7 +185,7 @@ public sealed class AssignmentService(
         s.Id, s.AssignmentId, s.Assignment!.Title, s.StudentId, s.Student!.User!.FullName, s.Status, s.TextAnswer, s.SubmittedAtUtc, s.IsLate,
         s.AttemptNumber, s.Marks, s.Assignment.MaxMarks, s.Feedback, s.GradedAtUtc,
         db.SubmissionFiles.Where(f => f.SubmissionId == s.Id).Join(db.Files, f => f.FileId, f => f.Id, (x, f) => new FileDto(f.Id, f.FileName, f.ContentType, f.SizeBytes)).ToList(),
-        Convert.ToBase64String(s.RowVersion)));
+        RowVersions.Encode(s.RowVersion)));
 
     public async Task<IReadOnlyList<SubmissionDto>> SubmissionsAsync(Guid assignmentId, CancellationToken ct)
     {

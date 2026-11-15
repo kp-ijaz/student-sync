@@ -25,7 +25,7 @@ public sealed class ContentService(
 
     private IQueryable<NoteDto> ProjectNotes(IQueryable<SessionNote> q) => q.Select(n => new NoteDto(
         n.Id, n.SessionId, n.Title, n.BodyMarkdown, n.Visibility, n.Status, n.Source, n.PublishedAtUtc, n.UpdatedAtUtc ?? n.CreatedAtUtc,
-        db.Users.Where(u => u.Id == n.AuthorUserId).Select(u => u.FullName).FirstOrDefault() ?? "", n.AvailableOffline, Convert.ToBase64String(n.RowVersion)));
+        db.Users.Where(u => u.Id == n.AuthorUserId).Select(u => u.FullName).FirstOrDefault() ?? "", n.AvailableOffline, RowVersions.Encode(n.RowVersion)));
 
     public async Task<Guid> CreateNoteAsync(Guid sessionId, SaveNoteRequest r, CancellationToken ct)
     {
@@ -128,7 +128,7 @@ public sealed class ContentService(
         var materials = await VisibleMaterialsAsync(ct);
         if (q.SessionId is { } sid) materials = materials.Where(m => m.SessionId == sid);
         if (q.SubjectId is { } subj) materials = materials.Where(m => m.SubjectId == subj || db.Sessions.Any(s => s.Id == m.SessionId && s.SubjectId == subj));
-        if (!string.IsNullOrWhiteSpace(q.Search)) materials = materials.Where(m => m.Title.Contains(q.Search));
+        if (!string.IsNullOrWhiteSpace(q.Search)) materials = materials.Where(m => m.Title.ToLower().Contains(q.Search.ToLowerInvariant()));
         var total = await materials.CountAsync(ct);
         var items = await materials.OrderByDescending(m => m.CreatedAtUtc).Skip((q.SafePage - 1) * q.SafePageSize).Take(q.SafePageSize)
             .Select(m => new MaterialDto(m.Id, m.Title, m.Description, m.Kind, m.Url,
@@ -348,7 +348,7 @@ public sealed class ContentService(
         var sessions = await access.VisibleSessionsAsync(ct);
         if (q.SubjectId is { } subj) sessions = sessions.Where(s => s.SubjectId == subj);
         var recs = db.Recordings.Where(r => r.Status == RecordingStatus.Available && sessions.Any(s => s.Id == r.SessionId));
-        if (!string.IsNullOrWhiteSpace(q.Search)) recs = recs.Where(r => r.Title.Contains(q.Search));
+        if (!string.IsNullOrWhiteSpace(q.Search)) recs = recs.Where(r => r.Title.ToLower().Contains(q.Search.ToLowerInvariant()));
         var total = await recs.CountAsync(ct);
         var items = await ProjectRecordings(recs).Skip((q.SafePage - 1) * q.SafePageSize).Take(q.SafePageSize).ToListAsync(ct);
         return new PagedResult<RecordingDto>(items, q.SafePage, q.SafePageSize, total);
@@ -368,7 +368,7 @@ public sealed class ContentService(
         var sessions = await access.VisibleSessionsAsync(ct);
         if (q.SubjectId is { } subj) sessions = sessions.Where(s => s.SubjectId == subj);
         var notes = db.Notes.Where(n => n.Status == PublicationStatus.Published && n.Visibility == NoteVisibility.Participants && sessions.Any(s => s.Id == n.SessionId));
-        if (!string.IsNullOrWhiteSpace(q.Search)) notes = notes.Where(n => n.Title.Contains(q.Search) || n.BodyMarkdown.Contains(q.Search));
+        if (!string.IsNullOrWhiteSpace(q.Search)) notes = notes.Where(n => n.Title.ToLower().Contains(q.Search.ToLowerInvariant()) || n.BodyMarkdown.ToLower().Contains(q.Search.ToLowerInvariant()));
         var total = await notes.CountAsync(ct);
         var items = await ProjectNotes(notes.OrderByDescending(n => n.PublishedAtUtc)).Skip((q.SafePage - 1) * q.SafePageSize).Take(q.SafePageSize).ToListAsync(ct);
         return new PagedResult<NoteDto>(items, q.SafePage, q.SafePageSize, total);

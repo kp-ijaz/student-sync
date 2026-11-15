@@ -606,9 +606,9 @@ public sealed class DataIntegrityTests(ApiFixture api)
         var existing = await db.Sessions.FirstAsync(s => s.BatchId != null);
 
         // Check constraint: a one-to-one session can never carry a batch, even if application checks were bypassed.
-        var bad = await db.Database.ExecuteSqlInterpolatedAsync($"UPDATE Sessions SET SessionType = 'OneToOne' WHERE Id = {existing.Id} AND 1 = 0");
+        var bad = await db.Database.ExecuteSqlInterpolatedAsync($"UPDATE \"Sessions\" SET \"SessionType\" = 'OneToOne' WHERE \"Id\" = {existing.Id} AND 1 = 0");
         Assert.Equal(0, bad);
-        await Assert.ThrowsAnyAsync<Exception>(() => db.Database.ExecuteSqlInterpolatedAsync($"UPDATE Sessions SET SessionType = 'OneToOne' WHERE Id = {existing.Id}"));
+        await Assert.ThrowsAnyAsync<Exception>(() => db.Database.ExecuteSqlInterpolatedAsync($"UPDATE \"Sessions\" SET \"SessionType\" = 'OneToOne' WHERE \"Id\" = {existing.Id}"));
 
         // Writing a record for another tenant from this tenant's scope is blocked.
         db.Holidays.Add(new StudentSync.Domain.Tenancy.InstitutionHoliday { TenantId = northbridge.Id, Date = new DateOnly(2030, 1, 1), Name = "x" });

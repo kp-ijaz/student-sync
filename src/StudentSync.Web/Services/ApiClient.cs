@@ -29,7 +29,7 @@ public sealed record SessionTokens(string AccessToken, DateTime AccessExpiresUtc
 /// <summary>
 /// Server-side token store (backend-for-frontend). The browser only holds an HttpOnly cookie with an opaque session id;
 /// API access and refresh tokens never reach the browser. Entries are encrypted with Data Protection, so a persistent
-/// backing store (<see cref="FileDistributedCache"/>, Redis, SQL Server) never holds tokens in clear text.
+/// backing store (<see cref="FileDistributedCache"/>, Redis, PostgreSQL) never holds tokens in clear text.
 /// </summary>
 public sealed class SessionStore(IDistributedCache cache, IDataProtectionProvider dataProtection)
 {

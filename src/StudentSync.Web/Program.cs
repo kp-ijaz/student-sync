@@ -44,7 +44,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
 builder.Services.AddAuthorization();
 
 // Signed-in sessions (tokens per session id): on disk when Sessions:StorePath is set, so a restart or redeploy does not
-// sign everyone out (one web node); otherwise in memory. Several web nodes need a shared cache (Redis / SQL Server).
+// sign everyone out (one web node); otherwise in memory. Several web nodes need a shared cache (Redis / PostgreSQL).
 if (builder.Configuration["Sessions:StorePath"] is { Length: > 0 } sessionPath)
     builder.Services.AddSingleton<IDistributedCache>(new FileDistributedCache(Path.GetFullPath(sessionPath, builder.Environment.ContentRootPath)));
 else

@@ -6,10 +6,10 @@ Student Sync schedules **one-to-one tuition only** (one teacher and one student)
 
 | Part | Technology | Location |
 |---|---|---|
-| API | ASP.NET Core (.NET 10), EF Core 10, SQL Server 2022, Identity + JWT, SignalR, Hangfire | `src/StudentSync.Api`, `src/StudentSync.Application`, `src/StudentSync.Infrastructure`, `src/StudentSync.Domain` |
+| API | ASP.NET Core (.NET 10), EF Core 10, PostgreSQL 18 (Npgsql), Identity + JWT, SignalR, Hangfire | `src/StudentSync.Api`, `src/StudentSync.Application`, `src/StudentSync.Infrastructure`, `src/StudentSync.Domain` |
 | Web + PWA | Blazor Web App (Interactive Server, backend-for-frontend) | `src/StudentSync.Web` |
 | Mobile | Flutter (Android & iOS) — **parked this phase**, not built or tested; web + PWA only | `mobile/student_sync` |
-| Tests | xUnit v3 (unit + SQL Server integration via Testcontainers), Playwright + axe (E2E, accessibility, responsive) | `tests/` |
+| Tests | xUnit v3 (unit + PostgreSQL integration via Testcontainers), Playwright + axe (E2E, accessibility, responsive) | `tests/` |
 
 ## Quick start (local development)
 
@@ -17,7 +17,7 @@ Requirements: .NET SDK 10, Docker, Node 20+ (for E2E tests). See [DEVELOPMENT.md
 
 ```bash
 cp .env.example .env            # then fill in the values (see comments)
-docker compose up -d sqlserver mailpit
+docker compose up -d postgres mailpit
 dotnet run --project src/StudentSync.Api -- seed-demo   # migrate + fictional demo data
 dotnet run --project src/StudentSync.Api                 # http://localhost:5080  (Swagger: /swagger)
 dotnet run --project src/StudentSync.Web                 # http://localhost:5090

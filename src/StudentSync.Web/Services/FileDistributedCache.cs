@@ -10,7 +10,7 @@ namespace StudentSync.Web.Services;
 /// is configured so a restart or redeploy of a single web node does not sign everyone out. Each entry is one file named
 /// by the SHA-256 of its key (the key itself, a session id, never reaches the disk) holding the absolute expiry and the
 /// value. Values are stored as given: <see cref="SessionStore"/> encrypts its tokens before they get here.
-/// Only absolute expiry is supported. Several web nodes need a shared cache (Redis or SQL Server) instead.
+/// Only absolute expiry is supported. Several web nodes need a shared cache (Redis or PostgreSQL) instead.
 /// </summary>
 public sealed class FileDistributedCache : IDistributedCache
 {

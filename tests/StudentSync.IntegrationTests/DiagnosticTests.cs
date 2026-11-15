@@ -160,6 +160,7 @@ public sealed class DiagnosticTests(ApiFixture api)
         Assert.Equal(AttemptEntryMode.PaperEntered, results.Attempts.Single().EntryMode);
         using var scope = api.Factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        Assert.Equal(1, await db.Exams.IgnoreQueryFilters().CountAsync(e => e.Purpose == ExamPurpose.Diagnostic));
+        // Seeded exactly once (other tests in the run may add their own diagnostics, so count only the demo one).
+        Assert.Equal(1, await db.Exams.IgnoreQueryFilters().CountAsync(e => e.Purpose == ExamPurpose.Diagnostic && e.Title == "Class 10 entry diagnostic (demo)"));
     }
 }

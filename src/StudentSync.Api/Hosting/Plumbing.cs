@@ -220,8 +220,8 @@ public static class DevEnvironment
             .Where(l => l.Contains('=') && !l.TrimStart().StartsWith('#'))
             .Select(l => l.Split('=', 2)).ToDictionary(p => p[0].Trim(), p => p[1].Trim());
         void Set(string name, string? value) { if (value is not null && Environment.GetEnvironmentVariable(name) is null) Environment.SetEnvironmentVariable(name, value); }
-        if (values.TryGetValue("MSSQL_SA_PASSWORD", out var pw))
-            Set("ConnectionStrings__Default", $"Server=localhost,{values.GetValueOrDefault("SQL_PORT", "14350")};Database=StudentSync;User Id=sa;Password={pw};TrustServerCertificate=True");
+        if (values.TryGetValue("POSTGRES_PASSWORD", out var pw))
+            Set("ConnectionStrings__Default", $"Host=localhost;Port={values.GetValueOrDefault("DB_PORT", "15432")};Database=StudentSync;Username=studentsync;Password={pw}");
         Set("Jwt__SigningKey", values.GetValueOrDefault("JWT_SIGNING_KEY"));
         Set("Demo__Password", values.GetValueOrDefault("DEMO_PASSWORD"));
         Set("Demo__ForcePasswordChange", values.GetValueOrDefault("DEMO_FORCE_PASSWORD_CHANGE"));

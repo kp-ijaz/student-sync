@@ -32,7 +32,7 @@ public sealed class ExamService(IAppDbContext db, ICurrentUser user, AccessPolic
         if (q.SubjectId is { } s) items = items.Where(x => x.SubjectId == s);
         if (q.Type is { } t) items = items.Where(x => x.Type == t);
         if (q.Difficulty is { } d) items = items.Where(x => x.Difficulty == d);
-        if (!string.IsNullOrWhiteSpace(q.Search)) items = items.Where(x => x.Stem.Contains(q.Search));
+        if (!string.IsNullOrWhiteSpace(q.Search)) items = items.Where(x => x.Stem.ToLower().Contains(q.Search.ToLowerInvariant()));
         var total = await items.CountAsync(ct);
         var page = await items.OrderByDescending(x => x.CreatedAtUtc).Skip((q.SafePage - 1) * q.SafePageSize).Take(q.SafePageSize)
             .Select(x => new QuestionDto(x.Id, x.SubjectId, db.Subjects.Where(s => s.Id == x.SubjectId).Select(s => s.Name).First(), x.ChapterId, x.Type, x.Difficulty,

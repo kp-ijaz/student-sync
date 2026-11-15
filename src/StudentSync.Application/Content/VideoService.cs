@@ -27,7 +27,7 @@ public sealed class VideoService(IAppDbContext db, AccessPolicy access, IClock c
         if (q.SessionId is { } sid) sessions = sessions.Where(s => s.Id == sid);
         var rows = db.PrerecordedVideos.Where(v => v.DeletedAtUtc == null)
             .Join(sessions, v => v.SessionId, s => s.Id, (v, s) => new { Video = v, Session = s });
-        if (!string.IsNullOrWhiteSpace(q.Search)) rows = rows.Where(x => x.Video.Title.Contains(q.Search) || x.Session.Title.Contains(q.Search));
+        if (!string.IsNullOrWhiteSpace(q.Search)) rows = rows.Where(x => x.Video.Title.ToLower().Contains(q.Search.ToLowerInvariant()) || x.Session.Title.ToLower().Contains(q.Search.ToLowerInvariant()));
         var total = await rows.CountAsync(ct);
         var page = await rows.OrderByDescending(x => x.Session.StartUtc).ThenBy(x => x.Video.CreatedAtUtc)
             .Skip((q.SafePage - 1) * q.SafePageSize).Take(q.SafePageSize).ToListAsync(ct);

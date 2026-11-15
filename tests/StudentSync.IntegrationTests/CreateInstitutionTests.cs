@@ -3,7 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Data.SqlClient;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using StudentSync.Api.Hosting;
@@ -16,7 +16,7 @@ namespace StudentSync.IntegrationTests;
 
 /// <summary>
 /// The <c>create-institution</c> maintenance command. Each test runs the API against its own empty, migrated
-/// database on the fixture's SQL Server (the shared test database already holds the demo institutions).
+/// database on the fixture's PostgreSQL server (the shared test database already holds the demo institutions).
 /// </summary>
 public class CreateInstitutionTests(ApiFixture fx)
 {
@@ -57,7 +57,7 @@ public class CreateInstitutionTests(ApiFixture fx)
 
     private EmptyDatabase Start(string? suppliedPassword)
     {
-        var connection = new SqlConnectionStringBuilder(fx.ConnectionString) { InitialCatalog = $"StudentSync_Test_Bootstrap_{Guid.NewGuid():N}" }.ConnectionString;
+        var connection = new NpgsqlConnectionStringBuilder(fx.ConnectionString) { Database = $"StudentSync_Test_Bootstrap_{Guid.NewGuid():N}" }.ConnectionString;
         var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
         {
             b.UseEnvironment("Testing");

@@ -227,7 +227,9 @@ public sealed class MySubjectsTests(ApiFixture api)
     {
         var amira = await SignIn(Accounts.Amira);
         var mine = await amira.Get<List<MySubjectDto>>("my/subjects");
-        Assert.Equal(["MATH10"], mine.Select(s => s.Code));
+        // Other tests may give Amira extra classes in the shared database; she must never see other teachers' subjects.
+        Assert.Contains("MATH10", mine.Select(s => s.Code));
+        Assert.DoesNotContain(mine, s => s.Code is "PHYS10" or "CHEM10" or "IELTS-W");
         Assert.All(mine.SelectMany(s => s.Teachers), t => Assert.Equal(amira.UserId, t.Id));
 
         var physicsId = (await Subject(await SignIn(Accounts.Daniel), "PHYS10")).SubjectId;

@@ -1,19 +1,54 @@
-# Student Sync demo environment - API VM (Oracle Always Free micro instance, 1 GB RAM).
+# Student Sync demo environment - API VM (Oracle Always Free micro instance, 1 GB RAM + 2 GB swap).
 # Usage on the VM:  docker compose -f compose.api.yml up -d
-# Secrets come from api.env next to this file (see api.env.example); never commit the real file.
+# Secrets come from api.env and postgres.env next to this file (see the *.env.example files); never commit them.
 name: studentsync
 
 services:
+  postgres:
+    image: postgres:18.7-alpine
+    restart: unless-stopped
+    env_file: postgres.env
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+    # Sized for a 1 GB VM shared with the API: one institute, a handful of concurrent users.
+    command: >
+      postgres
+      -c shared_buffers=64MB
+      -c effective_cache_size=256MB
+      -c work_mem=4MB
+      -c maintenance_work_mem=32MB
+      -c max_connections=40
+      -c max_wal_size=256MB
+      -c log_min_duration_statement=1000
+    ports:
+      # Loopback only: used for SSH-tunnelled maintenance. The API reaches it over the compose network.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # PostgreSQL 18+ images keep data under /var/lib/postgresql/<major>/docker.
+      - pgdata:/var/lib/postgresql
+      - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d StudentSync"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
   api:
     image: studentsync-api:${IMAGE_TAG:-demo}
     restart: unless-stopped
     env_file: api.env
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      # No Hangfire server: its constant SQL polling would keep the serverless Azure SQL database awake
-      # and exhaust the free monthly allowance within days. Enqueued jobs run in-process; delayed and
-      # recurring jobs do not run (see DEPLOYMENT.md, "Free demo environment").
-      Jobs__Mode: Inline
+      # PostgreSQL is on this VM, so the Hangfire server can poll freely: reminders, exam finalising, recording
+      # retention and the weekly digest run again (they were off while the database was serverless Azure SQL).
+      # Set JOBS_MODE=Inline in /opt/studentsync/.env to turn the scheduler off if memory gets tight.
+      Jobs__Mode: ${JOBS_MODE:-Hangfire}
       Database__MigrateOnStartup: "true"
       Storage__Local__LocalRootPath: /app/storage
       DOTNET_gcServer: "0"
@@ -24,7 +59,10 @@ services:
     volumes:
       - storage:/app/storage
       - apikeys:/app/keys
-    mem_limit: 750m
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 600m
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
@@ -32,3 +70,4 @@ services:
 volumes:
   storage:
   apikeys:
+  pgdata:

@@ -1,6 +1,6 @@
 ---
 name: student-sync-testing
-description: Use before, during and after any meaningful change — defines the Student Sync test strategy (unit, integration against SQL Server, API/authorization, Flutter, browser, regression) and how to run and report each suite honestly.
+description: Use before, during and after any meaningful change — defines the Student Sync test strategy (unit, integration against PostgreSQL, API/authorization, Flutter, browser, regression) and how to run and report each suite honestly.
 ---
 
 # Student Sync testing
@@ -18,7 +18,7 @@ application services, endpoints, persistence, UI, or the Flutter app, and before
 ## Inspect first
 - `tests/StudentSync.UnitTests/` — `DomainTests.cs`, `TeachingRulesTests.cs`, `StudentViewsTests.cs`,
   `ImageMetadataStripperTests.cs` (xUnit, no database; domain/application rules and pure functions).
-- `tests/StudentSync.IntegrationTests/` — `ApiFixture.cs` (boots the API in-process, starts SQL Server 2022 through
+- `tests/StudentSync.IntegrationTests/` — `ApiFixture.cs` (boots the API in-process, starts PostgreSQL 18 through
   Testcontainers, runs migrations and the demo seeder with `Accounts.Password`, exposes `LoginAsync`, `Get/Post/Put`
   helpers), `ApiTests.cs`, `CurriculumTests.cs`, `MySubjectsTests.cs`, `ProfilePhotoTests.cs`.
 - `tests/e2e/` — Playwright journeys (`tests/e2e/tests/journeys.spec.ts`), visual baselines (`tests/e2e/tests/visual.spec.ts`), axe
@@ -37,13 +37,13 @@ application services, endpoints, persistence, UI, or the Flutter app, and before
   concurrency cases (RowVersion conflicts).
 - Seeders must be run twice in a test to prove no duplicates.
 - Tests use fictional data only (`example.test` domains) and never real credentials.
-- Integration tests need Docker running (SQL Server image already present); do not skip them silently.
+- Integration tests need Docker running (they pull `postgres:18.7-alpine`); do not skip them silently.
 
 ## Commands
 ```bash
 dotnet build StudentSync.slnx
 dotnet test --project tests/StudentSync.UnitTests
-dotnet test --project tests/StudentSync.IntegrationTests        # Docker + Testcontainers SQL Server 2022
+dotnet test --project tests/StudentSync.IntegrationTests        # Docker + Testcontainers PostgreSQL 18
 dotnet format StudentSync.slnx --verify-no-changes --severity error
 cd tests/e2e && npx playwright test                              # stack running on :5080/:5090, demo seeded
 cd tests/e2e && npm run puppeteer:smoke                          # or node puppeteer/<flow>.mjs

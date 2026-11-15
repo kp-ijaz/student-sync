@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.SqlClient;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using StudentSync.Application.Common;
 using StudentSync.Domain.Common;
@@ -23,7 +23,7 @@ public sealed class ApiExceptionHandler(IProblemDetailsService problems, ILogger
             ConflictException c => (409, c.Code, c.Message, c.Details is null ? null : new Dictionary<string, object?> { ["details"] = c.Details }),
             DomainException d => (422, d.Code, d.Message, null),
             DbUpdateConcurrencyException => (409, "concurrency_conflict", "This record was changed by someone else. Reload and try again.", null),
-            DbUpdateException { InnerException: SqlException { Number: 2601 or 2627 } } => (409, "duplicate", "A record with the same details already exists.", null),
+            DbUpdateException { InnerException: PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } } => (409, "duplicate", "A record with the same details already exists.", null),
             BadHttpRequestException b => (b.StatusCode, "bad_request", "The request could not be read.", null),
             OperationCanceledException when http.RequestAborted.IsCancellationRequested => (499, "cancelled", "The request was cancelled.", null),
             _ => (500, "server_error", "Something went wrong on our side. Please try again.", null),

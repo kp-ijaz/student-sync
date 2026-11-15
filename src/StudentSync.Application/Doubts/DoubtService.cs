@@ -55,7 +55,7 @@ public sealed class DoubtService(
         if (q.SubjectId is { } subjectId) doubts = doubts.Where(d => d.SubjectId == subjectId);
         if (q.SessionId is { } sessionId) doubts = doubts.Where(d => d.SessionId == sessionId || d.FollowUpSessionId == sessionId);
         if (q.AssignedToMe == true) doubts = doubts.Where(d => d.AssignedTeacherId == user.UserId);
-        if (!string.IsNullOrWhiteSpace(q.Search)) doubts = doubts.Where(d => d.Title.Contains(q.Search) || d.Description.Contains(q.Search));
+        if (!string.IsNullOrWhiteSpace(q.Search)) doubts = doubts.Where(d => d.Title.ToLower().Contains(q.Search.ToLowerInvariant()) || d.Description.ToLower().Contains(q.Search.ToLowerInvariant()));
         var total = await doubts.CountAsync(ct);
         var items = await doubts.OrderByDescending(d => d.Priority).ThenByDescending(d => d.LastActivityAtUtc)
             .Skip((q.SafePage - 1) * q.SafePageSize).Take(q.SafePageSize).Select(ListProjection(db)).ToListAsync(ct);

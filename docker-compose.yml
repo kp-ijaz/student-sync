@@ -1,29 +1,27 @@
 # Student Sync local infrastructure.
-#   docker compose up -d sqlserver mailpit        -> dependencies only (run API/Web with dotnet)
+#   docker compose up -d postgres mailpit        -> dependencies only (run API/Web with dotnet)
 #   docker compose --profile app up -d --build    -> full stack in containers
 name: studentsync
 
 services:
-  sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-CU16-ubuntu-22.04
-    platform: linux/amd64
-    # The amd64 image runs under emulation on Apple-silicon Macs and occasionally crashes
-    # (exit 139); come straight back instead of leaving the API without a database.
+  postgres:
+    image: postgres:18.7-alpine
     restart: unless-stopped
     environment:
-      ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?set MSSQL_SA_PASSWORD in .env}
-      MSSQL_PID: Developer
+      POSTGRES_DB: StudentSync
+      POSTGRES_USER: studentsync
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     ports:
-      - "${SQL_PORT:-14350}:1433"
+      - "${DB_PORT:-15432}:5432"
     volumes:
-      - sqldata:/var/opt/mssql
+      # PostgreSQL 18+ images keep data under /var/lib/postgresql/<major>/docker.
+      - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -Q 'SELECT 1' || exit 1"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U studentsync -d StudentSync"]
+      interval: 5s
       timeout: 5s
       retries: 12
-      start_period: 20s
+      start_period: 10s
 
   mailpit:
     # Local SMTP sink: email is accepted and viewable at http://localhost:18025, never delivered externally.
@@ -39,7 +37,7 @@ services:
       dockerfile: src/StudentSync.Api/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__Default: "Server=sqlserver,1433;Database=StudentSync;User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=True"
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=StudentSync;Username=studentsync;Password=${POSTGRES_PASSWORD}"
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY in .env}
       Email__Smtp__Host: mailpit
       Email__Smtp__Port: "1025"
@@ -54,7 +52,7 @@ services:
       - storage:/app/storage
       - apikeys:/app/keys
     depends_on:
-      sqlserver:
+      postgres:
         condition: service_healthy
 
   web:
@@ -75,7 +73,7 @@ services:
       - api
 
 volumes:
-  sqldata:
+  pgdata:
   storage:
   apikeys:
   webkeys:

@@ -55,7 +55,9 @@ or deleting existing code before the audit.
 Use the versions and choices confirmed in the master prompt and repository audit.
 The target direction includes:
 
-- Backend: ASP.NET Core Web API on .NET 10 LTS, Entity Framework Core, SQL Server 2022.
+- Backend: ASP.NET Core Web API on .NET 10 LTS, Entity Framework Core, PostgreSQL 18 (Npgsql).
+  **Owner decision 2026-11-15:** PostgreSQL replaces SQL Server 2022 (free/open source, runs on the free
+  1 GB VM without auto-pause). This supersedes "SQL Server" wherever the master prompts mention it.
 - Architecture: Clean Architecture principles in a modular monolith; keep module
   boundaries clear without introducing needless microservices.
 - Web: Blazor Web App.

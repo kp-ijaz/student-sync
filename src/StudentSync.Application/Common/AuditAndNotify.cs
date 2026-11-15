@@ -67,18 +67,18 @@ public sealed class NotificationService(IAppDbContext db, ITenantContext tenant,
 
 public static class RowVersions
 {
-    public static string Encode(byte[] v) => Convert.ToBase64String(v);
+    /// <summary>Clients receive the token as an opaque string and send it back unchanged.</summary>
+    public static string Encode(uint v) => v.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>Applies the client's row version so EF detects concurrent edits (409 on mismatch).</summary>
     public static void Apply(IAppDbContext db, AuditableEntity entity, string? rowVersion)
     {
         if (string.IsNullOrEmpty(rowVersion)) return;
-        byte[] bytes;
-        try { bytes = Convert.FromBase64String(rowVersion); }
-        catch (FormatException) { throw RequestValidationException.For("rowVersion", "Invalid version token."); }
-        if (!bytes.AsSpan().SequenceEqual(entity.RowVersion))
+        if (!uint.TryParse(rowVersion, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var version))
+            throw RequestValidationException.For("rowVersion", "Invalid version token.");
+        if (version != entity.RowVersion)
             throw new ConflictException("This record was changed by someone else. Reload and try again.", "concurrency_conflict");
-        ((DbContext)db).Entry(entity).Property(e => e.RowVersion).OriginalValue = bytes;
+        ((DbContext)db).Entry(entity).Property(e => e.RowVersion).OriginalValue = version;
     }
 }
 

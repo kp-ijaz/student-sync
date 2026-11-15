@@ -41,7 +41,7 @@ public sealed class PeopleService(
         access.Require(Permissions.UsersView);
         var items = db.Teachers.AsQueryable();
         if (q.Status is { } st) items = items.Where(t => t.Status == st);
-        if (!string.IsNullOrWhiteSpace(q.Search)) items = items.Where(t => t.User!.FullName.Contains(q.Search) || t.User.Email!.Contains(q.Search));
+        if (!string.IsNullOrWhiteSpace(q.Search)) items = items.Where(t => t.User!.FullName.ToLower().Contains(q.Search.ToLowerInvariant()) || t.User.Email!.ToLower().Contains(q.Search.ToLowerInvariant()));
         var total = await items.CountAsync(ct);
         var rows = await items.OrderBy(t => t.User!.FullName).Skip((q.SafePage - 1) * q.SafePageSize).Take(q.SafePageSize)
             .Select(t => new
@@ -169,7 +169,7 @@ public sealed class PeopleService(
         var visible = await access.VisibleStudentIdsAsync(ct);
         var items = db.Students.Where(s => visible.Contains(s.Id));
         if (q.Status is { } st) items = items.Where(s => s.Status == st);
-        if (!string.IsNullOrWhiteSpace(q.Search)) items = items.Where(s => s.User!.FullName.Contains(q.Search) || s.StudentCode.Contains(q.Search) || s.User.Email!.Contains(q.Search));
+        if (!string.IsNullOrWhiteSpace(q.Search)) items = items.Where(s => s.User!.FullName.ToLower().Contains(q.Search.ToLowerInvariant()) || s.StudentCode.ToLower().Contains(q.Search.ToLowerInvariant()) || s.User.Email!.ToLower().Contains(q.Search.ToLowerInvariant()));
         var total = await items.CountAsync(ct);
         var rows = await items.OrderBy(s => s.User!.FullName).Skip((q.SafePage - 1) * q.SafePageSize).Take(q.SafePageSize)
             .Select(s => new
@@ -228,7 +228,7 @@ public sealed class PeopleService(
         access.Require(Permissions.UsersManage);
         await EnsureCapacityAsync(UserRole.Student, ct);
         var code = Text.Required(r.StudentCode, "studentCode", 30);
-        if (await db.Students.AnyAsync(s => s.StudentCode == code, ct)) throw RequestValidationException.For("studentCode", "This student code is already in use.");
+        if (await db.Students.AnyAsync(s => s.StudentCode.ToLower() == code.ToLowerInvariant(), ct)) throw RequestValidationException.For("studentCode", "This student code is already in use.");
         if (r.GradeLevelId is { } g && !await db.GradeLevels.AnyAsync(x => x.Id == g, ct)) throw RequestValidationException.For("gradeLevelId", "Grade not found.");
         await EnsureAcademicRefsAsync(r.CurriculumId, r.AcademicYearId, ct);
         var t = await TenantAsync(ct);
@@ -263,7 +263,7 @@ public sealed class PeopleService(
         access.Require(Permissions.UsersManage);
         var s = await db.Students.Include(x => x.User).FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Student");
         var code = Text.Required(r.StudentCode, "studentCode", 30);
-        if (code != s.StudentCode && await db.Students.AnyAsync(x => x.StudentCode == code, ct)) throw RequestValidationException.For("studentCode", "This student code is already in use.");
+        if (!string.Equals(code, s.StudentCode, StringComparison.OrdinalIgnoreCase) && await db.Students.AnyAsync(x => x.StudentCode.ToLower() == code.ToLowerInvariant() && x.Id != s.Id, ct)) throw RequestValidationException.For("studentCode", "This student code is already in use.");
         if (r.GradeLevelId is { } g && !await db.GradeLevels.AnyAsync(x => x.Id == g, ct)) throw RequestValidationException.For("gradeLevelId", "Grade not found.");
         await EnsureAcademicRefsAsync(r.CurriculumId, r.AcademicYearId, ct);
         if (r.Status == PersonStatus.Active && s.Status != PersonStatus.Active) await EnsureCapacityAsync(UserRole.Student, ct);
@@ -318,7 +318,7 @@ public sealed class PeopleService(
     {
         access.Require(Permissions.UsersManage);
         var items = db.Parents.AsQueryable();
-        if (!string.IsNullOrWhiteSpace(q.Search)) items = items.Where(p => p.User!.FullName.Contains(q.Search) || p.User.Email!.Contains(q.Search));
+        if (!string.IsNullOrWhiteSpace(q.Search)) items = items.Where(p => p.User!.FullName.ToLower().Contains(q.Search.ToLowerInvariant()) || p.User.Email!.ToLower().Contains(q.Search.ToLowerInvariant()));
         var total = await items.CountAsync(ct);
         var page = await items.OrderBy(p => p.User!.FullName).Skip((q.SafePage - 1) * q.SafePageSize).Take(q.SafePageSize)
             .Select(p => new ParentDto(p.Id, p.User!.FullName, p.User.Email!, p.Status,

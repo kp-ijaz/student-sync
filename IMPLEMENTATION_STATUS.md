@@ -47,7 +47,8 @@ The owner decided Student Sync is for **one institute only** (not white-label Sa
 | Area | Status | Verification |
 |---|---|---|
 | Solution, Clean Architecture modular monolith (.NET 10) | Done | Builds with 0 errors; `dotnet format` clean |
-| SQL Server 2022 schema (78 tables, 47 unique indexes, 13 check constraints) | Done | Initial migration reviewed and applied; integration tests run against SQL Server 2022 |
+| SQL Server 2022 schema (78 tables, 47 unique indexes, 13 check constraints) | Replaced 2026-11-15 | See the PostgreSQL row; SQL Server migrations remain in git history |
+| PostgreSQL 18 (owner decision 2026-11-15): Npgsql EF Core 10.0.3, Hangfire.PostgreSql 1.21.1, one reviewed `InitialPostgreSql` migration (88 tables, 267 indexes, 52 unique, 18 check constraints, 243 foreign keys — same model as SQL Server), `xmin` row versions, case-insensitive search/duplicate checks, `NULLS NOT DISTINCT` for the two indexes that relied on SQL Server NULL equality, unique violation 23505 → 409; live data moved from Azure SQL and verified row by row | Done | 138 unit, 80/81 integration (the 1 failure is pre-existing, see below), new `PostgreSqlBehaviourTests` (4), Puppeteer journeys on a PostgreSQL stack at 375/768/1440 |
 | Multi-tenancy (query filters, tenant stamping, cross-tenant write guard) | Done | Integration: other institution gets 404 for sessions/attendance/notes/students/doubts; cross-tenant IDs rejected; DB-level guard test; E2E URL test |
 | Authentication (Identity, JWT, rotating refresh, lockout, temporary-password gate) | Done | Integration: generic login errors, refresh reuse detection, password-change gate; E2E sign-in/out per role |
 | Roles & permissions (super admin, admin, teacher, student, parent) | Done | Integration + E2E role-restriction tests |
@@ -75,15 +76,15 @@ The owner decided Student Sync is for **one institute only** (not white-label Sa
 | Localisation (English; Arabic RTL and Malayalam for shell/navigation) | Partial | Navigation strings translated; page content is English only |
 | Flutter mobile app — **parked 2026-11-04** (owner decision: web + PWA only this phase; CI job commented out, code unchanged, not maintained) | Done as of 2026-11-02, then parked | 65 tests pass; iOS simulator walkthrough against the live API passes (2026-11-02); Android debug build **not re-run** after the 2026-11-02 changes (the machine ran out of disk space) — see "Mobile" |
 | Docker images & compose | Done | Images build; full E2E suite passes against the containerised stack — see "Containers" |
-| Free demo hosting (2026-11-06): `deploy/oracle/` (two Oracle Always Free micro VMs, Caddy HTTPS, Azure SQL free offer, `Jobs__Mode=Inline`), `deploy.sh` redeploy script; fix so `Jobs:Mode=Inline` also starts in Development | Done (demo only, fictional data; not production) | Live over HTTPS: health endpoints 200, API docs and port 8080 not public, HTTP redirects. Puppeteer against the live site: admin sign-in forced to change password, a demo student changed password and reached the dashboard at 1440 and 375 px, no console errors or failed requests. `HostStartupTests` fails without the fix and passes with it. Limits listed in DEPLOYMENT.md |
+| Free demo hosting (2026-11-06; database moved to PostgreSQL on the API VM with Hangfire on and nightly backups, 2026-11-15): `deploy/oracle/` (two Oracle Always Free micro VMs, Caddy HTTPS), `deploy.sh` redeploy script; fix so `Jobs:Mode=Inline` also starts in Development | Done (demo only, fictional data; not production) | Live over HTTPS: health endpoints 200, API docs and port 8080 not public, HTTP redirects. Puppeteer against the live site: admin sign-in forced to change password, a demo student changed password and reached the dashboard at 1440 and 375 px, no console errors or failed requests. `HostStartupTests` fails without the fix and passes with it. Limits listed in DEPLOYMENT.md |
 | First-admin set-up (2026-11-06): `create-institution` maintenance command creates the institute (active subscription, no trial) and its first administrator on an empty database; refused once any institution exists; temporary password generated or supplied via `Bootstrap__AdminPassword`, always changed at first sign-in; policy-violating supplied password needs `--allow-weak-temporary-password`; audited as `tenant.bootstrapped` | Done | Integration (`CreateInstitutionTests`, 3 tests on their own empty databases): weak password refused without the flag and nothing created; with the flag one institution + one admin, password not echoed, sign-in forced to change, weak new password rejected, strong accepted, old password dead, repeat run refused; generated-password path; missing/invalid options; refused on a database with institutions. Run for real on the hosted environment after clearing the demo data; browser check at 1440 and 375 px |
 | CI (GitHub Actions: build, format, unit, integration, E2E; Flutter job commented out) | Written | Not run on GitHub (no remote configured) |
 | Documentation | Done | README, ARCHITECTURE, DESIGN, DEVELOPMENT, DEPLOYMENT, user guide |
 
 ## Test results (latest local run)
 
-* Unit tests: **53 passed, 0 failed** (`dotnet test --project tests/StudentSync.UnitTests`)
-* Integration tests: **29 passed, 0 failed** against SQL Server 2022 (Testcontainers) (`dotnet test --project tests/StudentSync.IntegrationTests`)
+* 2026-11-15 (PostgreSQL move): unit **138 passed, 0 failed**; integration **80 passed, 1 failed** against PostgreSQL 18 (Testcontainers). The failure, `MySubjectsTests.Classes_without_a_chapter_are_grouped_under_other_classes`, also fails on SQL Server: it schedules a group class, which the one-to-one-only rule (2026-11-12) now refuses. Two tests that depended on run order (`DiagnosticTests.Demo_diagnostic…`, `MySubjectsTests.Teachers_see_only…`) were made order-independent. `dotnet format` reports 12 pre-existing whitespace issues in `Fees/FeeService.cs` (not touched here).
+* Earlier: Unit tests **53 passed** and integration tests **29 passed** against SQL Server 2022.
 * Playwright E2E (re-run 2026-11-01 after the single-institute changes): **43 passed, 0 failed** (desktop journeys, mobile overflow, axe on 8 pages, visual regression for sign-in/offline at desktop and mobile)
 * `dotnet format --verify-no-changes --severity error` (as in CI): clean
 * Issues found by these runs and fixed: session times rendered in UTC in lists (component parameter bug), ARIA `pressed/selected` states rendered empty, secondary-text contrast below AA, mobile top bar overflow, missing access-denied page, query-string binding failing for optional filters, admin activity feed showing sign-ins.
@@ -109,7 +110,7 @@ The owner decided Student Sync is for **one institute only** (not white-label Sa
 ## Containers
 
 * `docker compose --profile app build` succeeds: `studentsync-api` 519 MB and `studentsync-web` 378 MB, both multi-stage, non-root, port 8080.
-* With the stack running in containers (API with Hangfire, Web, SQL Server 2022, Mailpit):
+* With the stack running in containers (API with Hangfire, Web, SQL Server 2022 at the time, Mailpit):
   * both health endpoints reported healthy;
   * the full Playwright suite passed against the containers (**31/31**), with no API errors logged;
   * scheduling a lesson for a non-demo student produced a real email through Hangfire and SMTP, captured by Mailpit, with the delivery recorded as `Accepted`. Demo accounts are deliberately never emailed and show as `Skipped`.
@@ -142,7 +143,7 @@ The owner decided Student Sync is for **one institute only** (not white-label Sa
 
 ## Resume instructions
 
-1. `docker compose up -d sqlserver mailpit`
+1. `docker compose up -d postgres mailpit`
 2. `dotnet run --project src/StudentSync.Api -- seed-demo`, then run API and Web (see DEVELOPMENT.md).
 3. Re-run the three test suites before and after changes.
 4. Next increments, in priority order: push notifications (FCM), S3/Azure Blob `IFileStorage`, Google Meet/Calendar OAuth, fees module, full content localisation, visual regression baselines.
