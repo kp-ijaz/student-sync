@@ -34,7 +34,7 @@ ship() { # ship <name> <Project> <host> <extra files to copy next to the compose
     && docker compose -f compose.$name.yml ps --format '{{.Service}}: {{.Status}}'"
 }
 
-api_files=("$root/deploy/oracle/postgres-init.sh" "$root/deploy/oracle/backup.sh")
+api_files=("$root/deploy/oracle/postgres-init.sh" "$root/deploy/oracle/backup.sh" "$root/deploy/oracle/restore-check.sh")
 
 case "$target" in
   api) ship api Api ss-api "${api_files[@]}" ;;
