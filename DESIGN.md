@@ -104,6 +104,7 @@ A live gallery of the web components with sample data is at **`/dev/ui`** (devel
 | `Modal`, `Toasts` | dialogs, snack bar | Focus-trapped dialogs (28 px radius; bottom sheet on phones); toasts announced politely |
 | `InstallBanner` | — (native app) | Offer to install the PWA: a white strip at the very top of the sign-in page and of the shell (above the app bar, scrolls away) with the mark, "Install Student Sync", an **Install** button (36 px; 44 px below 1024 px) and a 44 px *Not now* icon button. Rendered hidden; `js/app.js` shows it when the browser reports the app is installable (`beforeinstallprompt`), or with the Share-menu steps on iOS, which has no install API. Never shown inside the installed app; hidden for 14 days after *Not now*. Present in both layouts, so it also appears on `/dev/ui` |
 | `PersonRow` (`ul.plist`) | — | Compact person list for phones and tablets (< 1024 px; desktop keeps the table, wrapped in `.desk-list`): avatar, name (two lines max), one facts line (`Meta`), optional `Detail` line, optional `Status` badge (only for a non-normal state, e.g. Inactive), up to two 44 px `icon-btn` `Actions` each named for the person. The row opens the person (`Href`) or a dialog (`OnOpen`). Used by Students and Teachers |
+| `HoursPanel`, `PersonCalendar` | — | Attendance & hours for one person (This month / All time) and a month calendar of their classes; used on student and teacher profiles |
 | `.badge.removable` + `.chip-remove` | — | A chip whose text wraps, with an icon remove button (`aria-label` names what is removed); 44 px target on phones |
 | `PhotoEditor` | profile photo sheet | Upload/change/remove a photo; optional `Info` content beside the photo |
 | `TimeZoneSelect` | time-zone picker | IANA ids with the current offset |
@@ -311,6 +312,82 @@ whole-card links.
   Save, and a real test (send test email / SMS, verify keys) whose answer shows as a green or red line with the time.
   Provider choice uses `Segmented`. **General** has region presets: "India · ₹ INR" / "UAE · AED" set country, currency
   and time zone together. Rupee amounts read "₹1,00,000" (Indian grouping) via `Money.Format`.
+
+### Hours, pay, subjects and the default catalogue (2026-11-16)
+
+Owner notes: every module shows attendance and hours attended / missed for students and teachers; each teacher and each
+student has their own rate per hour; syllabi are NCERT, State (Kerala SCERT) and ICSE.
+
+- **Teacher profile** (`/teachers/{id}`, teachers see their own at `/teacher/profile`, menu *Classes ▸ My hours & pay*):
+  the same person header as the student profile, About (subjects, qualifications, experience, languages, contact),
+  `HoursPanel`, the students they teach as `PersonRow`s (class · subjects, classes and hours together, next class),
+  `TeacherPayPanel` and `PersonCalendar`. Teachers list rows open the profile; the pencil opens the edit dialog
+  (`/admin/teachers?edit={id}` from the profile).
+- **`HoursPanel`** (shared): "Attendance & hours" with a This month / All time `Segmented`; a `MetricStrip` of
+  Classes attended/taught, Missed, Not marked yet / To mark, Coming up — each with hours and what it counts — then
+  Present/Late/Absent/Excused badges. Student missed = absent or cancelled "student absent"; teacher missed = cancelled
+  "teacher absent".
+- **`PersonCalendar`** (shared): `MonthGrid` with month arrows; opens on today's classes, "Whole month" lists all.
+- **Student profile** adds `HoursPanel` + "Subjects & teachers" (teacher of each subject, classes and hours) + the calendar;
+  Fees shows the student's rate per hour (Set / Change) and Sell hours pre-fills price = hours × rate ("30 h × ₹400 =
+  ₹12,000") until the admin types another price.
+- **`TeacherPayPanel`**: rate per hour (rate history when it changed), `MetricStrip` This month · Earned to date · Paid ·
+  Still to pay (or Paid in advance), a warning for classes before the first rate, payments list (struck through when
+  removed, with the reason), Record payment (amount defaults to what is owed, period, `MethodPicker`), Remove (reason).
+- **Cancel class** asks *why*: Teacher absent / Student absent / Holiday / Other reason (`.pick` chips, the help line says
+  whose missed hours it counts as).
+- **Subjects** (`/admin/subjects`, *Learning ▸ Subjects*): grouped by class · syllabus; teachers, students, classes, hours
+  and fee value (hours × each student's rate); "In use" / "Whole catalogue" switch so the 226 catalogue subjects do not bury
+  the ones in use.
+- **Academics**: "Load default catalogue" strip and syllabus/class filters; the course form has a Syllabus field.
+- **Admission**: after class + syllabus, "Subjects in Class 10 · NCERT" as `.pick` chips, then the centre's own subjects.
+- **Reports**: money strip (Hours taught, Fees collected, Salary paid, Pending fees, Salary owed — admins), teacher table
+  with hours taught/missed and earned, and a Subjects table. **Admin home** metric strip adds Subjects (being studied)
+  and Hours taught (this month).
+
+### Automations, salaries, receipts and progress reports (2026-11-17)
+
+Owner request: automate the reminders, money follow-up and reports. Nothing automatic changes money, attendance or
+classes; it reminds, alerts and prepares, and people decide.
+
+- **Settings ▸ Automations** (`AutomationsPanel`): four cards (Classes, Fees & salaries, Reports, Teaching & alerts), each
+  automation one `AutoToggle` row — title, one-line description, a real checkbox styled as a switch (`role="switch"`,
+  the whole row is the label). Its settings (time, days, hours, "Also SMS the family") open in a filled box under it
+  while it is on. SMS switches are disabled with an orange hint until SMS is connected; a strip on top shows Email / SMS
+  / Online payments on/off. A sticky "Save automations" and a log of automated SMS (masked numbers, status, reason).
+- **Fees ▸ Salaries** (`/admin/salaries`): month switcher, `MetricStrip` (hours, earned, paid, to pay now), one row per
+  teacher with Earned / Paid / To pay and **Mark paid** (method picker) → opens the printable slip.
+- **Receipts and slips** (`/receipts/{id}`, `/salary-slips/{teacher}/{id}`): one printable card (`.doc`), "Print or save
+  as PDF" uses the browser; print styles hide the shell. Linked from each payment (Fees tab, teacher pay) and from the
+  "Payment received" notification. Removed payments still print, marked.
+- **Payment link** on a package with money due: shows the link with Copy; payments are recorded only when the gateway
+  confirms (webhook or 15-minute check). `/payment-done` is a public thank-you page that records nothing.
+- **Progress reports** (`/progress-reports`, admins and teachers; menu Reports / Teaching): "To send / Sent / Skipped"
+  `Segmented`; each card shows attended of booked, hours, hours left and average marks, a remark box, Skip / Send.
+- **Holidays**: adding a holiday opens "Classes on <day>" with **Move each to the next free day** or **Cancel all**
+  (reason Holiday); classes that cannot move are listed. Every holiday row also has "Classes that day".
+- Menu: Fees became a group (Fees due, Salaries); Reports a group (Reports, Progress reports).
+
+### Easy adding and one-tap attendance (2026-11-16)
+
+Owner request: adding classes, teachers and students, and marking attendance after a class, must be very easy.
+
+- **Quick attendance** (`QuickAttendance`, shared): one card per finished class on teacher Home ("Mark attendance", first 3)
+  and Tasks (all). Each student row has a Present / Late / Absent segmented control (`.qa-mark`, coloured green / amber /
+  red when chosen, 44 px on phones). One student: the tap saves. Several: "All present", change who was not, "Save
+  attendance". The card leaves the list once saved. "Open" goes to the class page for Excused, notes and corrections.
+- **Add a class** (Academics, primary button): choose Class + Syllabus → that class's usual subjects appear as ticked
+  `.pick` chips (existing ones shown fixed), add a custom subject by typing + Enter, one save ("Create with 6 subjects" /
+  "Add 1 subject" / "Nothing new to add"). "Other kind of course…" opens the full course form.
+- **Add teacher**: name, email, phone, *Pay per hour* (optional), then subjects as chips by name — a tap gives the subject
+  for every class, a partly-given subject shows `aria-pressed="mixed"` with "· 1 of 22". A "Find a subject" box appears
+  when there are more than 12. "Only some classes?" (one class at a time) and "More details" (code, time zone,
+  qualifications, experience, about) are collapsed `details.planner-optional`; editing opens More details when it has data.
+- **Admit a student**: 1 Student (name, email, phone, *Fee per hour*; code and time zone pre-filled under a collapsed line),
+  2 Class, 3 Tuition subjects. Parent / guardian, Last school result and Joining & goal are collapsed cards
+  (`details.admit-optional`, "+" / "−").
+- Rates typed while adding are saved right after the person is created (`PUT teachers/{id}/pay/rate`,
+  `PUT students/{id}/rate`); if that second call fails the person still exists and the error toast says so.
 
 ### One screen per job, scoped by role (2026-11-13)
 

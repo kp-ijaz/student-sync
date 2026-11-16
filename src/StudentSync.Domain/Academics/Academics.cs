@@ -44,6 +44,8 @@ public class Course : TenantEntity
     public Guid? GradeLevelId { get; set; }
     public GradeLevel? GradeLevel { get; set; }
     public Guid? AcademicYearId { get; set; }
+    /// <summary>The syllabus this class follows (e.g. "Class 10 · NCERT"); a student's subjects come from their class and syllabus.</summary>
+    public Guid? CurriculumId { get; set; }
     public CatalogStatus Status { get; set; } = CatalogStatus.Active;
     public List<Subject> Subjects { get; set; } = [];
 }

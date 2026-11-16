@@ -98,8 +98,10 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
         View();
         var q = db.Courses.AsQueryable();
         if (access.IsStudent) q = q.Where(c => db.CourseEnrolments.Any(e => e.CourseId == c.Id && e.StudentId == user.UserId && e.Status == EnrolmentStatus.Active));
-        return await q.OrderBy(c => c.Name).Select(c => new CourseDto(c.Id, c.Code, c.Name, c.Description, c.GradeLevelId, c.GradeLevel != null ? c.GradeLevel.Name : null, c.Status,
-            c.Subjects.Count, db.CourseEnrolments.Count(e => e.CourseId == c.Id && e.Status == EnrolmentStatus.Active))).ToListAsync(ct);
+        // Classes in order (Class 1 … Class 12), then by name; each with its syllabus.
+        return await q.OrderBy(c => c.GradeLevel != null ? c.GradeLevel.SortOrder : int.MaxValue).ThenBy(c => c.Name).Select(c => new CourseDto(c.Id, c.Code, c.Name, c.Description, c.GradeLevelId, c.GradeLevel != null ? c.GradeLevel.Name : null, c.Status,
+            c.Subjects.Count, db.CourseEnrolments.Count(e => e.CourseId == c.Id && e.Status == EnrolmentStatus.Active),
+            c.CurriculumId, db.Curricula.Where(x => x.Id == c.CurriculumId).Select(x => x.Name).FirstOrDefault())).ToListAsync(ct);
     }
 
     public async Task<Guid> SaveCourseAsync(Guid? id, SaveCourseRequest r, CancellationToken ct)
@@ -109,9 +111,12 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
         if (await db.Courses.AnyAsync(c => c.Code == code && c.Id != id, ct)) throw RequestValidationException.For("code", "This course code is already in use.");
         if (r.GradeLevelId is { } g && !await db.GradeLevels.AnyAsync(x => x.Id == g, ct)) throw RequestValidationException.For("gradeLevelId", "Grade not found.");
         if (r.AcademicYearId is { } y && !await db.AcademicYears.AnyAsync(x => x.Id == y, ct)) throw RequestValidationException.For("academicYearId", "Academic year not found.");
+        if (r.CurriculumId is { } cu && !await db.Curricula.AnyAsync(x => x.Id == cu, ct)) throw RequestValidationException.For("curriculumId", "Syllabus not found.");
         var c = id is { } cid ? await db.Courses.FirstOrDefaultAsync(x => x.Id == cid, ct) ?? throw new NotFoundException("Course") : db.Courses.Add(new Course()).Entity;
         c.Code = code; c.Name = Text.Required(r.Name, "name", 150); c.Description = Text.Optional(r.Description, "description", 2000);
         c.GradeLevelId = r.GradeLevelId; c.AcademicYearId = r.AcademicYearId; c.Status = r.Status;
+        // An older client that does not send the syllabus keeps the course's current one.
+        if (r.CurriculumId is not null || id is null) c.CurriculumId = r.CurriculumId;
         audit.Record("course.saved", "Course", c.Id, code);
         await db.SaveChangesAsync(ct);
         return c.Id;
@@ -139,6 +144,51 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
     // ---------------- Centre subjects: the tuition centre's own simple subject list ----------------
 
     /// <summary>Course holding the centre's simple subjects (Maths, Arabic, Accounts…) used for any class or syllabus.</summary>
+    /// <summary>Every active subject with its syllabus, class, teachers, students, classes and hours (Academics ▸ Subjects).</summary>
+    public async Task<List<SubjectOverviewDto>> SubjectsOverviewAsync(CancellationToken ct)
+    {
+        View();
+        var subjects = await db.Subjects.Where(s => s.Status == CatalogStatus.Active)
+            .Select(s => new
+            {
+                s.Id,
+                s.Name,
+                s.Code,
+                Course = s.Course!.Name,
+                s.Course.CurriculumId,
+                Curriculum = db.Curricula.Where(c => c.Id == s.Course.CurriculumId).Select(c => c.Name).FirstOrDefault(),
+                s.Course.GradeLevelId,
+                Grade = s.Course.GradeLevel != null ? s.Course.GradeLevel.Name : null,
+                Order = s.Course.GradeLevel != null ? s.Course.GradeLevel.SortOrder : 999,
+            }).ToListAsync(ct);
+        var teachers = await db.TeacherSubjects.Select(t => new { t.SubjectId, t.TeacherId, t.Teacher!.User!.FullName }).ToListAsync(ct);
+        var students = await db.StudentSubjects.Where(x => x.Student!.Status == Domain.People.PersonStatus.Active)
+            .GroupBy(x => x.SubjectId).Select(g => new { g.Key, Count = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.Count, ct);
+        var done = (await db.Sessions.Where(s => s.Status == Domain.Scheduling.SessionStatus.Completed && s.SubjectId != null)
+            .Select(s => new { SubjectId = s.SubjectId!.Value, s.StartUtc, s.EndUtc }).ToListAsync(ct))
+            .GroupBy(x => x.SubjectId).ToDictionary(g => g.Key, g => (Count: g.Count(), Hours: g.Sum(x => Domain.Fees.TeacherPayRules.Hours(x.StartUtc, x.EndUtc))));
+
+        Dictionary<Guid, decimal> value = [];
+        if (user.Has(Permissions.UsersManage))
+        {
+            // Hours each student attended in each subject × that student's rate.
+            var attended = await (from a in db.Attendance
+                                  where a.Status == Domain.Scheduling.AttendanceStatus.Present || a.Status == Domain.Scheduling.AttendanceStatus.Late
+                                  join s in db.Sessions on a.SessionId equals s.Id
+                                  where s.Status != Domain.Scheduling.SessionStatus.Cancelled && s.SubjectId != null
+                                  join st in db.Students on a.StudentId equals st.Id
+                                  where st.HourlyRate != null
+                                  select new { SubjectId = s.SubjectId!.Value, s.StartUtc, s.EndUtc, Rate = st.HourlyRate!.Value }).ToListAsync(ct);
+            value = attended.GroupBy(x => x.SubjectId).ToDictionary(g => g.Key, g => decimal.Round(g.Sum(x => Domain.Fees.TeacherPayRules.Hours(x.StartUtc, x.EndUtc) * x.Rate), 2));
+        }
+
+        return subjects.Select(s => new SubjectOverviewDto(s.Id, s.Name, s.Code, s.Course, s.CurriculumId, s.Curriculum, s.GradeLevelId, s.Grade, s.Order,
+                teachers.Where(t => t.SubjectId == s.Id).Select(t => new LookupItem(t.TeacherId, t.FullName, null)).ToList(),
+                students.GetValueOrDefault(s.Id), done.TryGetValue(s.Id, out var d) ? d.Count : 0, done.TryGetValue(s.Id, out var h) ? h.Hours : 0,
+                value.TryGetValue(s.Id, out var v) ? v : null))
+            .OrderBy(s => s.GradeOrder).ThenBy(s => s.CurriculumName).ThenBy(s => s.Name).ToList();
+    }
+
     public const string CentreCourseCode = "CENTRE";
 
     /// <summary>Adds a subject to the centre's list, or returns the existing one with the same name (re-activating it).</summary>

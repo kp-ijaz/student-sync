@@ -18,6 +18,9 @@ public enum SessionType
 }
 
 public enum SessionStatus { Scheduled, Live, Completed, Cancelled }
+/// <summary>Why a class did not happen. TeacherAbsent counts as the teacher's missed hours (not paid); StudentAbsent as the
+/// student's missed hours (no hours used); Holiday and Other count for neither.</summary>
+public enum CancellationKind { Other, TeacherAbsent, StudentAbsent, Holiday }
 public enum DeliveryMode { Online, InPerson, Hybrid }
 public enum MeetingProvider { None, Manual, GoogleMeet }
 public enum ParticipantStatus { Active, Removed }
@@ -82,6 +85,7 @@ public class LearningSession : TenantEntity
     public string? Objectives { get; set; }
     public DateTime? CancelledAtUtc { get; set; }
     public string? CancellationReason { get; set; }
+    public CancellationKind? CancelledBecause { get; set; }
     public bool RecordingConsentRequired { get; set; } = true;
     public List<SessionParticipant> Participants { get; set; } = [];
 
@@ -131,13 +135,14 @@ public class LearningSession : TenantEntity
         return change;
     }
 
-    public SessionScheduleChange Cancel(string reason, Guid userId, DateTime nowUtc)
+    public SessionScheduleChange Cancel(string reason, Guid userId, DateTime nowUtc, CancellationKind kind = CancellationKind.Other)
     {
         if (Status is SessionStatus.Cancelled) throw new DomainException("The session is already cancelled.", "invalid_session_state");
         if (Status is SessionStatus.Completed) throw new DomainException("A completed session cannot be cancelled.", "invalid_session_state");
         Status = SessionStatus.Cancelled;
         CancelledAtUtc = nowUtc;
         CancellationReason = reason;
+        CancelledBecause = kind;
         return new SessionScheduleChange
         {
             TenantId = TenantId,

@@ -1,3 +1,4 @@
+using StudentSync.Application.Academics;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using StudentSync.Application.Common;
@@ -73,6 +74,13 @@ public static class CreateInstitutionCommand
                     output.WriteLine("The supplied password could not be set; use the generated one below.");
             }
 
+            // Start the institute with the default syllabi (NCERT, Kerala State, ICSE), Classes 1–12, their subjects and
+            // the current academic year; the admin can archive or add to them under Academics.
+            using (services.GetRequiredService<ITenantContext>().BeginScope(created.TenantId))
+            {
+                var loaded = await services.GetRequiredService<DefaultCatalogue>().LoadForCurrentTenantAsync(ct);
+                output.WriteLine($"Default catalogue: {loaded.Syllabi} syllabi, {loaded.Classes} classes, {loaded.Subjects} subjects, {loaded.AcademicYears} academic year.");
+            }
             output.WriteLine($"Institution '{request.Name}' created with sign-in code '{request.Slug.ToLowerInvariant()}'.");
             output.WriteLine($"Administrator: {request.AdminEmail}");
             output.WriteLine(passwordNote);

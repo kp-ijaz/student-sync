@@ -5,7 +5,16 @@
    Hours used come from attendance: present or late, class not cancelled. *@
 <section class="card fee-panel" id="fees" aria-labelledby="fees-h">
     <div class="card-head">
-        <div><h2 id="fees-h">Fees &amp; hours</h2><div class="caption">Prepaid hours, usable for any subject.</div></div>
+        <div><h2 id="fees-h">Fees &amp; hours</h2><div class="caption">Prepaid hours, usable for any subject.</div>
+            @if (_f is { } rf)
+            {
+                <div class="rate-line">
+                    @if (rf.HourlyRate is { } r) { <span>Rate <strong>@Money.Format(r, rf.CurrencyCode)</strong> per hour</span> }
+                    else { <span class="muted">No rate per hour yet</span> }
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="OpenRate">@(rf.HourlyRate is null ? "Set rate" : "Change")</button>
+                </div>
+            }
+        </div>
         <button class="btn btn-primary btn-sm btn-pill" @onclick="NewSale"><Icon Name="plus" /> Sell hours</button>
     </div>
     <DataView Loading="_f is null && _error is null" Error="_error" OnRetry="LoadAsync">
@@ -68,15 +77,28 @@
                                         <li class="@(pay.Voided ? "voided" : "")">
                                             <span><strong>@Money.Format(pay.Amount, p.CurrencyCode)</strong> · @MethodName(pay.Method) · @pay.PaidOn.ToString("d MMM yyyy")@(pay.Reference is { } r ? $" · {r}" : "")
                                                 @if (pay.Voided) { <span class="caption"> — removed: @pay.VoidReason</span> }</span>
-                                            @if (!pay.Voided) { <button class="btn btn-ghost btn-sm" @onclick="() => AskVoid(pay)" disabled="@Busy">Remove<span class="sr-only"> payment of @Money.Format(pay.Amount, p.CurrencyCode)</span></button> }
+                                            <span class="btn-group"><a class="btn btn-ghost btn-sm" href="/receipts/@pay.Id">Receipt<span class="sr-only"> for @Money.Format(pay.Amount, p.CurrencyCode)</span></a>
+                                            @if (!pay.Voided) { <button class="btn btn-ghost btn-sm" @onclick="() => AskVoid(pay)" disabled="@Busy">Remove<span class="sr-only"> payment of @Money.Format(pay.Amount, p.CurrencyCode)</span></button> }</span>
                                         </li>
                                     }
                                 </ul>
                             }
+                            @if (_links.TryGetValue(p.Id, out var link))
+                            {
+                                <div class="pay-link" role="status">
+                                    <span class="caption">Online payment link for @Money.Format(link.Amount, link.CurrencyCode) (valid until @Time.Date(link.ExpiresAtUtc, Tz)). Send it to the family; the payment is recorded automatically.</span>
+                                    <div class="row" style="flex-wrap:nowrap"><input class="input grow" readonly value="@link.Url" aria-label="Payment link" onfocus="this.select()" />
+                                        <button class="btn btn-secondary btn-sm" @onclick="() => Copy(link.Url)">Copy</button></div>
+                                </div>
+                            }
                             @if (p.Status == PackageStatus.Active)
                             {
                                 <div class="row fee-pkg-actions">
-                                    @if (p.Balance > 0) { <button class="btn btn-secondary btn-sm btn-pill" @onclick="() => NewPayment(p)" disabled="@Busy"><Icon Name="plus" /> Take payment</button> }
+                                    @if (p.Balance > 0)
+                                    {
+                                        <button class="btn btn-secondary btn-sm btn-pill" @onclick="() => NewPayment(p)" disabled="@Busy"><Icon Name="plus" /> Take payment</button>
+                                        <button class="btn btn-ghost btn-sm" @onclick="() => PaymentLink(p)" disabled="@Busy"><Icon Name="link" /> Payment link</button>
+                                    }
                                     @if (!p.Payments.Any(x => !x.Voided)) { <button class="btn btn-ghost btn-sm" @onclick="() => Cancel(p)" disabled="@Busy">Cancel package<span class="sr-only"> @p.Name</span></button> }
                                 </div>
                             }
@@ -105,13 +127,15 @@
     <fieldset class="field fee-method">
         <legend>Hours</legend>
         <div class="pick-group">
-            @foreach (var h in HourChoices) { <button type="button" class="pick" aria-pressed="@Aria.Bool(_hours == h)" @onclick="() => _hours = h">@h hours</button> }
+            @foreach (var h in HourChoices) { <button type="button" class="pick" aria-pressed="@Aria.Bool(_hours == h)" @onclick="() => { _hours = h; PriceFromRate(); }">@h hours</button> }
         </div>
         <label for="fh" class="sr-only">Other number of hours</label>
-        <input id="fh" class="input" type="number" min="0.5" max="1000" step="0.5" placeholder="Other" @bind="_hours" style="margin-top:8px;max-width:160px" />
+        <input id="fh" class="input" type="number" min="0.5" max="1000" step="0.5" placeholder="Other" @bind="_hours" @bind:after="PriceFromRate" style="margin-top:8px;max-width:160px" />
     </fieldset>
     <div class="form-grid">
-        <div class="field"><label for="fp">Price (@Currency) *</label><input id="fp" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_price" /></div>
+        <div class="field"><label for="fp">Price (@Currency) *</label><input id="fp" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_price" @bind:after="() => _priceAuto = false" />
+            @if (_f?.HourlyRate is { } rate && _hours is > 0) { <span class="help">@Money.Hours(_hours.Value) × @Money.Format(rate, Currency) = @Money.Format(_hours.Value * rate, Currency)@(_priceAuto ? " (the student's rate)" : "")</span> }
+            else if (_f?.HourlyRate is null) { <span class="help">Set the student's rate per hour to fill this in automatically.</span> }</div>
         <div class="field"><label for="fs">Hours count from</label><input id="fs" class="input" type="date" @bind="_starts" /></div>
         <div class="field"><label for="fd">Pay by</label><input id="fd" class="input" type="date" @bind="_dueOn" /><span class="help">Leave empty if it is due now.</span></div>
         <div class="field"><label for="fn">Paid now (@Currency)</label><input id="fn" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_paidNow" /><span class="help">Leave empty if nothing was paid yet.</span></div>
@@ -145,6 +169,13 @@
     </div>
 </Modal>
 
+<Modal @bind-Open="_rateOpen" Title="Rate per hour">
+    <div class="field"><label for="fr">Fee per hour (@Currency)</label>
+        <input id="fr" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_rate" />
+        <span class="help">Prices new packages (hours × rate). Packages already sold keep their price. Leave empty to remove the rate.</span></div>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _rateOpen = false">Cancel</button><button class="btn btn-primary" @onclick="SaveRate" disabled="@Busy">Save rate</button></div>
+</Modal>
+
 @code {
     private static readonly decimal[] HourChoices = [10, 20, 30, 50];
 
@@ -155,7 +186,8 @@
     private string Currency => _f?.CurrencyCode ?? "";
 
     private bool _saleOpen, _payOpen, _voidOpen;
-    private decimal? _hours, _price, _paidNow, _amount;
+    private decimal? _hours, _price, _paidNow, _amount, _rate;
+    private bool _priceAuto, _rateOpen;
     private DateOnly? _starts, _dueOn, _paidOn;
     private PaymentMethod _method = PaymentMethod.Cash;
     private string? _reference, _voidReason;
@@ -170,6 +202,7 @@
     {
         PaymentMethod.BankTransfer => "Bank transfer",
         PaymentMethod.Upi => "UPI",
+        PaymentMethod.Online => "Online (gateway)",
         _ => m.ToString(),
     };
 
@@ -180,6 +213,8 @@
     private void NewSale()
     {
         (_hours, _price, _paidNow, _starts, _dueOn, _method, _reference) = (30, null, null, null, null, PaymentMethod.Cash, null);
+        _priceAuto = true;
+        PriceFromRate();
         _idempotencyKey = Guid.NewGuid().ToString("N");
         _saleOpen = true;
     }
@@ -192,6 +227,23 @@
     }
 
     private void AskVoid(FeePaymentDto p) => (_voiding, _voidReason, _voidOpen) = (p, null, true);
+
+    // While the admin has not typed a price, it follows hours × the student's rate.
+    private void PriceFromRate()
+    {
+        if (_priceAuto && _f?.HourlyRate is { } rate && _hours is > 0) _price = decimal.Round(_hours.Value * rate, 2);
+    }
+
+    private void OpenRate() => (_rate, _rateOpen) = (_f?.HourlyRate, true);
+
+    private async Task SaveRate()
+    {
+        if (await Run(() => Api.PutAsync($"students/{StudentId}/rate", new SetStudentRateRequest(_rate)), _rate is null ? "Rate removed." : "Rate saved."))
+        {
+            _rateOpen = false;
+            await LoadAsync();
+        }
+    }
 
     private async Task Sell()
     {
@@ -226,5 +278,21 @@
     private async Task Cancel(StudentPackageDto p)
     {
         if (await Run(() => Api.PostAsync($"students/{StudentId}/packages/{p.Id}/cancel"), $"{p.Name} cancelled.")) await LoadAsync();
+    }
+
+    private readonly Dictionary<Guid, PaymentLinkDto> _links = [];
+    [Inject] private IJSRuntime Js { get; set; } = default!;
+
+    private async Task PaymentLink(StudentPackageDto p)
+    {
+        PaymentLinkDto? link = null;
+        if (await Run(async () => link = await Api.PostAsync<PaymentLinkDto>($"students/{StudentId}/packages/{p.Id}/payment-link", null)) && link is not null)
+            _links[p.Id] = link;
+    }
+
+    private async Task Copy(string url)
+    {
+        try { await Js.InvokeVoidAsync("navigator.clipboard.writeText", url); Toasts.Show("Link copied."); }
+        catch (JSException) { Toasts.Show("Select the link and copy it.", ToastKind.Info); }
     }
 }

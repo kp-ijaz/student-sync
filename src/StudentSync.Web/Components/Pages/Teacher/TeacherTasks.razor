@@ -36,12 +36,14 @@
                 }
                 else
                 {
-                    <ListGroup AriaLabel="Attendance to mark">
-                        @foreach (var s in _d.PendingAttendance)
+                    @* Mark right here: one tap per student (QuickAttendance); the class page still has every option. *@
+                    <div class="qa-list">
+                        @foreach (var s in _d.PendingAttendance.Where(x => !_marked.Contains(x.Id)))
                         {
-                            <ListRow Icon="list-checks" Tone="amber" Title="@s.Title" Subtitle="@Time.Range(s.StartUtc, s.EndUtc, Tz)" Href="@($"/sessions/{s.Id}?tab=attendance")" />
+                            <QuickAttendance @key="s.Id" Session="s" Me="Me!" OnSaved="id => _marked.Add(id)" />
                         }
-                    </ListGroup>
+                        @if (_d.PendingAttendance.All(x => _marked.Contains(x.Id))) { <InlineEmpty Icon="check" Text="All attendance is up to date." /> }
+                    </div>
                 }
             }
         </DataView>
@@ -79,6 +81,7 @@
 </div>
 
 @code {
+    private readonly HashSet<Guid> _marked = [];
     private TeacherDashboardDto? _d;
     private ApiException? _error;
     private PagedResult<DoubtListItemDto>? _doubts;

@@ -54,8 +54,18 @@ public sealed class DashboardService(IAppDbContext db, ICurrentUser user, Access
                 .ToListAsync(ct))
             .Select(a => new ActivityDto(a.CreatedAtUtc, DescribeAction(a.Action) + (a.Summary is null ? "" : ": " + a.Summary), a.UserName)).ToList();
 
+        // Subjects being studied (chosen for an active student) and hours taught this month (completed classes, centre time).
+        var subjectsStudied = await db.StudentSubjects.Where(x => x.Student!.Status == PersonStatus.Active).Select(x => x.SubjectId).Distinct().CountAsync(ct);
+        var tz = await db.Tenants.Where(t => t.Id == user.TenantId).Select(t => t.DefaultTimeZoneId).FirstOrDefaultAsync(ct) ?? "UTC";
+        var localNow = ZonedTime.ToLocal(now, tz);
+        var monthStart = ZonedTime.ToUtc(new DateOnly(localNow.Year, localNow.Month, 1), TimeOnly.MinValue, tz).Utc;
+        var hoursThisMonth = (await db.Sessions.Where(s => s.Status == SessionStatus.Completed && s.StartUtc >= monthStart && s.StartUtc < now)
+            .Select(s => new { s.StartUtc, s.EndUtc }).ToListAsync(ct)).Sum(s => Domain.Fees.TeacherPayRules.Hours(s.StartUtc, s.EndUtc));
+
         var stats = new List<StatDto>
         {
+            new("subjects", "Subjects", subjectsStudied.ToString(CultureInfo.InvariantCulture), "being studied by active students"),
+            new("hours", "Hours taught", hoursThisMonth.ToString("0.#", CultureInfo.InvariantCulture), "completed classes this month"),
             new("students", "Active students", students.ToString(CultureInfo.InvariantCulture)),
             new("teachers", "Active teachers", teachers.ToString(CultureInfo.InvariantCulture)),
             new("courses", "Active courses", courses.ToString(CultureInfo.InvariantCulture), $"Batches: {batches} · private arrangements: {arrangements}"),

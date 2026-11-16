@@ -1,0 +1,126 @@
+@inherits AppComponent
+@* Teacher pay (owner decision 2026-11-16): rate per hour from a date; earned = completed classes × the rate on each
+   class's day; payments are recorded, never edited, and removed with a reason. Admins manage; a teacher sees their own. *@
+<section class="card fee-panel" id="pay" aria-labelledby="pay-h">
+    <div class="card-head">
+        <div><h2 id="pay-h">Salary</h2><div class="caption">Rate per hour × hours of completed classes (a class the student missed still counts).</div></div>
+        @if (CanManage) { <button class="btn btn-primary btn-sm btn-pill" @onclick="NewPayment"><Icon Name="plus" /> Record payment</button> }
+    </div>
+    <DataView Loading="_p is null && _error is null" Error="_error" OnRetry="Load">
+        @if (_p is { } p)
+        {
+            <div class="rate-line">
+                @if (p.CurrentRate is { } r) { <span>Rate <strong>@Money.Format(r, p.CurrencyCode)</strong> per hour</span> }
+                else { <span class="muted">No rate per hour yet: classes are not counted until one is set.</span> }
+                @if (CanManage) { <button type="button" class="btn btn-ghost btn-sm" @onclick="OpenRate">@(p.CurrentRate is null ? "Set rate" : "Change rate")</button> }
+            </div>
+            <MetricStrip AriaLabel="Salary figures" Items="@([
+                new("This month", Money.Format(p.EarnedThisMonth, p.CurrencyCode), $"{Money.Hours(p.HoursThisMonth)} taught", "calendar"),
+                new("Earned to date", Money.Format(p.EarnedAllTime, p.CurrencyCode), $"{Money.Hours(p.HoursAllTime)} taught", "trending-up"),
+                new("Paid", Money.Format(p.Paid, p.CurrencyCode), $"{p.Payments.Count(x => !x.Voided)} payment(s)", "check-circle"),
+                new(p.Due < 0 ? "Paid in advance" : "Still to pay", Money.Format(Math.Abs(p.Due), p.CurrencyCode), "earned to date − paid", "wallet"),
+            ])" />
+            @if (p.UnratedClasses > 0) { <p class="fee-warn" role="status"><Icon Name="alert" /> @p.UnratedClasses completed @(p.UnratedClasses == 1 ? "class is" : "classes are") before the first rate and not counted. Set a rate from an earlier date to include them.</p> }
+            @if (p.Rates.Count > 1)
+            {
+                <details class="pay-rates"><summary class="small">Rate history</summary>
+                    <ul class="list small">@foreach (var hr in p.Rates) { <li class="row-between"><span>From @hr.EffectiveFrom.ToString("d MMM yyyy")</span><strong>@Money.Format(hr.HourlyRate, p.CurrencyCode) / h</strong></li> }</ul>
+                </details>
+            }
+            <h3 class="pay-h3">Payments</h3>
+            @if (p.Payments.Count == 0) { <InlineEmpty Icon="wallet" Text="No salary payments recorded yet." /> }
+            else
+            {
+                <ul class="list">
+                    @foreach (var x in p.Payments)
+                    {
+                        <li class="pay-row @(x.Voided ? "voided" : "")">
+                            <div class="grow">
+                                <strong>@Money.Format(x.Amount, p.CurrencyCode)</strong> <span class="caption">@x.PaidOn.ToString("d MMM yyyy") · @StudentFeesPanel.MethodName(x.Method)@(x.Reference is { } rf ? $" · {rf}" : "")</span>
+                                @if (x.PeriodFrom is { } pf) { <div class="caption">For @pf.ToString("d MMM")@(x.PeriodTo is { } pt ? $" – {pt:d MMM yyyy}" : "")</div> }
+                                @if (x.Note is { } n) { <div class="caption">@n</div> }
+                                @if (x.Voided) { <div class="caption">Removed: @x.VoidReason</div> }
+                            </div>
+                            <a class="icon-btn" href="/salary-slips/@TeacherId/@x.Id" title="Salary slip" aria-label="@($"Salary slip for {Money.Format(x.Amount, p.CurrencyCode)} on {x.PaidOn:d MMM}")"><Icon Name="file" /></a>
+                            @if (CanManage && !x.Voided) { <button type="button" class="icon-btn" title="Remove" aria-label="@($"Remove the payment of {Money.Format(x.Amount, p.CurrencyCode)} on {x.PaidOn:d MMM}")" @onclick="() => AskVoid(x)"><Icon Name="x" /></button> }
+                        </li>
+                    }
+                </ul>
+            }
+        }
+    </DataView>
+</section>
+
+<Modal @bind-Open="_rateOpen" Title="Rate per hour">
+    <div class="form-grid">
+        <div class="field"><label for="tr">Pay per hour (@Currency) *</label><input id="tr" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_rate" /></div>
+        <div class="field"><label for="tf">From</label><input id="tf" class="input" type="date" @bind="_rateFrom" /><span class="help">Classes from this day are paid at this rate; earlier classes keep their old rate.</span></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _rateOpen = false">Cancel</button><button class="btn btn-primary" @onclick="SaveRate" disabled="@(Busy || _rate is null)">Save rate</button></div>
+</Modal>
+
+<Modal @bind-Open="_payOpen" Title="Record salary payment">
+    <div class="form-grid">
+        <div class="field"><label for="pa">Amount (@Currency) *</label><input id="pa" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_amount" />
+            @if (_p is { Due: > 0 } d) { <span class="help">Still to pay: @Money.Format(d.Due, d.CurrencyCode)</span> }</div>
+        <div class="field"><label for="pd">Paid on *</label><input id="pd" class="input" type="date" @bind="_paidOn" /></div>
+        <div class="field"><label for="ppf">For period from</label><input id="ppf" class="input" type="date" @bind="_from" /></div>
+        <div class="field"><label for="ppt">to</label><input id="ppt" class="input" type="date" @bind="_to" /></div>
+        <div class="field full"><label for="pn">Note</label><input id="pn" class="input" placeholder="e.g. October salary" @bind="_note" /></div>
+    </div>
+    <MethodPicker @bind-Method="_method" @bind-Reference="_reference" />
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _payOpen = false">Cancel</button><button class="btn btn-primary" @onclick="Pay" disabled="@(Busy || _amount is not > 0)">Record payment</button></div>
+</Modal>
+
+<Modal @bind-Open="_voidOpen" Title="Remove payment">
+    <p>The payment stays on record, crossed out, with your reason. It no longer counts as paid.</p>
+    <div class="field"><label for="vr">Reason *</label><input id="vr" class="input" @bind="_voidReason" /></div>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _voidOpen = false">Keep it</button><button class="btn btn-danger" @onclick="Void" disabled="@(Busy || string.IsNullOrWhiteSpace(_voidReason))">Remove payment</button></div>
+</Modal>
+
+@code {
+    [Parameter, EditorRequired] public Guid TeacherId { get; set; }
+    [Parameter] public bool CanManage { get; set; }
+    private TeacherPayDto? _p;
+    private ApiException? _error;
+    private bool _rateOpen, _payOpen, _voidOpen;
+    private decimal? _rate, _amount;
+    private DateOnly? _rateFrom, _from, _to;
+    private DateOnly _paidOn;
+    private PaymentMethod _method = PaymentMethod.BankTransfer;
+    private string? _reference, _note, _voidReason;
+    private TeacherPaymentDto? _voiding;
+    private string _key = Guid.NewGuid().ToString("N");
+    private string Currency => _p?.CurrencyCode ?? "";
+
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load() => (_p, _error) = await Fetch(() => Api.GetAsync<TeacherPayDto>($"teachers/{TeacherId}/pay"));
+
+    private void OpenRate() => (_rate, _rateFrom, _rateOpen) = (_p?.CurrentRate, DateOnly.FromDateTime(Time.ToLocal(DateTime.UtcNow, Tz)), true);
+
+    private void NewPayment()
+    {
+        var today = DateOnly.FromDateTime(Time.ToLocal(DateTime.UtcNow, Tz));
+        (_amount, _paidOn, _from, _to, _method, _reference, _note, _key) = (_p is { Due: > 0 } p ? p.Due : null, today, null, null, PaymentMethod.BankTransfer, null, null, Guid.NewGuid().ToString("N"));
+        _payOpen = true;
+    }
+
+    private void AskVoid(TeacherPaymentDto x) => (_voiding, _voidReason, _voidOpen) = (x, null, true);
+
+    private async Task SaveRate()
+    {
+        if (await Run(() => Api.PutAsync($"teachers/{TeacherId}/pay/rate", new SetTeacherRateRequest(_rate ?? 0, _rateFrom)), "Rate saved.")) { _rateOpen = false; await Load(); }
+    }
+
+    private async Task Pay()
+    {
+        var request = new AddTeacherPaymentRequest(_amount ?? 0, _paidOn, _method, _reference, _note, _from, _to);
+        if (await Run(() => Api.PostAsync($"teachers/{TeacherId}/pay/payments", request, _key), "Payment recorded.")) { _payOpen = false; await Load(); }
+    }
+
+    private async Task Void()
+    {
+        if (_voiding is { } v && await Run(() => Api.PostAsync($"teachers/{TeacherId}/pay/payments/{v.Id}/void", new VoidTeacherPaymentRequest(_voidReason ?? "")), "Payment removed."))
+        { _voidOpen = false; await Load(); }
+    }
+}

@@ -52,6 +52,8 @@ public sealed class AppDbContext(
     public DbSet<StudentSchoolMark> StudentSchoolMarks => Set<StudentSchoolMark>();
     public DbSet<StudentPackage> StudentPackages => Set<StudentPackage>();
     public DbSet<FeePayment> FeePayments => Set<FeePayment>();
+    public DbSet<TeacherPayRate> TeacherPayRates => Set<TeacherPayRate>();
+    public DbSet<TeacherPayment> TeacherPayments => Set<TeacherPayment>();
     public DbSet<CourseEnrolment> CourseEnrolments => Set<CourseEnrolment>();
     public DbSet<StudentSubject> StudentSubjects => Set<StudentSubject>();
     public DbSet<Curriculum> Curricula => Set<Curriculum>();
@@ -109,6 +111,11 @@ public sealed class AppDbContext(
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<IntegrationConnection> Integrations => Set<IntegrationConnection>();
     public DbSet<InstitutionIntegration> InstitutionIntegrations => Set<InstitutionIntegration>();
+    public DbSet<AutomationSettings> AutomationSettings => Set<AutomationSettings>();
+    public DbSet<OutboundMessage> OutboundMessages => Set<OutboundMessage>();
+    public DbSet<AutomationRun> AutomationRuns => Set<AutomationRun>();
+    public DbSet<PaymentLink> PaymentLinks => Set<PaymentLink>();
+    public DbSet<ProgressReport> ProgressReports => Set<ProgressReport>();
     public DbSet<FeatureFlag> FeatureFlags => Set<FeatureFlag>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder b)

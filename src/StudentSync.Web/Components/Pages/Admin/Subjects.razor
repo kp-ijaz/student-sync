@@ -1,0 +1,66 @@
+@page "/admin/subjects"
+@attribute [Authorize(Roles = "InstitutionAdmin")]
+@inherits AppPage
+
+@* Subjects (owner notes 2026-11-16): each subject with its syllabus and class, the teachers assigned, how many students
+   take it, classes and hours done, and the value of those hours (hours × each student's rate). By default only subjects
+   in use are listed, so the full catalogue (NCERT, Kerala State, ICSE × Classes 1–12) does not bury them. *@
+<PageHeader Title="Subjects" Subtitle="Who teaches each subject, how many students take it, and the hours done.">
+    <Actions><a class="btn btn-secondary" href="/admin/academics"><Icon Name="settings" /> Manage catalogue</a></Actions>
+</PageHeader>
+<div class="card">
+    <div class="list-tools">
+        <input class="input" type="search" placeholder="Search subjects" aria-label="Search subjects" @bind="_search" @bind:event="oninput" />
+        <select class="select" aria-label="Syllabus" @bind="_syllabus"><option value="">All syllabi</option>@foreach (var c in Syllabi) { <option value="@c.Id">@c.Name</option> }</select>
+        <select class="select" aria-label="Class" @bind="_grade"><option value="">All classes</option>@foreach (var g in Grades) { <option value="@g.Id">@g.Name</option> }</select>
+    </div>
+    <Segmented TValue="bool" Label="Show" Options="@([new(true, "In use"), new(false, "Whole catalogue")])" @bind-Value="_inUse" Class="subjects-scope" />
+    <DataView Loading="_rows is null && _error is null" Error="_error" OnRetry="LoadAsync" IsEmpty="Shown.Count == 0"
+              EmptyTitle="@(_inUse ? "No subjects in use yet" : "No subjects match")" EmptyText="@(_inUse ? "Choose subjects for students at admission, or assign teachers to subjects. Switch to Whole catalogue to see every subject." : "Try another syllabus, class or name.")" EmptyIcon="book">
+        @foreach (var group in Shown.GroupBy(s => (s.GradeOrder, s.GradeName, s.CurriculumName)))
+        {
+            <h3 class="subject-group">@(group.Key.GradeName ?? "Other subjects")@(group.Key.CurriculumName is { } c ? $" · {c}" : "")</h3>
+            <ul class="list subject-overview">
+                @foreach (var s in group)
+                {
+                    <li>
+                        <div class="grow">
+                            <strong>@s.Name</strong> <span class="caption">@s.Code</span>
+                            <div class="caption">@(s.Teachers.Count == 0 ? "No teacher assigned" : string.Join(", ", s.Teachers.Select(t => t.Name)))</div>
+                        </div>
+                        <dl class="subject-figures">
+                            <div><dt>Students</dt><dd>@s.Students</dd></div>
+                            <div><dt>Classes</dt><dd>@s.ClassesDone</dd></div>
+                            <div><dt>Hours</dt><dd>@Money.Hours(s.HoursDone)</dd></div>
+                            @if (s.FeeValue is { } v) { <div><dt>Fee value</dt><dd>@Money.Format(v, Currency)</dd></div> }
+                        </dl>
+                    </li>
+                }
+            </ul>
+        }
+        <p class="caption" style="margin-top:12px">Classes and hours are completed classes. Fee value = hours each student attended in the subject × that student's rate per hour.</p>
+    </DataView>
+</div>
+
+@code {
+    private List<SubjectOverviewDto>? _rows;
+    private ApiException? _error;
+    private string _search = "", _syllabus = "", _grade = "", Currency = "";
+    private bool _inUse = true;
+
+    private IEnumerable<(Guid Id, string Name)> Syllabi => (_rows ?? []).Where(r => r.CurriculumId != null).Select(r => (r.CurriculumId!.Value, r.CurriculumName ?? "")).Distinct().OrderBy(x => x.Item2);
+    private IEnumerable<(Guid Id, string Name)> Grades => (_rows ?? []).Where(r => r.GradeLevelId != null).OrderBy(r => r.GradeOrder).Select(r => (r.GradeLevelId!.Value, r.GradeName ?? "")).Distinct();
+
+    private List<SubjectOverviewDto> Shown => (_rows ?? [])
+        .Where(r => !_inUse || r.Students > 0 || r.Teachers.Count > 0 || r.ClassesDone > 0)
+        .Where(r => _syllabus == "" || r.CurriculumId?.ToString() == _syllabus)
+        .Where(r => _grade == "" || r.GradeLevelId?.ToString() == _grade)
+        .Where(r => _search == "" || r.Name.Contains(_search, StringComparison.OrdinalIgnoreCase) || r.Code.Contains(_search, StringComparison.OrdinalIgnoreCase))
+        .ToList();
+
+    protected override async Task LoadAsync()
+    {
+        (_rows, _error) = await Fetch(() => Api.GetAsync<List<SubjectOverviewDto>>("academics/subjects/overview"));
+        Currency = (await Fetch(() => Api.GetAsync<InstitutionSettingsDto>("institution/settings"))).Value?.CurrencyCode ?? "";
+    }
+}

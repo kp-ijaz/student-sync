@@ -4,7 +4,7 @@
 
 <PageHeader Title="Institution settings" />
 <div class="tabs" role="tablist">
-    @foreach (var (k, l) in new[] { ("general", "General & policies"), ("holidays", "Holidays"), ("subscription", "Subscription"), ("integrations", "Integrations"), ("permissions", "Roles & permissions"), ("audit", "Audit log") })
+    @foreach (var (k, l) in new[] { ("general", "General & policies"), ("holidays", "Holidays"), ("subscription", "Subscription"), ("integrations", "Integrations"), ("automations", "Automations"), ("permissions", "Roles & permissions"), ("audit", "Audit log") })
     { <button role="tab" aria-selected="@(Aria.Bool(_tab == k))" @onclick="() => Switch(k)">@l</button> }
 </div>
 @switch (_tab)
@@ -55,8 +55,27 @@
             <div class="row" style="margin-bottom:16px"><input type="date" class="input" style="max-width:200px" aria-label="Holiday date" @bind="_hDate" /><input class="input" style="max-width:280px" placeholder="Holiday name" aria-label="Holiday name" @bind="_hName" />
                 <button class="btn btn-primary" @onclick="AddHoliday" disabled="@Busy">Add holiday</button></div>
             <p class="caption">Recurring schedules can skip these dates automatically.</p>
-            <ul class="list">@foreach (var h in _holidays) { <li class="row-between"><span>@h.Date.ToString("ddd d MMM yyyy") — @h.Name</span><button class="btn btn-ghost btn-sm" @onclick="() => RemoveHoliday(h)">Remove</button></li> }</ul>
+            <ul class="list">@foreach (var h in _holidays) { <li class="row-between"><span>@h.Date.ToString("ddd d MMM yyyy") — @h.Name</span>
+                <span class="btn-group"><button class="btn btn-ghost btn-sm" @onclick="() => CheckClasses(h.Date)">Classes that day</button><button class="btn btn-ghost btn-sm" @onclick="() => RemoveHoliday(h)">Remove</button></span></li> }</ul>
         </div>
+        @if (_hClasses is { } hc)
+        {
+            @* Holiday clean-up: classes booked on the holiday — cancel them all, or move each to the next free day. *@
+            <section class="card holiday-classes" aria-labelledby="hc-h" style="margin-top:16px">
+                <div class="card-head"><h2 id="hc-h">Classes on @hc.Date.ToString("ddd d MMM")</h2><button class="icon-btn" aria-label="Close" @onclick="() => _hClasses = null"><Icon Name="x" /></button></div>
+                @if (hc.Classes.Count == 0) { <InlineEmpty Icon="check" Text="No classes are booked that day." /> }
+                else
+                {
+                    <ul class="list">@foreach (var c in hc.Classes) { <li><strong>@Time.Clock(c.StartUtc, Tz)–@Time.Clock(c.EndUtc, Tz)</strong> @c.Title <span class="caption">· @c.TeacherName · @c.Students student@(c.Students == 1 ? "" : "s")</span></li> }</ul>
+                    <p class="caption">Students and teachers are told about the change. Cancelling counts as a holiday, not as anyone's missed hours.</p>
+                    <div class="form-actions">
+                        <button class="btn btn-secondary" @onclick='() => ApplyHoliday("move")' disabled="@Busy">Move each to the next free day</button>
+                        <button class="btn btn-danger-outline" @onclick='() => ApplyHoliday("cancel")' disabled="@Busy">Cancel all @hc.Classes.Count</button>
+                    </div>
+                }
+                @if (_hSkipped.Count > 0) { <div class="warn-panel" role="status"><strong>Not moved:</strong><ul>@foreach (var x in _hSkipped) { <li>@x</li> }</ul></div> }
+            </section>
+        }
         break;
     case "subscription":
         @if (_sub is not null)
@@ -75,6 +94,9 @@
         break;
     case "integrations":
         @if (Me is not null) { <IntegrationsPanel Me="Me" Platform="_integrations" /> }
+        break;
+    case "automations":
+        @if (Me is not null) { <AutomationsPanel Me="Me" /> }
         break;
     case "permissions":
         <div class="card"><p class="small muted">Permissions are enforced on the server for every request. Hidden buttons are never relied on for security.</p>
@@ -148,6 +170,29 @@
         if (await Run(() => Api.PutAsync("institution/settings", new UpdateInstitutionSettingsRequest(_name, _country, _tz, _currency, _lang, _email, _brand, _rec, _tx, _ai, _followUp, _retention, _studentMsg, _parentMsg, _s!.RowVersion)), "Settings saved."))
             await LoadAsync();
     }
-    private async Task AddHoliday() { if (await Run(() => Api.PostAsync("institution/holidays", new SaveHolidayRequest(_hDate, _hName)), "Holiday added.")) { _hName = ""; await Switch("holidays"); } }
+    private async Task AddHoliday()
+    {
+        var day = _hDate;
+        if (await Run(() => Api.PostAsync("institution/holidays", new SaveHolidayRequest(_hDate, _hName)), "Holiday added.")) { _hName = ""; await Switch("holidays"); await CheckClasses(day); }
+    }
+
+    private HolidayClassesDto? _hClasses;
+    private List<string> _hSkipped = [];
+    private async Task CheckClasses(DateOnly day)
+    {
+        _hSkipped = [];
+        _hClasses = (await Fetch(() => Api.GetAsync<HolidayClassesDto>($"institution/holiday-classes?date={day:yyyy-MM-dd}"))).Value;
+    }
+    private async Task ApplyHoliday(string action)
+    {
+        if (_hClasses is not { } hc) return;
+        HolidayClassesResult? result = null;
+        if (await Run(async () => result = await Api.PostAsync<HolidayClassesResult>("institution/holiday-classes", new HolidayClassesRequest(hc.Date, action))))
+        {
+            Toasts.Show(action == "cancel" ? $"{result!.Done} class(es) cancelled for the holiday." : $"{result!.Done} class(es) moved.");
+            await CheckClasses(hc.Date);
+            _hSkipped = result.Skipped.ToList();
+        }
+    }
     private async Task RemoveHoliday(HolidayDto h) { if (await Run(() => Api.DeleteAsync($"institution/holidays/{h.Id}"), "Holiday removed.")) await Switch("holidays"); }
 }

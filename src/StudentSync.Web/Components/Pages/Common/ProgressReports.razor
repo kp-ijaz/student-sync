@@ -1,0 +1,69 @@
+@page "/progress-reports"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher")]
+@inherits AppPage
+@* Monthly progress reports (owner request 2026-11-17). Prepared on the 1st from attendance, hours and marks; the teacher
+   adds a short remark and sends (or skips). Teachers see only their own students' reports; admins see all. *@
+<PageTitle>Progress reports · Student Sync</PageTitle>
+<PageHeader Title="Progress reports" Subtitle="Prepared automatically each month. Add a short remark and send — the student (and the family by SMS, if switched on) receives it." />
+
+<Segmented TValue="string" Options="StatusOptions" Value="_status" ValueChanged="Filter" Label="Show reports" Class="pr-filter" />
+
+<DataView Loading="_list is null && _error is null" Error="_error" OnRetry="LoadAsync" IsEmpty="_list?.Count == 0"
+          EmptyTitle="@(_status == "Draft" ? "Nothing to send" : "No reports here")" EmptyText="Reports for last month appear on the 1st." EmptyIcon="chart-line">
+    <div class="pr-list">
+        @foreach (var r in _list ?? [])
+        {
+            <article class="card pr-card" aria-labelledby="@($"pr-{r.Id}")">
+                <div class="card-head">
+                    <div><h2 id="@($"pr-{r.Id}")" class="pr-title"><a href="/students/@r.StudentId">@r.StudentName</a></h2>
+                        <span class="caption">@r.Month.ToString("MMMM yyyy")@(IsAdmin ? $" · {r.TeacherName}" : "")</span></div>
+                    @if (r.Status != "Draft") { <span class="badge @(r.Status == "Sent" ? "green" : "amber")">@r.Status</span> }
+                </div>
+                <dl class="pr-figures">
+                    <div><dt>Attended</dt><dd>@r.ClassesAttended of @(r.ClassesAttended + r.ClassesMissed)</dd></div>
+                    <div><dt>Hours</dt><dd>@Money.Hours(r.HoursAttended)</dd></div>
+                    <div><dt>Hours left</dt><dd>@(r.HoursLeft is { } l ? Money.Hours(Math.Max(0, l)) : "—")</dd></div>
+                    <div><dt>Marks</dt><dd>@(r.AverageMarkPercent is { } a ? $"{a:0.#}%" : "—")<span class="caption"> @(r.AssignmentsGraded > 0 ? $"({r.AssignmentsGraded})" : "")</span></dd></div>
+                </dl>
+                @if (r.Status == "Draft")
+                {
+                    <div class="field"><label for="@($"prr-{r.Id}")">Your remark <span class="caption">(optional)</span></label>
+                        <textarea id="@($"prr-{r.Id}")" class="textarea" rows="2" maxlength="1000" placeholder="e.g. Good progress in algebra; practise word problems." @bind="_remarks[r.Id]"></textarea></div>
+                    <div class="form-actions">
+                        <button class="btn btn-ghost" @onclick="() => Skip(r)" disabled="@Busy">Skip</button>
+                        <button class="btn btn-primary" @onclick="() => Send(r)" disabled="@Busy"><Icon Name="send" /> Send</button>
+                    </div>
+                }
+                else if (r.Remark is { } rm) { <p class="small pr-remark">“@rm”</p> }
+            </article>
+        }
+    </div>
+</DataView>
+
+@code {
+    private static readonly IReadOnlyList<Segmented<string>.Option> StatusOptions = [new("Draft", "To send"), new("Sent", "Sent"), new("Skipped", "Skipped")];
+    private List<ProgressReportDto>? _list;
+    private ApiException? _error;
+    private string _status = "Draft";
+    private readonly Dictionary<Guid, string?> _remarks = [];
+
+    protected override async Task LoadAsync()
+    {
+        _list = null;
+        (_list, _error) = await Fetch(() => Api.GetAsync<List<ProgressReportDto>>($"progress-reports?status={_status}"));
+        foreach (var r in _list ?? []) _remarks.TryAdd(r.Id, r.Remark);
+    }
+
+    private async Task Filter(string s) { _status = s; await LoadAsync(); }
+
+    private async Task Send(ProgressReportDto r)
+    {
+        if (await Run(() => Api.PostAsync($"progress-reports/{r.Id}/send", new SendProgressReportRequest(_remarks.GetValueOrDefault(r.Id))), $"Report sent to {r.StudentName.Split(' ')[0]}."))
+            _list?.Remove(r);
+    }
+
+    private async Task Skip(ProgressReportDto r)
+    {
+        if (await Run(() => Api.PostAsync($"progress-reports/{r.Id}/skip", null), "Report skipped.")) _list?.Remove(r);
+    }
+}

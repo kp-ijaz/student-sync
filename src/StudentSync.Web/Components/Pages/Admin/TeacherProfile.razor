@@ -1,0 +1,75 @@
+@page "/teachers/{Id:guid}"
+@page "/teacher/profile"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher")]
+@inherits AppPage
+
+@* One teacher (owner notes 2026-11-16): subjects, qualifications, the students they teach with their next class, hours
+   taught and missed, salary, and a class calendar. Admins open any teacher; a teacher sees only themselves
+   (/teacher/profile), read-only for pay. The API enforces both. *@
+<DataView Loading="_o is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_o is { } o)
+    {
+        var t = o.Teacher;
+        <PageTitle>@t.FullName · Student Sync</PageTitle>
+        @if (IsAdmin) { <nav class="breadcrumbs" aria-label="Breadcrumb" style="margin-bottom:12px"><a href="/admin/teachers">Teachers</a> /</nav> }
+        <header class="page-header t-greeting home-head person-head">
+            <Avatar Name="@t.FullName" PhotoUrl="@t.PhotoUrl" Size="xl" Decorative="false" />
+            <div class="grow">
+                <h1 tabindex="-1">@t.FullName</h1>
+                <div class="caption">@string.Join(" · ", new[] { SubjectsLine(t), t.EmployeeCode, t.JoinedOn is { } j ? $"here since {j:MMM yyyy}" : null }.Where(x => !string.IsNullOrWhiteSpace(x)))</div>
+            </div>
+            <div class="btn-group home-head-actions">
+                @if (IsAdmin) { <a class="btn btn-secondary btn-pill" href="/admin/teachers?edit=@TeacherId"><Icon Name="pencil" /> Edit</a> }
+                <a class="btn btn-primary btn-pill" href="/teacher/availability@(IsAdmin ? $"?teacherId={TeacherId}" : "")"><Icon Name="clock" /> Availability</a>
+            </div>
+        </header>
+
+        <section class="card student-about" aria-labelledby="t-about" style="margin-bottom:16px">
+            <h2 id="t-about" style="margin-bottom:12px">About @FirstName(t.FullName)</h2>
+            <dl class="kv student-about-facts">
+                <div><dt>Subjects</dt><dd>@if (t.Subjects.Count == 0) { <span class="muted">None yet</span> } else { <span class="pill-list">@foreach (var g in t.Subjects.GroupBy(x => x.Name)) { <span class="badge blue" title="@string.Join(", ", g.Select(x => x.Detail))">@g.Key@(g.Count() > 1 ? $" · {g.Count()} classes" : "")</span> }</span> }</dd></div>
+                <div><dt>Qualifications</dt><dd>@if ((t.Qualifications ?? []).Count == 0) { <span class="muted">—</span> } else { @string.Join(", ", t.Qualifications!.Select(q => q.Title + (q.Institution is { } i ? $" ({i}{(q.Year is { } y ? $", {y}" : "")})" : ""))) }</dd></div>
+                <div><dt>Experience</dt><dd>@(t.ExperienceYears is { } e ? (e == 1 ? "1 year" : $"{e} years") : "—")</dd></div>
+                <div><dt>Teaches in</dt><dd>@(t.Languages ?? "—")</dd></div>
+                @if (IsAdmin) { <div><dt>Phone</dt><dd>@if (t.Phone is { } ph) { <a href="tel:@ph">@ph</a> } else { <span class="muted">—</span> }</dd></div> }
+                <div><dt>Email</dt><dd>@t.Email</dd></div>
+            </dl>
+        </section>
+
+        <div class="profile-hours">
+            <HoursPanel Periods="o.Periods" Teacher="true" />
+            <section class="card" aria-labelledby="t-students">
+                <div class="card-head"><h2 id="t-students">Students</h2><span class="count-pill">@o.Students.Count</span></div>
+                @if (o.Students.Count == 0) { <InlineEmpty Icon="users" Text="No students yet. Classes booked with this teacher appear here." /> }
+                else
+                {
+                    <ul class="plist plist-always" aria-label="Students">
+                        @foreach (var s in o.Students)
+                        {
+                            <PersonRow Name="@s.Name" PhotoUrl="@s.PhotoUrl" Href="@($"/students/{s.StudentId}")" Meta="@string.Join(" · ", new[] { s.GradeName, string.Join(", ", s.Subjects) }.Where(x => !string.IsNullOrWhiteSpace(x)))">
+                                <Detail>@s.ClassesDone @(s.ClassesDone == 1 ? "class" : "classes") · @Money.Hours(s.HoursDone)@(s.NextClassUtc is { } n ? $" · next {Time.Short(n, Tz)}" : "")</Detail>
+                            </PersonRow>
+                        }
+                    </ul>
+                }
+            </section>
+        </div>
+        @if (Me is not null)
+        {
+            <div style="margin-bottom:16px"><TeacherPayPanel Me="Me" TeacherId="TeacherId" CanManage="IsAdmin" /></div>
+            <PersonCalendar Me="Me" Filter="@($"teacherId={TeacherId}")" />
+        }
+    }
+</DataView>
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+    private TeacherOverviewDto? _o;
+    private ApiException? _error;
+    private Guid TeacherId => Id ?? Me?.Id ?? Guid.Empty;
+
+    private static string FirstName(string name) => name.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? name;
+    private static string SubjectsLine(TeacherDto t) => t.Subjects.Count == 0 ? "No subjects yet" : string.Join(", ", t.Subjects.Select(s => s.Name).Distinct().Take(4));
+
+    protected override async Task LoadAsync() => (_o, _error) = await Fetch(() => Api.GetAsync<TeacherOverviewDto>($"teachers/{TeacherId}/overview"));
+}

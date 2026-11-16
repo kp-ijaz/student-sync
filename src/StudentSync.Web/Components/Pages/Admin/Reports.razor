@@ -23,6 +23,17 @@
             new("Doubts resolved", $"{_r.Doubts.Resolved} / {_r.Doubts.Raised}", _r.Doubts.AvgResolutionHours is { } hours ? $"avg {hours:0.#} h to resolve" : "raised in this period", "help"),
             new("Assignments", $"{_r.Assignments.Submitted} / {_r.Assignments.ExpectedSubmissions}", $"submitted · {_r.Assignments.Late} late · {_r.Assignments.Graded} graded", "clipboard"),
         ])" />
+        @if (_r.Money is { } m)
+        {
+            @* Money and hours for the period (admins). Fees collected / salary paid are dated in the period; pending fees and salary owed are today's totals. *@
+            <MetricStrip AriaLabel="Money and hours" Items="@([
+                new("Hours taught", Money.Hours(m.HoursTaught), $"{m.ClassesHeld} completed classes", "clock"),
+                new("Fees collected", Money.Format(m.FeesCollected, m.CurrencyCode), "payments in this period", "wallet", "/admin/fees"),
+                new("Salary paid", Money.Format(m.SalaryPaid, m.CurrencyCode), "to teachers in this period", "user-check", "/admin/teachers"),
+                new("Pending fees", Money.Format(m.PendingFees, m.CurrencyCode), "still owed today", "alert", "/admin/fees"),
+                new("Salary owed", Money.Format(m.SalaryDue, m.CurrencyCode), "earned, not yet paid", "trending-up", "/admin/teachers"),
+            ])" />
+        }
         <div class="grid grid-2" style="margin-bottom:16px">
             <div class="card"><div class="card-head"><h2>By teaching mode</h2></div>
                 <div class="table-wrap"><table class="table"><thead><tr><th>Mode</th><th>Sessions</th><th>Student places</th></tr></thead>
@@ -33,9 +44,16 @@
         <div class="card" style="margin-bottom:16px"><div class="card-head"><h2>Teachers</h2></div>
             @if (_r.Teachers.Count == 0) { <InlineEmpty Icon="user-check" Text="No classes taught in this period." /> }
             else {
-            <div class="table-wrap"><table class="table stack-mobile"><thead><tr><th>Teacher</th><th>Delivered</th><th>Cancelled</th><th>Attendance</th><th>Doubts resolved</th><th>Avg resolution</th><th>Graded</th></tr></thead>
-                <tbody>@foreach (var t in _r.Teachers) { <tr><td data-label="Teacher">@t.TeacherName</td><td data-label="Delivered" class="num">@t.SessionsDelivered</td><td data-label="Cancelled" class="num">@t.SessionsCancelled</td>
+            <div class="table-wrap"><table class="table stack-mobile"><thead><tr><th>Teacher</th><th>Hours taught</th><th>Hours missed</th>@if (_r.Money is not null) { <th>Earned</th> }<th>Delivered</th><th>Cancelled</th><th>Attendance</th><th>Doubts resolved</th><th>Avg resolution</th><th>Graded</th></tr></thead>
+                <tbody>@foreach (var t in _r.Teachers) { <tr><td data-label="Teacher"><a href="/teachers/@t.TeacherId">@t.TeacherName</a></td><td data-label="Hours taught" class="num">@Money.Hours(t.HoursTaught)</td><td data-label="Hours missed" class="num">@Money.Hours(t.HoursMissed)</td>
+                    @if (_r.Money is { } mm) { <td data-label="Earned" class="num">@(t.Earned is { } e ? Money.Format(e, mm.CurrencyCode) : "—")</td> }<td data-label="Delivered" class="num">@t.SessionsDelivered</td><td data-label="Cancelled" class="num">@t.SessionsCancelled</td>
                     <td data-label="Attendance" class="num">@(t.AttendanceRatePercent is { } a ? $"{a:0.#}%" : "—")</td><td data-label="Doubts" class="num">@t.DoubtsResolved</td><td data-label="Avg resolution" class="num">@(t.AvgDoubtResolutionHours is { } h ? $"{h:0.#} h" : "—")</td><td data-label="Graded" class="num">@t.SubmissionsGraded</td></tr> }</tbody></table></div>
+            }</div>
+        <div class="card" style="margin-bottom:16px"><div class="card-head"><h2>Subjects</h2></div>
+            @if ((_r.Subjects ?? []).Count == 0) { <InlineEmpty Icon="book" Text="No completed classes with a subject in this period." /> }
+            else {
+            <div class="table-wrap"><table class="table stack-mobile"><thead><tr><th>Subject</th><th>Classes</th><th>Hours</th><th>Students</th><th>Teachers</th></tr></thead>
+                <tbody>@foreach (var sub in _r.Subjects!) { <tr><td data-label="Subject">@sub.SubjectName@if (sub.CourseName is { } cn) { <span class="caption"> · @cn</span> }</td><td data-label="Classes" class="num">@sub.Classes</td><td data-label="Hours" class="num">@Money.Hours(sub.Hours)</td><td data-label="Students" class="num">@sub.Students</td><td data-label="Teachers" class="small">@string.Join(", ", sub.Teachers)</td></tr> }</tbody></table></div>
             }</div>
         @* Batches are a legacy teaching format (new classes are one-to-one); the card only appears when there are some. *@
         @if (_r.Batches.Count > 0)

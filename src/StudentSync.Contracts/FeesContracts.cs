@@ -28,7 +28,7 @@ public sealed record HoursUsedDto(Guid SessionId, string Title, DateTime StartUt
 /// </summary>
 public sealed record StudentFeesDto(
     Guid StudentId, string CurrencyCode, decimal HoursBought, decimal HoursUsed, decimal HoursLeft, decimal Billed, decimal Paid, decimal Due,
-    DateOnly? OldestDueOn, IReadOnlyList<StudentPackageDto> Packages, IReadOnlyList<HoursUsedDto> RecentUsage);
+    DateOnly? OldestDueOn, IReadOnlyList<StudentPackageDto> Packages, IReadOnlyList<HoursUsedDto> RecentUsage, decimal? HourlyRate = null);
 
 /// <summary>One student who owes money or is running out of hours.</summary>
 public sealed record FeeDueItemDto(

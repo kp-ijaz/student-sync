@@ -87,6 +87,9 @@ builder.Services.AddRateLimiter(o =>
     o.RejectionStatusCode = 429;
     o.AddPolicy("auth", http => RateLimitPartition.GetFixedWindowLimiter(http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = builder.Configuration.GetValue("RateLimits:AuthPerMinute", 20), Window = TimeSpan.FromMinutes(1) }));
+    // Gateway webhooks: their own bucket, so sign-in traffic never throttles payment confirmations (and vice versa).
+    o.AddPolicy("webhooks", http => RateLimitPartition.GetFixedWindowLimiter(http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1) }));
     o.AddPolicy("ai", http => RateLimitPartition.GetFixedWindowLimiter(http.User.FindFirst("sub")?.Value ?? "anon",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1) }));
 });
@@ -105,7 +108,7 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o => 
 var app = builder.Build();
 
 // ---------- Command-line maintenance commands ----------
-if (args.Length > 0 && args[0] is "migrate" or "seed-demo" or "reset-demo" or CreateInstitutionCommand.Name)
+if (args.Length > 0 && args[0] is "migrate" or "seed-demo" or "reset-demo" or "load-catalogue" or CreateInstitutionCommand.Name)
 {
     await RunCommandAsync(app, args);
     return;
@@ -154,6 +157,7 @@ api.MapDoubts();
 api.MapCommunication();
 api.MapAi();
 api.MapReporting();
+api.MapAutomations();
 
 app.Run();
 
@@ -175,6 +179,21 @@ static async Task RunCommandAsync(WebApplication app, string[] args)
             await sp.GetRequiredService<ReferenceDataSeeder>().SeedAsync(CancellationToken.None);
             Environment.ExitCode = await CreateInstitutionCommand.RunAsync(sp, args, Console.Out, CancellationToken.None);
             break;
+        case "load-catalogue":
+            {
+                // load-catalogue <institution code>: adds the default syllabi (NCERT, Kerala State, ICSE), Classes 1–12, their
+                // subjects and the current academic year to an existing institute — the same idempotent merge as the
+                // "Load default catalogue" button in Academics. Safe to run again: nothing is duplicated or changed.
+                var slug = args.Length > 1 ? args[1].Trim().ToLowerInvariant() : throw new InvalidOperationException("Usage: load-catalogue <institution code>");
+                var tenantId = await db.Tenants.Where(t => t.Slug == slug).Select(t => (Guid?)t.Id).FirstOrDefaultAsync()
+                               ?? throw new InvalidOperationException($"No institution with code '{slug}'.");
+                using (sp.GetRequiredService<ITenantContext>().BeginScope(tenantId))
+                {
+                    var r = await sp.GetRequiredService<StudentSync.Application.Academics.DefaultCatalogue>().LoadForCurrentTenantAsync(CancellationToken.None);
+                    Console.WriteLine($"Added {r.Syllabi} syllabi, {r.Classes} classes, {r.Courses} class courses, {r.Subjects} subjects, {r.AcademicYears} academic years.");
+                }
+                break;
+            }
         case "seed-demo":
             if (!app.Environment.IsDevelopment()) throw new InvalidOperationException("Demo data can only be seeded in the Development environment.");
             await db.Database.MigrateAsync();

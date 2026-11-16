@@ -108,9 +108,24 @@ public sealed record InstitutionReportDto(
     IReadOnlyList<TeacherReportRowDto> Teachers,
     IReadOnlyList<BatchReportRowDto> Batches,
     DoubtReportDto Doubts,
-    AssignmentReportDto Assignments);
+    AssignmentReportDto Assignments,
+    MoneyReportDto? Money = null,
+    IReadOnlyList<SubjectReportRowDto>? Subjects = null);
 
-public sealed record TeacherReportRowDto(Guid TeacherId, string TeacherName, int SessionsDelivered, int SessionsCancelled, double? AttendanceRatePercent, int DoubtsResolved, double? AvgDoubtResolutionHours, int SubmissionsGraded);
+/// <summary>Per teacher in the period. HoursTaught = completed classes; HoursMissed = cancelled because the teacher was
+/// absent; Earned = HoursTaught × the rate on each class's day (admins only; null for others).</summary>
+public sealed record TeacherReportRowDto(Guid TeacherId, string TeacherName, int SessionsDelivered, int SessionsCancelled, double? AttendanceRatePercent, int DoubtsResolved, double? AvgDoubtResolutionHours, int SubmissionsGraded,
+    decimal HoursTaught = 0, decimal HoursMissed = 0, decimal? Earned = null);
+
+/// <summary>
+/// Money and hours for the period (admins only). ClassesHeld/HoursTaught = completed classes; FeesCollected = fee payments
+/// dated in the period; SalaryPaid = teacher payments dated in the period; PendingFees and SalaryDue are today's totals
+/// (fees still owed on active packages; salary earned to date not yet paid, summed over teachers who are owed).
+/// </summary>
+public sealed record MoneyReportDto(string CurrencyCode, int ClassesHeld, decimal HoursTaught, decimal FeesCollected, decimal SalaryPaid, decimal PendingFees, decimal SalaryDue);
+
+/// <summary>Per subject in the period: completed classes, their hours, and who was involved.</summary>
+public sealed record SubjectReportRowDto(Guid SubjectId, string SubjectName, string? CourseName, int Classes, decimal Hours, int Students, IReadOnlyList<string> Teachers);
 public sealed record BatchReportRowDto(Guid BatchId, string BatchName, int Students, int Sessions, double? AttendanceRatePercent);
 public sealed record DoubtReportDto(int Raised, int Resolved, int Open, double? AvgResolutionHours);
 public sealed record AssignmentReportDto(int Published, int ExpectedSubmissions, int Submitted, int Graded, int Late);

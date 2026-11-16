@@ -85,6 +85,8 @@ public static class DependencyInjection
                 LlmDetail: llm.IsConfigured ? $"Configured: {llm.ProviderName} / {llm.ModelName}." : null);
         });
 
+        // Where people open the web app (payment "done" page, links in messages): App:WebBaseUrl, else the first CORS origin.
+        services.AddSingleton(new PublicLinks((config["App:WebBaseUrl"] ?? config.GetSection("Cors:Origins").Get<string[]>()?.FirstOrDefault())?.TrimEnd('/')));
         services.Configure<DemoOptions>(config.GetSection("Demo"));
         services.AddScoped<ReferenceDataSeeder>();
         services.AddScoped<DemoDataSeeder>();

@@ -1,0 +1,11 @@
+@page "/payment-done"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout StudentSync.Web.Components.Layout.AuthLayout
+@* Where Razorpay / Stripe send the payer after paying. It never records anything: the payment is recorded only when the
+   gateway confirms it to the server (webhook or the 15-minute check). *@
+<PageTitle>Thank you · Student Sync</PageTitle>
+<StateView Page="true" Illustration="@Illustrations.AllDone" Title="Thank you for your payment"
+           Message="The centre's records update automatically within a few minutes, and a receipt appears in the student's notifications. You can close this page.">
+    <a class="btn btn-primary btn-pill" href="/"><Icon Name="home" /> Go to Student Sync</a>
+</StateView>

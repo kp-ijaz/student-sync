@@ -5,7 +5,7 @@
 @* Admission, the way a tuition centre takes a new student over the phone: who they are and how to reach the family,
    their school and class, only the subjects they need tuition for, their last school result, and their goal.
    Everything is saved together (one request); the scanned report is uploaded first and attached. *@
-<PageHeader Title="Admit a student" Subtitle="Fill in what the student or parent told you. Only name, email, class and the tuition subjects are required.">
+<PageHeader Title="Admit a student" Subtitle="Name, email, class and tuition subjects are all you need. Everything else is optional and can be added later.">
     <Breadcrumb><a href="/admin/students">Students</a> /</Breadcrumb>
 </PageHeader>
 
@@ -21,34 +21,44 @@
         <div class="form-grid">
             <div class="field"><label for="an">Full name *</label><input id="an" class="input" @bind="_name" autocomplete="off" /></div>
             <div class="field"><label for="ae">Email (for sign-in) *</label><input id="ae" type="email" class="input" @bind="_email" autocomplete="off" /></div>
-            <div class="field"><label for="aph">Student phone / WhatsApp</label><input id="aph" type="tel" class="input" placeholder="+971 50 123 4567" @bind="_phone" /></div>
-            <div class="field"><label for="ac">Student code *</label><input id="ac" class="input" @bind="_code" /><span class="help">Suggested automatically; change it if you use your own codes.</span></div>
-            <div class="field"><label for="atz">Time zone</label><TimeZoneSelect Id="atz" @bind-Value="_tz" /><span class="help">Where the student lives. Classes are shown to them in this time.</span></div>
+            <div class="field"><label for="aph">Student phone / WhatsApp</label><input id="aph" type="tel" class="input" placeholder="+91 98765 43210" @bind="_phone" /></div>
+            <div class="field"><label for="arate">Fee per hour</label><input id="arate" type="number" min="0" step="1" inputmode="decimal" class="input" placeholder="Optional, e.g. 400" @bind="_rate" />
+                <span class="help">Pre-fills package prices (hours × rate). You can change it later.</span></div>
         </div>
-    </section>
-
-    <section class="card" aria-labelledby="ad-parent">
-        <h2 id="ad-parent" class="easy-step"><span class="planner-step-number" aria-hidden="true">2</span> Parent / guardian</h2>
-        <p class="caption">Parents don’t sign in. Their contact is kept for the centre’s admins only.</p>
-        <div class="form-grid">
-            <div class="field"><label for="agn">Name</label><input id="agn" class="input" @bind="_guardianName" /></div>
-            <div class="field"><label for="agp">Phone / WhatsApp</label><input id="agp" type="tel" class="input" placeholder="+971 50 123 4567" @bind="_guardianPhone" /></div>
-        </div>
+        <details class="planner-optional">
+            <summary>Student code and time zone <span class="caption">Filled in for you</span></summary>
+            <div class="form-grid">
+                <div class="field"><label for="ac">Student code *</label><input id="ac" class="input" @bind="_code" /><span class="help">Suggested automatically; change it if you use your own codes.</span></div>
+                <div class="field"><label for="atz">Time zone</label><TimeZoneSelect Id="atz" @bind-Value="_tz" /><span class="help">Where the student lives. Classes are shown to them in this time.</span></div>
+            </div>
+        </details>
     </section>
 
     <section class="card" aria-labelledby="ad-school">
-        <h2 id="ad-school" class="easy-step"><span class="planner-step-number" aria-hidden="true">3</span> School</h2>
+        <h2 id="ad-school" class="easy-step"><span class="planner-step-number" aria-hidden="true">2</span> Class</h2>
         <div class="form-grid">
-            <div class="field"><label for="asc">School name</label><input id="asc" class="input" @bind="_school" /></div>
             <div class="field"><label for="ag">Class *</label><select id="ag" class="select" @bind="_grade"><option value="">Choose the class</option>@foreach (var g in _grades) { <option value="@g.Id">@g.Name</option> }</select></div>
             <div class="field"><label for="asy">Syllabus</label><select id="asy" class="select" @bind="_curriculum"><option value="">Not known</option>@foreach (var c in _curricula.Where(c => c.Status == CatalogStatus.Active)) { <option value="@c.Id">@c.Name</option> }</select></div>
+            <div class="field"><label for="asc">School name</label><input id="asc" class="input" @bind="_school" /></div>
             <div class="field"><label for="ay">Academic year</label><select id="ay" class="select" @bind="_year"><option value="">—</option>@foreach (var y in _years) { <option value="@y.Id">@y.Name@(y.IsCurrent ? " (current)" : "")</option> }</select></div>
         </div>
     </section>
 
     <section class="card" aria-labelledby="ad-subjects">
-        <h2 id="ad-subjects" class="easy-step"><span class="planner-step-number" aria-hidden="true">4</span> Tuition subjects *</h2>
+        <h2 id="ad-subjects" class="easy-step"><span class="planner-step-number" aria-hidden="true">3</span> Tuition subjects *</h2>
         <p class="caption">Only the subjects they need tuition for. These are the subjects offered when you add their classes.</p>
+        @if (ClassCourse is { } cc)
+        {
+            <h3 class="admit-subjects-h">Subjects in @cc.Name</h3>
+            <div class="pick-group multi admit-subjects" role="group" aria-label="@($"Subjects in {cc.Name}")">
+                @foreach (var s in ClassSubjects)
+                {
+                    <button type="button" class="pick" aria-pressed="@(Aria.Bool(_subjectIds.Contains(s.Id)))" @onclick="() => ToggleSubject(s.Id)">@s.Name</button>
+                }
+            </div>
+            @if (CentreSubjects.Count > 0) { <h3 class="admit-subjects-h">Your centre's own subjects</h3> }
+        }
+        else if (_grade is not null && _curriculum is null) { <p class="help">Choose the syllabus too to see that class's subjects.</p> }
         @if (CentreSubjects.Count > 0)
         {
             <div class="pick-group multi admit-subjects" role="group" aria-label="Tuition subjects">
@@ -58,7 +68,7 @@
                 }
             </div>
         }
-        else { <p class="muted small">Your centre’s subject list is empty. Add the first subject below.</p> }
+        else if (ClassCourse is null) { <p class="muted small">Choose the class and syllabus above to see their subjects, or add your centre's own subject below.</p> }
         @if (OtherChosen.Any())
         {
             <div class="pill-list" style="margin-top:8px">@foreach (var s in OtherChosen) { <span class="badge removable blue"><span>@s.Name <span class="caption">@s.CourseName</span></span><button type="button" class="chip-remove" aria-label="@($"Remove {s.Name}")" @onclick="() => ToggleSubject(s.Id)"><Icon Name="x" /></button></span> }</div>
@@ -84,8 +94,19 @@
         </div>
     </section>
 
-    <section class="card" aria-labelledby="ad-result">
-        <h2 id="ad-result" class="easy-step"><span class="planner-step-number" aria-hidden="true">5</span> Last school result <span class="caption">Optional</span></h2>
+
+    <h2 class="admit-more-h">More details <span class="caption">Optional — open only what you have</span></h2>
+    <details class="card admit-optional" aria-labelledby="ad-parent">
+        <summary><h2 id="ad-parent" class="easy-step">Parent / guardian <span class="caption">Name and phone</span></h2></summary>
+        <p class="caption">Parents don’t sign in. Their contact is kept for the centre’s admins only.</p>
+        <div class="form-grid">
+            <div class="field"><label for="agn">Name</label><input id="agn" class="input" @bind="_guardianName" /></div>
+            <div class="field"><label for="agp">Phone / WhatsApp</label><input id="agp" type="tel" class="input" placeholder="+971 50 123 4567" @bind="_guardianPhone" /></div>
+        </div>
+    </details>
+
+    <details class="card admit-optional" aria-labelledby="ad-result">
+        <summary><h2 id="ad-result" class="easy-step">Last school result <span class="caption">Marks and report</span></h2></summary>
         <div class="form-grid">
             <div class="field"><label for="art">Exam</label><input id="art" class="input" placeholder="e.g. Term 1 2026" @bind="_reportTitle" /></div>
             <div class="field"><label for="ard">Exam date</label><input id="ard" type="date" class="input" @bind="_reportDate" /></div>
@@ -111,16 +132,16 @@
         </ul>
         <button type="button" class="btn btn-secondary btn-sm" @onclick="() => _marks.Add(new())"><Icon Name="plus" /> Add subject marks</button>
         <div class="field" style="margin-top:12px"><label for="arn">Notes from the report</label><input id="arn" class="input" placeholder="e.g. Weak in algebra, good in grammar" @bind="_reportNotes" /></div>
-    </section>
+    </details>
 
-    <section class="card" aria-labelledby="ad-goal">
-        <h2 id="ad-goal" class="easy-step"><span class="planner-step-number" aria-hidden="true">6</span> Joining & goal</h2>
+    <details class="card admit-optional" aria-labelledby="ad-goal">
+        <summary><h2 id="ad-goal" class="easy-step">Joining & goal <span class="caption">What they want to improve</span></h2></summary>
         <div class="form-grid">
             <div class="field"><label for="aj">Joined the centre on</label><input id="aj" type="date" class="input" @bind="_joined" /></div>
             <div class="field full"><label for="agoal">What do they want to improve?</label><textarea id="agoal" class="textarea" placeholder="e.g. Score above 85% in Maths in the final exam; confidence in Arabic grammar." @bind="_goals" @bind:event="oninput"></textarea>
                 <span class="help">Saved as the student’s goal; they and their teachers can see it.</span></div>
         </div>
-    </section>
+    </details>
 
     <div class="form-actions admit-actions">
         <a class="btn btn-secondary" href="/admin/students">Cancel</a>
@@ -145,13 +166,17 @@
     private string? _phone, _guardianName, _guardianPhone, _school, _goals, _reportTitle, _reportNotes, _tempPassword;
     private Guid? _grade, _curriculum, _year, _createdId;
     private DateOnly? _joined, _reportDate;
-    private decimal? _overall;
+    private decimal? _overall, _rate;
     private FileDto? _reportFile;
     private readonly List<Guid> _subjectIds = [];
     private List<MarkRow> _marks = [];
 
     private List<SubjectDto> CentreSubjects => _subjects.Where(s => s.IsCentreSubject).OrderBy(s => s.Name).ToList();
-    private IEnumerable<SubjectDto> OtherChosen => _subjects.Where(s => !s.IsCentreSubject && _subjectIds.Contains(s.Id));
+    private List<CourseDto> _courses = [];
+    // The class course for the chosen class and syllabus (e.g. "Class 10 · NCERT"), and its subjects.
+    private CourseDto? ClassCourse => _grade is { } g && _curriculum is { } c ? _courses.FirstOrDefault(x => x.GradeLevelId == g && x.CurriculumId == c && x.Status == CatalogStatus.Active) : null;
+    private List<SubjectDto> ClassSubjects => ClassCourse is { } cc ? _subjects.Where(s => s.CourseId == cc.Id).OrderBy(s => s.Name).ToList() : [];
+    private IEnumerable<SubjectDto> OtherChosen => _subjects.Where(s => !s.IsCentreSubject && _subjectIds.Contains(s.Id) && !ClassSubjects.Any(x => x.Id == s.Id));
 
     protected override async Task LoadAsync()
     {
@@ -161,8 +186,9 @@
             var grades = Api.GetAsync<List<GradeLevelDto>>("academics/grades");
             var curricula = Api.GetAsync<List<CurriculumDto>>("academics/curricula");
             var years = Api.GetAsync<List<AcademicYearDto>>("academics/years");
+            var courses = Api.GetAsync<List<CourseDto>>("academics/courses");
             _subjects = (await subjects).Where(s => s.Status == CatalogStatus.Active).ToList();
-            (_grades, _curricula, _years) = (await grades, await curricula, await years);
+            (_grades, _curricula, _years, _courses) = (await grades, await curricula, await years, await courses);
         }
         catch (ApiException ex) { _error = ex; }
         _tz = Tz;
@@ -229,6 +255,7 @@
         if (string.IsNullOrWhiteSpace(_email)) missing.Add("Enter an email for the student’s sign-in.");
         if (_grade is null) missing.Add("Choose the class.");
         if (_subjectIds.Count == 0) missing.Add("Choose at least one tuition subject.");
+        if (_rate is < 0) missing.Add("The fee per hour cannot be negative.");
         _errors = missing.Count > 0 ? new Dictionary<string, string[]> { ["form"] = missing.ToArray() } : new Dictionary<string, string[]>();
         if (missing.Count > 0) return;
 
@@ -243,7 +270,9 @@
                 _tempPassword = created.TemporaryPassword;
             }
             catch (ApiException ex) when (ex.Errors is not null) { _errors = ex.Errors.ToDictionary(); throw; }
-        }, "Student admitted.")) { }
+        }, "Student admitted.") && _rate is > 0 && _createdId is { } id)
+            // The student exists now; a failed rate shows its own error and can be set on the student's Fees tab.
+            await Run(() => Api.PutAsync($"students/{id}/rate", new SetStudentRateRequest(_rate)));
     }
 
     // After the one-time password is closed, continue on the student's profile (next: add their classes).

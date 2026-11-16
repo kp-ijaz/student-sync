@@ -34,6 +34,31 @@
                 }
             </dl>
         </section>
+        @* Attendance and hours (done / missed), the teacher of each subject, and a month calendar of classes. *@
+        @if (_hours is not null)
+        {
+            <div class="profile-hours">
+                <HoursPanel Periods="_hours.Periods" />
+                <section class="card" aria-labelledby="subj-h">
+                    <div class="card-head"><h2 id="subj-h">Subjects &amp; teachers</h2></div>
+                    @if (_hours.Subjects.Count == 0) { <InlineEmpty Icon="book" Text="No subjects chosen yet. Choose them under Tuition subjects." /> }
+                    else
+                    {
+                        <ul class="list subject-teachers">
+                            @foreach (var sub in _hours.Subjects)
+                            {
+                                <li>
+                                    <div class="grow"><strong>@sub.SubjectName</strong>@if (sub.CourseName is { } c) { <span class="caption"> · @c</span> }
+                                        <div class="caption">@(sub.Teachers.Count == 0 ? "No teacher assigned yet" : string.Join(", ", sub.Teachers.Select(t => t.Name)))</div></div>
+                                    <span class="subject-hours">@sub.ClassesDone @(sub.ClassesDone == 1 ? "class" : "classes")<span class="caption">@Money.Hours(sub.HoursDone)</span></span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </section>
+            </div>
+        }
+        @if (Me is not null) { <div style="margin-bottom:16px"><PersonCalendar Me="Me" Filter="@($"studentId={Id}")" /></div> }
         @if (IsAdmin && Me is not null) { <div style="margin-bottom:16px"><StudentFeesPanel StudentId="Id" Me="Me" /></div> }
         <ProgressPanel Progress="_p.Progress" />
         @* Older enrolment types are shown only when the student has them (tuition-centre students usually do not). *@
@@ -84,6 +109,7 @@
     private List<SessionListItemDto> _sessions = [];
     private List<ExamListItemDto> _diagnostics = [];
     private List<string> _subjectNames = [];
+    private StudentHoursDto? _hours;
 
     private static string FirstName(string name) => name.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? name;
 
@@ -107,6 +133,7 @@
             _subjectNames = subjects.Core.Concat(subjects.ChoiceGroups.SelectMany(g => g.Options.Where(o => g.ChosenSubjectIds.Contains(o.Id)))).Concat(subjects.Additional)
                 .Select(s => s.Name).Distinct().ToList();
         if (_p is not null && IsStaff) _diagnostics = (await Fetch(() => Api.GetAsync<List<ExamListItemDto>>($"exams?studentId={Id}&purpose=Diagnostic"))).Value ?? [];
+        if (_p is not null) _hours = (await Fetch(() => Api.GetAsync<StudentHoursDto>($"students/{Id}/hours"))).Value;
         if (_p is not null) _sessions = (await Fetch(() => Api.GetAsync<List<SessionListItemDto>>($"sessions?studentId={Id}&fromUtc={DateTime.UtcNow:O}&toUtc={DateTime.UtcNow.AddDays(30):O}"))).Value ?? [];
     }
 }

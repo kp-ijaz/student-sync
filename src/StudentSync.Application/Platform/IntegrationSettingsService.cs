@@ -175,6 +175,34 @@ public sealed partial class IntegrationSettingsService(IAppDbContext db, ICurren
         return await RecordCheckAsync(row, result, $"{provider} accepted these keys ({ModeOf(keyId)} mode).", $"{provider} did not accept these keys", ct);
     }
 
+    // ---------------- For automations (no permission check: called by background jobs inside a tenant scope) ----------------
+
+    /// <summary>The institute's SMS connection when it is switched on and has its key, else null (SMS is then skipped).</summary>
+    public async Task<SmsSettings?> ActiveSmsAsync(CancellationToken ct)
+    {
+        var row = await db.InstitutionIntegrations.FirstOrDefaultAsync(x => x.Kind == IntegrationKind.Sms && x.IsEnabled, ct);
+        if (row is null || secrets.Unprotect(row.EncryptedSecrets).GetValueOrDefault("secret") is not { } secret) return null;
+        var cfg = Read<SmsConfig>(row);
+        return new SmsSettings(Enum.Parse<SmsProvider>(row.Provider), cfg.AccountId, cfg.Sender, cfg.TemplateId, secret);
+    }
+
+    /// <summary>The institute's payment gateway when switched on with its secret (and webhook secret, if stored), else null.</summary>
+    public async Task<(PaymentSettings Settings, string? WebhookSecret)?> ActivePaymentsAsync(CancellationToken ct)
+    {
+        var row = await db.InstitutionIntegrations.FirstOrDefaultAsync(x => x.Kind == IntegrationKind.Payments && x.IsEnabled, ct);
+        if (row is null) return null;
+        var stored = secrets.Unprotect(row.EncryptedSecrets);
+        if (Read<PaymentConfig>(row).KeyId is not { } keyId || stored.GetValueOrDefault("secret") is not { } secret) return null;
+        return (new PaymentSettings(Enum.Parse<PaymentProvider>(row.Provider), keyId, secret), stored.GetValueOrDefault("webhook"));
+    }
+
+    /// <summary>Which connections are ready, for the Automations page.</summary>
+    public async Task<(bool Email, bool Sms, bool Payments)> ReadinessAsync(CancellationToken ct)
+    {
+        var rows = await db.InstitutionIntegrations.Where(x => x.IsEnabled).Select(x => x.Kind).ToListAsync(ct);
+        return (rows.Contains(IntegrationKind.Email) || flags.Email, rows.Contains(IntegrationKind.Sms), rows.Contains(IntegrationKind.Payments));
+    }
+
     // ---------------- helpers ----------------
 
     private async Task<InstitutionIntegration> RowAsync(IntegrationKind kind, string provider, CancellationToken ct)

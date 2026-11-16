@@ -10,10 +10,18 @@
 <DataView Loading="_courses is null && _error is null" Error="_error" OnRetry="LoadAsync">
     @if (_tab == "courses")
     {
-        <div class="row-between" style="margin-bottom:16px"><p class="muted" style="margin:0">Courses contain subjects; subjects contain chapters and topics.</p>
-            <div class="btn-group"><button class="btn btn-secondary" @onclick="NewSubject">Add subject</button><button class="btn btn-primary" @onclick="NewCourse"><Icon Name="plus" /> Add course</button></div></div>
+        <div class="row-between" style="margin-bottom:16px"><p class="muted" style="margin:0">Each class follows a syllabus (Class 10 · NCERT); its subjects contain chapters and topics.</p>
+            <div class="btn-group"><button class="btn btn-secondary" @onclick="NewSubject">Add subject</button><button class="btn btn-primary" @onclick="OpenQuickClass"><Icon Name="plus" /> Add a class</button></div></div>
+        <div class="card catalogue-defaults">
+            <div class="grow"><strong>Default catalogue</strong><div class="caption">NCERT (CBSE), Kerala State (SCERT) and ICSE syllabi, Classes 1–12, each class's usual subjects and the current academic year. Adds only what is missing; nothing is renamed or removed.</div></div>
+            <button class="btn btn-secondary" @onclick="LoadDefaults" disabled="@Busy"><Icon Name="download" /> Load default catalogue</button>
+        </div>
+        <div class="list-tools">
+            <select class="select" aria-label="Syllabus" @bind="_fCur"><option value="">All syllabi</option>@foreach (var cu in _curricula) { <option value="@cu.Id">@cu.Name</option> }<option value="none">No syllabus</option></select>
+            <select class="select" aria-label="Class" @bind="_fGrade"><option value="">All classes</option>@foreach (var g in _grades) { <option value="@g.Id">@g.Name</option> }</select>
+        </div>
         <div class="stack">
-            @foreach (var c in _courses ?? [])
+            @foreach (var c in (_courses ?? []).Where(c => _fCur == "" || (_fCur == "none" ? c.CurriculumId == null : c.CurriculumId?.ToString() == _fCur)).Where(c => _fGrade == "" || c.GradeLevelId?.ToString() == _fGrade))
             {
                 <div class="card">
                     <div class="card-head"><div><h2>@c.Name <span class="caption">@c.Code</span></h2><div class="caption">@(c.GradeLevelName ?? "No grade") · @c.StudentCount enrolled · @c.Status</div></div>
@@ -74,6 +82,7 @@
         <div class="field"><label for="cc">Code *</label><input id="cc" class="input" @bind="_cCode" /></div>
         <div class="field"><label for="cn">Name *</label><input id="cn" class="input" @bind="_cName" /></div>
         <div class="field"><label for="cg">Grade</label><select id="cg" class="select" @bind="_cGrade"><option value="">—</option>@foreach (var g in _grades) { <option value="@g.Id">@g.Name</option> }</select></div>
+        <div class="field"><label for="ccu">Syllabus</label><select id="ccu" class="select" @bind="_cCur"><option value="">—</option>@foreach (var cu in _curricula) { <option value="@cu.Id">@cu.Name</option> }</select></div>
         <div class="field"><label for="cy">Academic year</label><select id="cy" class="select" @bind="_cYear"><option value="">—</option>@foreach (var y in _years) { <option value="@y.Id">@y.Name</option> }</select></div>
         <div class="field"><label for="cs">Status</label><select id="cs" class="select" @bind="_cStatus">@foreach (var s in Enum.GetValues<CatalogStatus>()) { <option value="@s">@s</option> }</select></div>
         <div class="field full"><label for="cd">Description</label><textarea id="cd" class="textarea" @bind="_cDesc"></textarea></div>
@@ -138,6 +147,38 @@
     <div class="form-actions"><button class="btn btn-primary" @onclick="SaveTerm" disabled="@Busy">Add term</button></div>
 </Modal>
 
+@* "Add a class": class + syllabus → the usual subjects ticked → one save (POST /academics/catalogue/classes). *@
+<Modal @bind-Open="_qcOpen" Title="Add a class">
+    <div class="form-grid">
+        <div class="field"><label for="qcg">Class *</label><select id="qcg" class="select" @bind="_qcGrade" @bind:after="Suggest"><option value="">Choose the class</option>@foreach (var g in _grades) { <option value="@g.Id">@g.Name</option> }</select></div>
+        <div class="field"><label for="qcc">Syllabus *</label><select id="qcc" class="select" @bind="_qcCur" @bind:after="Suggest"><option value="">Choose the syllabus</option>@foreach (var cu in _curricula.Where(c => c.Status == CatalogStatus.Active)) { <option value="@cu.Id">@cu.Name</option> }</select></div>
+    </div>
+    @if (_qc is { } q)
+    {
+        <fieldset class="field">
+            <legend>Subjects in @q.CourseName</legend>
+            @if (q.CourseId is not null) { <span class="help">This class already exists. Ticked subjects it does not have yet are added.</span> }
+            <div class="pick-group multi" role="group" aria-label="Subjects">
+                @foreach (var name in q.Existing) { <button type="button" class="pick" aria-pressed="true" disabled title="Already in this class">@name</button> }
+                @foreach (var name in _qcNames.Where(n => !q.Existing.Contains(n, StringComparer.OrdinalIgnoreCase)))
+                { <button type="button" class="pick" aria-pressed="@Aria.Bool(_qcChosen.Contains(name))" @onclick="() => ToggleQc(name)">@name</button> }
+            </div>
+            <div class="row" style="flex-wrap:nowrap;margin-top:8px">
+                <label for="qcn" class="sr-only">Another subject</label>
+                <input id="qcn" class="input grow" placeholder="Another subject, e.g. Accountancy" @bind="_qcNew" @bind:event="oninput" @onkeydown="QcKey" />
+                <button type="button" class="btn btn-secondary" @onclick="AddQcName" disabled="@string.IsNullOrWhiteSpace(_qcNew)">Add</button>
+            </div>
+        </fieldset>
+    }
+    else if (_qcGrade is not null && _qcCur is not null) { <div class="sk sk-line w60" aria-hidden="true"></div> }
+    else { <p class="help">Choose the class and the syllabus; their usual subjects appear ticked.</p> }
+    <div class="form-actions">
+        <button class="btn btn-ghost" style="margin-right:auto" @onclick="() => { _qcOpen = false; NewCourse(); }">Other kind of course…</button>
+        <button class="btn btn-secondary" @onclick="() => _qcOpen = false">Cancel</button>
+        <button class="btn btn-primary" @onclick="SaveQuickClass" disabled="@(Busy || _qc is null || _qcChosen.Count == 0)">@(_qc is null ? "Save" : _qcChosen.Count == 0 ? "Nothing new to add" : _qc.CourseId is null ? $"Create with {Subjects(_qcChosen.Count)}" : $"Add {Subjects(_qcChosen.Count)}")</button>
+    </div>
+</Modal>
+
 @code {
     private string _tab = "courses";
     private List<CourseDto>? _courses;
@@ -153,7 +194,53 @@
     private Guid? _curriculumId;
     private string _cuCode = "", _cuName = "";
     private CatalogStatus _cuStatus = CatalogStatus.Active;
-    private Guid? _courseId, _cGrade, _cYear, _sCourse, _teacherId, _enrolStudent, _subjectId;
+    private Guid? _courseId, _cGrade, _cYear, _cCur, _sCourse, _teacherId, _enrolStudent, _subjectId;
+    private string _fCur = "", _fGrade = "";
+    private bool _qcOpen;
+    private Guid? _qcGrade, _qcCur;
+    private QuickClassSuggestionDto? _qc;
+    private List<string> _qcNames = [];
+    private readonly HashSet<string> _qcChosen = new(StringComparer.OrdinalIgnoreCase);
+    private string? _qcNew;
+
+    private void OpenQuickClass() { (_qcGrade, _qcCur, _qc, _qcNew) = (null, null, null, null); _qcNames = []; _qcChosen.Clear(); _qcOpen = true; }
+
+    private async Task Suggest()
+    {
+        _qc = null;
+        if (_qcGrade is not { } g || _qcCur is not { } c) return;
+        _qc = (await Fetch(() => Api.GetAsync<QuickClassSuggestionDto>($"academics/catalogue/suggest?gradeLevelId={g}&curriculumId={c}"))).Value;
+        _qcNames = _qc?.Suggested.ToList() ?? [];
+        _qcChosen.Clear();
+        foreach (var n in _qcNames.Where(n => !(_qc?.Existing.Contains(n, StringComparer.OrdinalIgnoreCase) ?? false))) _qcChosen.Add(n);
+    }
+
+    private static string Subjects(int n) => n == 1 ? "1 subject" : $"{n} subjects";
+
+    private void ToggleQc(string name) { if (!_qcChosen.Remove(name)) _qcChosen.Add(name); }
+
+    private void AddQcName()
+    {
+        var name = _qcNew?.Trim();
+        if (string.IsNullOrEmpty(name)) return;
+        // Already in this class: it shows as a fixed chip, nothing to add.
+        if (_qc?.Existing.Contains(name, StringComparer.OrdinalIgnoreCase) != true)
+        {
+            if (!_qcNames.Contains(name, StringComparer.OrdinalIgnoreCase)) _qcNames.Add(name);
+            _qcChosen.Add(name);
+        }
+        _qcNew = null;
+    }
+
+    private void QcKey(KeyboardEventArgs e) { if (e.Key == "Enter") AddQcName(); }
+
+    private async Task SaveQuickClass()
+    {
+        if (_qcGrade is not { } g || _qcCur is not { } c) return;
+        var name = _qc?.CourseName;
+        if (await Run(() => Api.PostAsync<IdResponse>("academics/catalogue/classes", new QuickClassRequest(g, c, _qcChosen.ToList())), $"{name} saved with its subjects."))
+        { _qcOpen = false; await LoadAsync(); }
+    }
     private SubjectKind _sKind = SubjectKind.Core;
     private CatalogStatus _sStatus = CatalogStatus.Active;
     private string? _sGroup, _sDesc;
@@ -187,11 +274,23 @@
         var req = new SaveCurriculumRequest(_cuCode, _cuName, _cuStatus);
         if (await Run(() => _curriculumId is null ? Api.PostAsync("academics/curricula", req) : Api.PutAsync($"academics/curricula/{_curriculumId}", req), "Syllabus saved.")) { _curriculumOpen = false; await LoadAsync(); }
     }
-    private void NewCourse() { (_courseId, _cCode, _cName, _cGrade, _cYear, _cDesc, _cStatus) = (null, "", "", null, null, null, CatalogStatus.Active); _courseOpen = true; }
-    private void EditCourse(CourseDto c) { (_courseId, _cCode, _cName, _cGrade, _cDesc, _cStatus) = (c.Id, c.Code, c.Name, c.GradeLevelId, c.Description, c.Status); _courseOpen = true; }
+    private void NewCourse() { (_courseId, _cCode, _cName, _cGrade, _cYear, _cDesc, _cStatus, _cCur) = (null, "", "", null, null, null, CatalogStatus.Active, null); _courseOpen = true; }
+    private void EditCourse(CourseDto c) { (_courseId, _cCode, _cName, _cGrade, _cDesc, _cStatus, _cCur) = (c.Id, c.Code, c.Name, c.GradeLevelId, c.Description, c.Status, c.CurriculumId); _courseOpen = true; }
+
+    private async Task LoadDefaults()
+    {
+        DefaultCatalogueResult? r = null;
+        if (await Run(async () => r = await Api.PostAsync<DefaultCatalogueResult>("academics/catalogue/defaults", null)) && r is not null)
+        {
+            Toasts.Show(r.Courses + r.Subjects + r.Syllabi + r.Classes + r.AcademicYears == 0
+                ? "The default catalogue is already loaded; nothing was missing."
+                : $"Added {r.Syllabi} syllabi, {r.Classes} classes, {r.Courses} class courses, {r.Subjects} subjects and {r.AcademicYears} academic year.");
+            await LoadAsync();
+        }
+    }
     private async Task SaveCourse()
     {
-        var req = new SaveCourseRequest(_cCode, _cName, _cDesc, _cGrade, _cYear, _cStatus);
+        var req = new SaveCourseRequest(_cCode, _cName, _cDesc, _cGrade, _cYear, _cStatus, _cCur);
         if (await Run(() => _courseId is null ? Api.PostAsync("academics/courses", req) : Api.PutAsync($"academics/courses/{_courseId}", req), "Course saved.")) { _courseOpen = false; await LoadAsync(); }
     }
     private void NewSubject() { (_subjectId, _sCourse, _sCode, _sName, _sDesc, _sStatus, _sKind, _sGroup) = (null, _courses?.FirstOrDefault()?.Id, "", "", null, CatalogStatus.Active, SubjectKind.Core, null); _subjectOpen = true; }

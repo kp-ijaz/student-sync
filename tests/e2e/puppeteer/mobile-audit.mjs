@@ -19,8 +19,8 @@ fs.mkdirSync(outDir, { recursive: true });
 const pages = {
   admin: ["/admin", "/admin/students", "/admin/teachers", "/sessions", "/sessions/new", "/admin/fees", "/admin/reports",
     "/admin/academics", "/admin/settings", "/videos", "/assignments", "/exams", "/doubts", "/messages", "/announcements",
-    "/profile", "/admin/students/new", "#student", "#session"],
-  teacher: ["/teacher", "/sessions", "/teacher/students", "/teacher/tasks", "/teacher/availability", "/videos", "/assignments",
+    "/profile", "/admin/students/new", "/admin/subjects", "/admin/salaries", "/progress-reports", "/admin/settings?tab=automations", "#student", "#session", "#teacher"],
+  teacher: ["/teacher", "/sessions", "/teacher/students", "/teacher/tasks", "/teacher/availability", "/teacher/profile", "/progress-reports", "/videos", "/assignments",
     "/exams", "/questions", "/doubts", "/messages", "/profile", "#student", "#session"],
   student: ["/student", "/subjects", "/timetable", "/learning", "/learning-plan", "/doubts", "/assistant", "/messages",
     "/announcements", "/profile", "#subject", "#session"],
@@ -32,6 +32,7 @@ const detailFrom = {
   "#student": { from: { admin: "/admin/students", teacher: "/teacher/students" }, match: /^\/students\/[0-9a-f-]{36}$/ },
   "#session": { from: { admin: "/sessions", teacher: "/sessions", student: "/timetable" }, match: /^\/sessions\/[0-9a-f-]{36}$/ },
   "#subject": { from: { student: "/subjects" }, match: /^\/subjects\/[0-9a-f-]{36}/ },
+  "#teacher": { from: { admin: "/admin/teachers" }, match: /^\/teachers\/[0-9a-f-]{36}$/ },
 };
 
 const measure = () => {

@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using StudentSync.Application.Common;
 using StudentSync.Contracts;
 using StudentSync.Domain.Common;
@@ -14,7 +16,8 @@ namespace StudentSync.Application.Fees;
 /// stored records, hours used are counted from attendance (present or late, class not cancelled), so a class can never
 /// be charged twice. Admin only; nothing here blocks a student — the centre is warned and decides (owner decision).
 /// </summary>
-public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, AuditService audit, PhotoUrls photos)
+public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, AuditService audit, PhotoUrls photos, NotificationService notify,
+    IServiceScopeFactory scopes, ILogger<FeeService> logger)
 {
     /// <summary>"Running out of hours" at or below this many hours left.</summary>
     public const decimal LowHoursAt = 2m;
@@ -30,7 +33,16 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
             .OrderByDescending(p => p.StartsOn).ThenByDescending(p => p.CreatedAtUtc)
             .Select(p => new
             {
-                p.Id, p.Name, p.Hours, p.Price, p.CurrencyCode, p.StartsOn, p.PaymentDueOn, p.Status, p.Notes, p.CountsFromUtc,
+                p.Id,
+                p.Name,
+                p.Hours,
+                p.Price,
+                p.CurrencyCode,
+                p.StartsOn,
+                p.PaymentDueOn,
+                p.Status,
+                p.Notes,
+                p.CountsFromUtc,
                 Payments = p.Payments.OrderByDescending(x => x.PaidOn).ThenByDescending(x => x.CreatedAtUtc)
                     .Select(x => new FeePaymentDto(x.Id, x.Amount, x.PaidOn, x.Method, x.Reference,
                         db.Users.Where(u => u.Id == x.RecordedByUserId).Select(u => u.FullName).FirstOrDefault(), x.VoidedAtUtc != null, x.VoidReason))
@@ -62,7 +74,21 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
         var billed = activeDtos.Sum(p => p.Price);
         var paidTotal = activeDtos.Sum(p => p.Paid);
         var oldestDue = activeDtos.Where(p => p.Balance > 0).Select(p => (DateOnly?)p.DueOn).Min();
-        return new StudentFeesDto(studentId, currency, bought, used, bought - used, billed, paidTotal, activeDtos.Sum(p => p.Balance), oldestDue, dtos, usage.Take(20).ToList());
+        var rate = await db.Students.Where(s => s.Id == studentId).Select(s => s.HourlyRate).FirstOrDefaultAsync(ct);
+        return new StudentFeesDto(studentId, currency, bought, used, bought - used, billed, paidTotal, activeDtos.Sum(p => p.Balance), oldestDue, dtos, usage.Take(20).ToList(), rate);
+    }
+
+    /// <summary>The student's fee per hour (empty clears it). New packages are priced hours × rate; existing sales keep their price.</summary>
+    public async Task SetRateAsync(Guid studentId, SetStudentRateRequest r, CancellationToken ct)
+    {
+        access.Require(Permissions.UsersManage);
+        var s = await db.Students.FirstOrDefaultAsync(x => x.Id == studentId, ct) ?? throw new NotFoundException("Student");
+        if (r.HourlyRate is < 0 or > 1_000_000) throw RequestValidationException.For("hourlyRate", "Enter a valid rate per hour.");
+        var before = s.HourlyRate;
+        s.HourlyRate = r.HourlyRate is { } v ? decimal.Round(v, 2) : null;
+        var (currency, _) = await CentreAsync(ct);
+        audit.Record("student.fee_rate_set", "Student", studentId, $"{currency} {before?.ToString() ?? "—"} -> {s.HourlyRate?.ToString() ?? "—"} per hour");
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>Students who owe money or are running out of hours, most urgent first. <paramref name="take"/> bounds the list (max 200).</summary>
@@ -71,43 +97,12 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
         access.Require(Permissions.UsersManage);
         var (currency, tz) = await CentreAsync(ct);
         var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
+        var (balances, _) = await BalancesAsync(today, ct);
+        if (balances.Count == 0) return new FeesDueDto(currency, 0, 0, 0, 0, LowHoursAt, await CollectedThisMonthAsync(today, ct), 0, []);
 
-        var active = db.StudentPackages.Where(p => p.Status == PackageStatus.Active && p.Student!.Status == PersonStatus.Active);
-        var perStudent = await active.GroupBy(p => p.StudentId).Select(g => new
-        {
-            StudentId = g.Key,
-            Hours = g.Sum(p => p.Hours),
-            From = g.Min(p => p.CountsFromUtc),
-        }).ToListAsync(ct);
-        if (perStudent.Count == 0) return new FeesDueDto(currency, 0, 0, 0, 0, LowHoursAt, await CollectedThisMonthAsync(today, ct), 0, []);
-
-        // Balance per package (price − valid payments), so "due since" is the oldest unpaid package's due day.
-        var balances = await active.Select(p => new
-        {
-            p.StudentId, p.Price, p.StartsOn, p.PaymentDueOn,
-            Paid = p.Payments.Where(x => x.VoidedAtUtc == null).Sum(x => (decimal?)x.Amount) ?? 0,
-        }).ToListAsync(ct);
-
-        // Hours used: attended classes since each student's first active package. Duration is summed here because the
-        // provider-neutral query cannot subtract dates; rows are bounded by classes taken since those packages began.
-        var starts = active.GroupBy(p => p.StudentId).Select(g => new { StudentId = g.Key, From = g.Min(p => p.CountsFromUtc) });
-        var attended = await (from x in AttendedClasses()
-                              join s in starts on x.StudentId equals s.StudentId
-                              where x.StartUtc >= s.From
-                              select new { x.StudentId, x.StartUtc, x.EndUtc }).ToListAsync(ct);
-        var usedBy = attended.GroupBy(x => x.StudentId).ToDictionary(g => g.Key, g => g.Sum(x => HoursOf(x.StartUtc, x.EndUtc)));
-
-        var rows = perStudent.Select(s =>
-        {
-            var owing = balances.Where(b => b.StudentId == s.StudentId && b.Price > b.Paid).ToList();
-            var due = owing.Sum(b => b.Price - b.Paid);
-            DateOnly? dueOn = owing.Count == 0 ? null : owing.Min(b => b.PaymentDueOn ?? b.StartsOn);
-            var left = s.Hours - usedBy.GetValueOrDefault(s.StudentId);
-            return new { s.StudentId, Due = due, DueOn = dueOn, Overdue = dueOn is { } d && d < today ? today.DayNumber - d.DayNumber : 0, Left = left };
-        }).Where(r => r.Due > 0 || r.Left <= LowHoursAt)
-          .OrderByDescending(r => r.Overdue).ThenByDescending(r => r.Due).ThenBy(r => r.Left)
-          .ToList();
-
+        var rows = balances.Where(r => r.Due > 0 || r.Left <= LowHoursAt)
+            .OrderByDescending(r => r.OverdueDays).ThenByDescending(r => r.Due).ThenBy(r => r.Left)
+            .ToList();
         var limit = Math.Clamp(take ?? 50, 1, MaxDueItems);
         var ids = rows.Take(limit).Select(r => r.StudentId).ToList();
         var people = await db.Students.Where(s => ids.Contains(s.Id))
@@ -115,11 +110,64 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
         var items = rows.Take(limit).Where(r => people.ContainsKey(r.StudentId)).Select(r =>
         {
             var p = people[r.StudentId];
-            return new FeeDueItemDto(r.StudentId, p.FullName, p.StudentCode, photos.For(p.PhotoFileId), r.Due, r.DueOn, r.Overdue, r.Left);
+            return new FeeDueItemDto(r.StudentId, p.FullName, p.StudentCode, photos.For(p.PhotoFileId), r.Due, r.DueOn, r.OverdueDays, r.Left);
         }).ToList();
 
-        return new FeesDueDto(currency, rows.Sum(r => r.Due), rows.Count(r => r.Due > 0), rows.Count(r => r.Overdue > 0), rows.Count(r => r.Left <= LowHoursAt),
+        return new FeesDueDto(currency, rows.Sum(r => r.Due), rows.Count(r => r.Due > 0), rows.Count(r => r.OverdueDays > 0), rows.Count(r => r.Left <= LowHoursAt),
             LowHoursAt, await CollectedThisMonthAsync(today, ct), rows.Count, items);
+    }
+
+    /// <summary>A student with at least one active package: what is owed, since when, and the hours left.</summary>
+    public sealed record StudentBalance(Guid StudentId, decimal Due, DateOnly? DueOn, int OverdueDays, decimal Bought, decimal Left, Guid LatestPackageId);
+    /// <summary>An active package that is not fully paid.</summary>
+    public sealed record OpenPackage(Guid PackageId, Guid StudentId, string Name, decimal Price, decimal Paid, string CurrencyCode, DateOnly DueOn)
+    {
+        public decimal Balance => Price - Paid;
+    }
+
+    /// <summary>
+    /// Balances of every active student with an active package (shared by the Fees page and the automations; the caller
+    /// checks permissions). Hours used = attended classes since each student's first active package.
+    /// </summary>
+    public async Task<(List<StudentBalance> Students, List<OpenPackage> Packages)> BalancesAsync(DateOnly today, CancellationToken ct)
+    {
+        var active = db.StudentPackages.Where(p => p.Status == PackageStatus.Active && p.Student!.Status == PersonStatus.Active);
+        var packages = await active.Select(p => new
+        {
+            p.Id,
+            p.StudentId,
+            p.Name,
+            p.Hours,
+            p.Price,
+            p.CurrencyCode,
+            p.StartsOn,
+            p.PaymentDueOn,
+            p.CountsFromUtc,
+            p.CreatedAtUtc,
+            Paid = p.Payments.Where(x => x.VoidedAtUtc == null).Sum(x => (decimal?)x.Amount) ?? 0,
+        }).ToListAsync(ct);
+        if (packages.Count == 0) return ([], []);
+
+        // Duration is summed here because the provider-neutral query cannot subtract dates; rows are bounded by classes
+        // taken since those packages began.
+        var starts = active.GroupBy(p => p.StudentId).Select(g => new { StudentId = g.Key, From = g.Min(p => p.CountsFromUtc) });
+        var attended = await (from x in AttendedClasses()
+                              join s in starts on x.StudentId equals s.StudentId
+                              where x.StartUtc >= s.From
+                              select new { x.StudentId, x.StartUtc, x.EndUtc }).ToListAsync(ct);
+        var usedBy = attended.GroupBy(x => x.StudentId).ToDictionary(g => g.Key, g => g.Sum(x => HoursOf(x.StartUtc, x.EndUtc)));
+
+        var open = packages.Where(p => p.Price > p.Paid)
+            .Select(p => new OpenPackage(p.Id, p.StudentId, p.Name, p.Price, p.Paid, p.CurrencyCode, p.PaymentDueOn ?? p.StartsOn)).ToList();
+        var students = packages.GroupBy(p => p.StudentId).Select(g =>
+        {
+            var owing = open.Where(o => o.StudentId == g.Key).ToList();
+            DateOnly? dueOn = owing.Count == 0 ? null : owing.Min(o => o.DueOn);
+            var bought = g.Sum(p => p.Hours);
+            return new StudentBalance(g.Key, owing.Sum(o => o.Balance), dueOn, dueOn is { } d && d < today ? today.DayNumber - d.DayNumber : 0,
+                bought, bought - usedBy.GetValueOrDefault(g.Key), g.OrderByDescending(p => p.CreatedAtUtc).First().Id);
+        }).ToList();
+        return (students, open);
     }
 
     public async Task<Guid> AddPackageAsync(Guid studentId, SavePackageRequest r, CancellationToken ct)
@@ -151,6 +199,7 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
         if (r.PaidNow is { } amount)
             package.Payments.Add(NewPayment(studentId, amount, today, r.Method, r.Reference));
         db.StudentPackages.Add(package);
+        foreach (var paid in package.Payments) await ReceiptNoticeAsync(paid, currency, ct);
         audit.Record("fees.package_added", "Student", studentId, $"{package.Name} · {package.Price:0.##} {currency}" + (r.PaidNow is { } p ? $" · paid {p:0.##}" : ""));
         await db.SaveChangesAsync(ct);
         return package.Id;
@@ -173,8 +222,12 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
 
         var payment = NewPayment(studentId, r.Amount, paidOn, r.Method, r.Reference);
         package.Payments.Add(payment);
+        // The id is set up front (receipt link), so EF must be told this is a new row, not an existing one.
+        db.FeePayments.Add(payment);
+        await ReceiptNoticeAsync(payment, package.CurrencyCode, ct);
         audit.Record("fees.payment_recorded", "Student", studentId, $"{payment.Amount:0.##} {package.CurrencyCode} · {r.Method} · {package.Name}");
         await db.SaveChangesAsync(ct);
+        await CloseLinksAsync(packageId, ct);
         return payment.Id;
     }
 
@@ -204,7 +257,34 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
         package.CancelledAtUtc = clock.UtcNow;
         audit.Record("fees.package_cancelled", "Student", studentId, package.Name);
         await db.SaveChangesAsync(ct);
+        await CloseLinksAsync(packageId, ct);
     }
+
+    /// <summary>
+    /// After a payment by hand or a cancellation, older online payment links for the package must not stay payable (the
+    /// amount changed or nothing is owed). Best effort after the change is saved: a gateway problem never undoes it.
+    /// Resolved lazily to avoid a constructor cycle with <see cref="PaymentLinkService"/>.
+    /// </summary>
+    private async Task CloseLinksAsync(Guid packageId, CancellationToken ct)
+    {
+        if (!await db.PaymentLinks.AnyAsync(l => l.PackageId == packageId && l.Status == PaymentLinkStatus.Open, ct)) return;
+        try
+        {
+            using var scope = scopes.CreateScope();
+            using var _ = scope.ServiceProvider.GetRequiredService<ITenantContext>().BeginScope(user.TenantId!.Value);
+            await scope.ServiceProvider.GetRequiredService<PaymentLinkService>().CloseOpenLinksAsync(packageId, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The 15-minute check keeps watching any link still open, and flags a payment that was not owed.
+            logger.LogWarning(ex, "Open payment links for package {Package} could not be closed", packageId);
+        }
+    }
+
+    /// <summary>The student is told and can open the printable receipt.</summary>
+    private Task ReceiptNoticeAsync(FeePayment payment, string currency, CancellationToken ct) =>
+        notify.NotifyAsync([payment.StudentId], Domain.Communication.NotificationType.PaymentReceived, $"Payment received: {Automation.Fmt.Money(payment.Amount, currency)}",
+            "Thank you. Your receipt is ready.", $"/receipts/{payment.Id}", $"paid:{payment.Id}", ct);
 
     /// <summary>Exact minutes, in hours (two decimals). A 45-minute class uses 0.75 h.</summary>
     public static decimal HoursOf(DateTime startUtc, DateTime endUtc) => decimal.Round((decimal)(endUtc - startUtc).TotalMinutes / 60m, 2);
@@ -230,8 +310,11 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
     {
         if (decimal.Round(amount, 2) != amount) throw RequestValidationException.For("amount", "Use at most two decimal places.");
         if (!Enum.IsDefined(method)) throw RequestValidationException.For("method", "Choose how it was paid.");
+        // "Online" means "confirmed by the payment gateway" and is only ever recorded by PaymentLinkService.
+        if (method == PaymentMethod.Online) throw RequestValidationException.For("method", "Online payments are recorded automatically when the gateway confirms them.");
         return new FeePayment
         {
+            Id = Guid.CreateVersion7(), // known before saving: the receipt link uses it
             StudentId = studentId,
             Amount = amount,
             PaidOn = paidOn,

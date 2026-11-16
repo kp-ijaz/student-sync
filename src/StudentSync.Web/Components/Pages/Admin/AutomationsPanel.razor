@@ -1,0 +1,161 @@
+@inherits AppComponent
+
+@* Settings ▸ Automations (institution admins, owner request 2026-11-17). Each automation is one switch with what it does;
+   its timing appears under it while it is on. SMS switches are only offered once SMS is connected (Settings ▸
+   Integrations), because every SMS costs money. Below: the log of automated SMS. *@
+<DataView Loading="_s is null && _error is null" Error="_error" OnRetry="Load">
+    @if (_s is not null)
+    {
+        <div class="stack automations">
+            <div class="card auto-ready">
+                <span class="caption">Connections used by automations:</span>
+                <span class="badge @(_s.EmailReady ? "green" : "amber")">Email @(_s.EmailReady ? "on" : "off")</span>
+                <span class="badge @(_s.SmsReady ? "green" : "amber")">SMS @(_s.SmsReady ? "on" : "off")</span>
+                <span class="badge @(_s.PaymentsReady ? "green" : "amber")">Online payments @(_s.PaymentsReady ? "on" : "off")</span>
+                @if (!_s.SmsReady || !_s.PaymentsReady) { <a class="small" href="/admin/settings?tab=integrations">Connect in Integrations</a> }
+                @if (_s.SmsReady) { <span class="caption grow" style="text-align:end">@_s.SmsSentThisMonth SMS sent this month</span> }
+            </div>
+
+            <section class="card" aria-labelledby="au-classes">
+                <h2 id="au-classes" class="auto-h"><Icon Name="calendar-clock" /> Classes</h2>
+                <AutoToggle Title="Attendance reminder" Description="Reminds the teacher when a finished class has no attendance; the admins see any still missing the next morning. Hours and pay only count marked classes." @bind-Value="_r.AttendanceNudge">
+                    <div class="field auto-num"><label for="au-n">Remind after (minutes)</label><input id="au-n" class="input" type="number" min="0" max="720" @bind="_r.AttendanceNudgeAfterMinutes" /></div>
+                </AutoToggle>
+                <AutoToggle Title="Absence message to the family" Description="An SMS to the guardian (or the student) as soon as a student is marked absent." @bind-Value="_r.AbsenceSms" Disabled="!_s.SmsReady" />
+                @if (!_s.SmsReady) { <p class="auto-hint">Connect SMS in Integrations to switch on text messages.</p> }
+                <AutoToggle Title="Flag frequent absences" Description="Tells the admins when a student reaches this many absences in a month." Value="_r.AbsenceFlagAt > 0" ValueChanged="v => _r.AbsenceFlagAt = v ? Math.Max(3, _r.AbsenceFlagAt) : 0">
+                    <div class="field auto-num"><label for="au-af">Absences in a month</label><input id="au-af" class="input" type="number" min="1" max="31" @bind="_r.AbsenceFlagAt" /></div>
+                </AutoToggle>
+                <AutoToggle Title="Tomorrow's timetable for teachers" Description="Each teacher gets tomorrow's classes in the evening." @bind-Value="_r.EveningTimetable">
+                    <div class="field auto-num"><label for="au-et">Send at</label><input id="au-et" class="input" type="time" @bind="_r.EveningTimetableAt" /></div>
+                </AutoToggle>
+                <AutoToggle Title="Class-day SMS to students" Description="On the morning of a class, students get its time and teacher by SMS (never before 8:00)." @bind-Value="_r.ClassDaySms" Disabled="!_s.SmsReady" />
+                <AutoToggle Title="Timetable running out" Description="Tells the admins when a student has 2 or fewer classes booked, or booked classes need more hours than are left." @bind-Value="_r.ScheduleRunningOut" />
+            </section>
+
+            <section class="card" aria-labelledby="au-money">
+                <h2 id="au-money" class="auto-h"><Icon Name="wallet" /> Fees &amp; salaries</h2>
+                <AutoToggle Title="Running low on hours" Description="When a student's hours fall to this level, the admins are told (with a link to sell more) and so is the student." @bind-Value="_r.LowHoursAlert">
+                    <div class="field auto-num"><label for="au-lh">Hours left</label><input id="au-lh" class="input" type="number" min="0" max="100" step="0.5" @bind="_r.LowHoursAt" /></div>
+                    <label class="check"><input type="checkbox" @bind="_r.LowHoursSms" disabled="@(!_s.SmsReady)" /> Also SMS the family</label>
+                </AutoToggle>
+                <AutoToggle Title="Fee reminders" Description="Reminds the student before the fee is due, on the day, and when it is late (the admins are told about late fees)." @bind-Value="_r.FeeReminders">
+                    <div class="row auto-nums">
+                        <div class="field auto-num"><label for="au-fb">Days before</label><input id="au-fb" class="input" type="number" min="0" max="30" @bind="_r.FeeReminderDaysBefore" /></div>
+                        <div class="field auto-num"><label for="au-fa">Days late</label><input id="au-fa" class="input" type="number" min="0" max="60" @bind="_r.FeeReminderDaysAfter" /></div>
+                    </div>
+                    <label class="check"><input type="checkbox" @bind="_r.FeeReminderSms" disabled="@(!_s.SmsReady)" /> Also SMS the family</label>
+                    <label class="check"><input type="checkbox" @bind="_r.PaymentLinks" disabled="@(!_s.PaymentsReady)" /> Add an online payment link@(_s.PaymentsReady ? "" : " (connect Razorpay or Stripe first)")</label>
+                </AutoToggle>
+                <AutoToggle Title="Month-end salaries" Description="On the 1st, the admins get each teacher's hours, earnings and what to pay, with one-tap “Mark paid” in Fees ▸ Salaries. Teachers get their own hours." @bind-Value="_r.MonthEndSalaries" />
+            </section>
+
+            <section class="card" aria-labelledby="au-reports">
+                <h2 id="au-reports" class="auto-h"><Icon Name="bar-chart" /> Reports</h2>
+                <AutoToggle Title="Morning summary for admins" Description="Today's classes, attendance still missing, fees due, students low on hours and work waiting to be marked." @bind-Value="_r.MorningSummary">
+                    <div class="field auto-num"><label for="au-ms">Send at</label><input id="au-ms" class="input" type="time" @bind="_r.MorningSummaryAt" /></div>
+                </AutoToggle>
+                <AutoToggle Title="Month-end report" Description="On the 1st: fees collected, salaries paid, hours taught, new students and what is still to collect." @bind-Value="_r.MonthEndReport" />
+                <AutoToggle Title="Monthly progress reports" Description="On the 1st, a report per student is prepared from attendance, hours and marks. The teacher adds a remark and sends it." @bind-Value="_r.ProgressReports">
+                    <label class="check"><input type="checkbox" @bind="_r.ProgressReportSms" disabled="@(!_s.SmsReady)" /> Also SMS a short version to the family</label>
+                </AutoToggle>
+            </section>
+
+            <section class="card" aria-labelledby="au-other">
+                <h2 id="au-other" class="auto-h"><Icon Name="sparkle" /> Teaching &amp; alerts</h2>
+                <AutoToggle Title="AI class notes" Description="When a class transcript is added, the AI notes draft starts straight away. It stays a draft until the teacher reviews and publishes it (AI and consent rules still apply)." @bind-Value="_r.AutoAiNotes" />
+                <AutoToggle Title="Tell me if an automation fails" Description="If an automatic task cannot finish, the admins are told once a day." @bind-Value="_r.JobFailureAlerts" />
+            </section>
+
+            <div class="form-actions auto-save"><button class="btn btn-primary" @onclick="Save" disabled="@Busy">Save automations</button></div>
+
+            <section class="card" aria-labelledby="au-log">
+                <div class="card-head"><h2 id="au-log">SMS sent by automations</h2><button class="btn btn-ghost btn-sm" @onclick="LoadMessages" disabled="@Busy"><Icon Name="refresh" /> Refresh</button></div>
+                @if (_messages is null) { <div class="sk sk-line w60" aria-hidden="true"></div> }
+                else if (_messages.Count == 0) { <InlineEmpty Icon="message" Text="No automated SMS yet." /> }
+                else
+                {
+                    <ul class="plist auto-log">
+                        @foreach (var m in _messages)
+                        {
+                            <li class="auto-msg">
+                                <div class="grow">
+                                    <div class="row-between"><strong>@m.StudentName <span class="caption">· @(m.Recipient == "Guardian" ? "guardian" : "student") @m.PhoneMasked</span></strong>
+                                        <span class="badge @StatusTone(m.Status)">@m.Status</span></div>
+                                    <div class="small">@m.Text</div>
+                                    <div class="caption">@Time.Short(m.SentAtUtc ?? m.CreatedAtUtc, Tz)@(m.Error is null ? "" : $" · {m.Error}")</div>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                }
+            </section>
+        </div>
+    }
+</DataView>
+
+@code {
+    private sealed class Form
+    {
+        public bool AttendanceNudge { get; set; }
+        public int AttendanceNudgeAfterMinutes { get; set; }
+        public bool AbsenceSms { get; set; }
+        public int AbsenceFlagAt { get; set; }
+        public bool EveningTimetable { get; set; }
+        public TimeOnly EveningTimetableAt { get; set; }
+        public bool ClassDaySms { get; set; }
+        public bool ScheduleRunningOut { get; set; }
+        public bool LowHoursAlert { get; set; }
+        public decimal LowHoursAt { get; set; }
+        public bool LowHoursSms { get; set; }
+        public bool FeeReminders { get; set; }
+        public int FeeReminderDaysBefore { get; set; }
+        public int FeeReminderDaysAfter { get; set; }
+        public bool FeeReminderSms { get; set; }
+        public bool PaymentLinks { get; set; }
+        public bool MonthEndSalaries { get; set; }
+        public bool MorningSummary { get; set; }
+        public TimeOnly MorningSummaryAt { get; set; }
+        public bool MonthEndReport { get; set; }
+        public bool ProgressReports { get; set; }
+        public bool ProgressReportSms { get; set; }
+        public bool AutoAiNotes { get; set; }
+        public bool JobFailureAlerts { get; set; }
+    }
+
+    private AutomationSettingsDto? _s;
+    private ApiException? _error;
+    private Form _r = new();
+    private List<OutboundMessageDto>? _messages;
+
+    protected override async Task OnInitializedAsync() { await Load(); await LoadMessages(); }
+
+    private async Task Load()
+    {
+        (_s, _error) = await Fetch(() => Api.GetAsync<AutomationSettingsDto>("automations"));
+        if (_s is { } s)
+            _r = new Form
+            {
+                AttendanceNudge = s.AttendanceNudge, AttendanceNudgeAfterMinutes = s.AttendanceNudgeAfterMinutes, AbsenceSms = s.AbsenceSms, AbsenceFlagAt = s.AbsenceFlagAt,
+                EveningTimetable = s.EveningTimetable, EveningTimetableAt = s.EveningTimetableAt, ClassDaySms = s.ClassDaySms, ScheduleRunningOut = s.ScheduleRunningOut,
+                LowHoursAlert = s.LowHoursAlert, LowHoursAt = s.LowHoursAt, LowHoursSms = s.LowHoursSms,
+                FeeReminders = s.FeeReminders, FeeReminderDaysBefore = s.FeeReminderDaysBefore, FeeReminderDaysAfter = s.FeeReminderDaysAfter, FeeReminderSms = s.FeeReminderSms,
+                PaymentLinks = s.PaymentLinks, MonthEndSalaries = s.MonthEndSalaries, MorningSummary = s.MorningSummary, MorningSummaryAt = s.MorningSummaryAt,
+                MonthEndReport = s.MonthEndReport, ProgressReports = s.ProgressReports, ProgressReportSms = s.ProgressReportSms, AutoAiNotes = s.AutoAiNotes, JobFailureAlerts = s.JobFailureAlerts,
+            };
+    }
+
+    private async Task LoadMessages() => _messages = (await Fetch(() => Api.GetAsync<List<OutboundMessageDto>>("automations/messages?take=50"))).Value ?? [];
+
+    private async Task Save()
+    {
+        var r = _r;
+        if (await Run(() => Api.PutAsync("automations", new SaveAutomationSettingsRequest(r.AttendanceNudge, r.AttendanceNudgeAfterMinutes, r.AbsenceSms, r.AbsenceFlagAt,
+                r.EveningTimetable, r.EveningTimetableAt, r.ClassDaySms, r.ScheduleRunningOut, r.LowHoursAlert, r.LowHoursAt, r.LowHoursSms,
+                r.FeeReminders, r.FeeReminderDaysBefore, r.FeeReminderDaysAfter, r.FeeReminderSms, r.PaymentLinks, r.MonthEndSalaries,
+                r.MorningSummary, r.MorningSummaryAt, r.MonthEndReport, r.ProgressReports, r.ProgressReportSms, r.AutoAiNotes, r.JobFailureAlerts)), "Automations saved."))
+            await Load();
+    }
+
+    private static string StatusTone(string status) => status switch { "Sent" => "green", "Failed" => "red", "Skipped" => "amber", _ => "blue" };
+}

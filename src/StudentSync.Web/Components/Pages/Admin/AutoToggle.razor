@@ -1,0 +1,20 @@
+@* One automation: a title, what it does, and an on/off switch (a real checkbox with role="switch"). Extra settings
+   (time, days, SMS) show under it only while it is on. *@
+<div class="auto-row @(Value ? "on" : "")">
+    <label class="auto-main" for="@_id">
+        <span class="auto-text"><span class="auto-title">@Title</span><span class="caption">@Description</span></span>
+        <input id="@_id" type="checkbox" role="switch" class="switch" checked="@Value" disabled="@Disabled"
+               @onchange="e => ValueChanged.InvokeAsync(e.Value is true)" />
+    </label>
+    @if (Value && ChildContent is not null) { <div class="auto-extra">@ChildContent</div> }
+</div>
+
+@code {
+    private readonly string _id = "at-" + Guid.NewGuid().ToString("N")[..8];
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string Description { get; set; } = "";
+    [Parameter] public bool Value { get; set; }
+    [Parameter] public EventCallback<bool> ValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

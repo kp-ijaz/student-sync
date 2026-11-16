@@ -50,7 +50,10 @@ public enum NotificationType
     ExamPublished, ExamResultsReleased,
     DoubtAssigned, DoubtReplied, DoubtFollowUp, DoubtConfirmationRequested,
     NotesPublished, RecordingAvailable, AiDraftReady,
-    MessageReceived, Announcement, WeeklyDigest, AttendanceMarked
+    MessageReceived, Announcement, WeeklyDigest, AttendanceMarked,
+    // Automations (2026-11-17)
+    AttendanceMissing, AbsenceFlag, Timetable, ScheduleEnding, LowHours, FeeReminder, PaymentReceived,
+    SalariesDue, DailySummary, MonthReport, ProgressReportReady, ProgressReport, AutomationFailed
 }
 
 /// <summary>An in-app notification. (UserId, DedupeKey) is unique, so retried events never notify twice.</summary>

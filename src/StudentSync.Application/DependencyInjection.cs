@@ -7,6 +7,7 @@ using StudentSync.Application.Common;
 using StudentSync.Application.Communication;
 using StudentSync.Application.Content;
 using StudentSync.Application.Doubts;
+using StudentSync.Application.Fees;
 using StudentSync.Application.Jobs;
 using StudentSync.Application.People;
 using StudentSync.Application.Platform;
@@ -49,8 +50,21 @@ public static class DependencyInjection
         services.AddScoped<PlatformService>();
         services.AddScoped<InstitutionService>();
         services.AddScoped<IntegrationSettingsService>();
+        services.AddScoped<Automation.AutomationSettingsService>();
+        services.AddScoped<Automation.SmsOutbox>();
+        services.AddScoped<DefaultCatalogue>();
+        services.AddScoped<TeacherPayService>();
+        services.AddScoped<HoursService>();
         services.AddScoped<NotificationDeliveryJob>();
         services.AddScoped<MaintenanceJobs>();
+        services.AddScoped<TenantJobRunner>();
+        services.AddScoped<AutomationJobs>();
+        services.AddScoped<Automation.DailyAutomations>();
+        services.AddScoped<Fees.SalaryService>();
+        services.AddScoped<Fees.PaymentLinkService>();
+        services.AddScoped<Fees.ReceiptService>();
+        services.AddScoped<People.ProgressReportService>();
+        services.AddScoped<Scheduling.HolidayClassesService>();
         return services;
     }
 }

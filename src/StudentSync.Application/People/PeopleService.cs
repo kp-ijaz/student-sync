@@ -43,7 +43,20 @@ public sealed class PeopleService(
         if (q.Status is { } st) items = items.Where(t => t.Status == st);
         if (!string.IsNullOrWhiteSpace(q.Search)) items = items.Where(t => t.User!.FullName.ToLower().Contains(q.Search.ToLowerInvariant()) || t.User.Email!.ToLower().Contains(q.Search.ToLowerInvariant()));
         var total = await items.CountAsync(ct);
-        var rows = await items.OrderBy(t => t.User!.FullName).Skip((q.SafePage - 1) * q.SafePageSize).Take(q.SafePageSize)
+        var page = await ProjectTeachersAsync(items.OrderBy(t => t.User!.FullName).Skip((q.SafePage - 1) * q.SafePageSize).Take(q.SafePageSize), ct);
+        return new PagedResult<TeacherDto>(page, q.SafePage, q.SafePageSize, total);
+    }
+
+    /// <summary>One teacher: admins (and staff with users.view) see any teacher; a teacher sees only themselves.</summary>
+    public async Task<TeacherDto> TeacherAsync(Guid id, CancellationToken ct)
+    {
+        if (!(access.IsTeacher && id == user.UserId)) access.Require(Permissions.UsersView);
+        return (await ProjectTeachersAsync(db.Teachers.Where(t => t.Id == id), ct)).FirstOrDefault() ?? throw new NotFoundException("Teacher");
+    }
+
+    private async Task<List<TeacherDto>> ProjectTeachersAsync(IQueryable<Domain.People.Teacher> teachers, CancellationToken ct)
+    {
+        var rows = await teachers
             .Select(t => new
             {
                 Dto = new TeacherDto(t.Id, t.User!.FullName, t.User.Email!, t.EmployeeCode, t.Specialisations, t.Bio, t.Status, t.User.TimeZoneId,
@@ -55,8 +68,7 @@ public sealed class PeopleService(
             .ToListAsync(ct);
         // Staff photos may be shown to anyone signed in at the institution; the phone number only to admins.
         var admin = user.Has(Permissions.UsersManage);
-        var page = rows.Select(r => r.Dto with { PhotoUrl = photos.For(r.PhotoFileId), Phone = admin ? r.Dto.Phone : null }).ToList();
-        return new PagedResult<TeacherDto>(page, q.SafePage, q.SafePageSize, total);
+        return rows.Select(r => r.Dto with { PhotoUrl = photos.For(r.PhotoFileId), Phone = admin ? r.Dto.Phone : null }).ToList();
     }
 
     public async Task<CreatedPersonResponse> CreateTeacherAsync(CreateTeacherRequest r, CancellationToken ct)
@@ -101,7 +113,9 @@ public sealed class PeopleService(
         await db.SaveChangesAsync(ct);
     }
 
-    public const int MaxTeacherSubjects = 50, MaxQualifications = 20;
+    // A "whole subject" covers every class of every syllabus (default catalogue: 3 syllabi × 12 classes, ~36–50 class
+    // subjects per name), so a teacher of three subjects can easily need 150 links. The cap only stops runaway requests.
+    public const int MaxTeacherSubjects = 400, MaxQualifications = 20;
 
     private static string? Phone(string? value, string field)
     {

@@ -1,0 +1,35 @@
+@* HoursPanel: attendance and hours for one person (student or teacher profile), "This month" / "All time".
+   Definitions are those of HoursStatsDto; each number says what it counts. *@
+<section class="card hours-panel" aria-labelledby="@_id">
+    <div class="card-head">
+        <h2 id="@_id">Attendance &amp; hours</h2>
+        @if (Periods.Count > 1)
+        {
+            <Segmented TValue="string" Label="Period" Options="@Periods.Select(p => new Segmented<string>.Option(p.Label, p.Label)).ToList()" Value="@Current.Label" ValueChanged="v => _period = v" Class="hours-period" />
+        }
+    </div>
+    @{ var s = Current.Stats; }
+    <MetricStrip AriaLabel="@($"Attendance and hours, {Current.Label.ToLowerInvariant()}")" Items="@([
+        new(Teacher ? "Classes taught" : "Classes attended", $"{s.ClassesDone}", $"{Money.Hours(s.HoursDone)} · {(Teacher ? "completed classes" : "present or late")}", "check-circle"),
+        new("Missed", $"{s.ClassesMissed}", $"{Money.Hours(s.HoursMissed)} · {(Teacher ? "cancelled, teacher absent" : "absent or cancelled, student away")}", "alert"),
+        new(Teacher ? "To mark" : "Not marked yet", $"{s.AwaitingMark}", "ended classes without attendance", "clipboard-check"),
+        new("Coming up", Current.Label == "All time" ? $"{s.Upcoming}" : "—", Current.Label == "All time" ? "scheduled classes" : "see All time", "calendar"),
+    ])" Class="hours-strip" />
+    <div class="hours-marks" aria-label="Attendance marks">
+        <span class="badge green dot">Present @s.Present</span>
+        <span class="badge amber dot">Late @s.Late</span>
+        <span class="badge red dot">Absent @s.Absent</span>
+        <span class="badge slate dot">Excused @s.Excused</span>
+        @if (Teacher) { <span class="caption">Marks given to this teacher's students.</span> }
+    </div>
+</section>
+
+@code {
+    private readonly string _id = "hours-" + Guid.NewGuid().ToString("N")[..6];
+    private string? _period;
+    [Parameter, EditorRequired] public IReadOnlyList<PeriodHoursDto> Periods { get; set; } = [];
+    /// <summary>True on a teacher profile (classes taught; missed = teacher absent).</summary>
+    [Parameter] public bool Teacher { get; set; }
+
+    private PeriodHoursDto Current => Periods.FirstOrDefault(p => p.Label == _period) ?? Periods.FirstOrDefault(p => p.Label == "All time") ?? Periods[0];
+}

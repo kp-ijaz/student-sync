@@ -52,6 +52,8 @@ public class Student : TenantEntity
     public string? GuardianPhone { get; set; }
     /// <summary>When the student joined the tuition centre ("with us for 3 months").</summary>
     public DateOnly? JoinedOn { get; set; }
+    /// <summary>The student's fee per hour (institute currency). Prices new hour packages: hours × rate. Admins only.</summary>
+    public decimal? HourlyRate { get; set; }
 }
 
 /// <summary>

@@ -1643,3 +1643,166 @@ a.metric-cell:hover { text-decoration:none; background:#F7F9FD; }
   .int-test-row .btn, .int-test > .btn { width: 100%; }
   .region-presets .row .btn { flex: 1 1 0; }
 }
+
+/* ---------- Hours, pay, subjects (2026-11-16) ---------- */
+/* Profile: attendance & hours next to subjects/students (two columns on desktop, stacked on phones). */
+.profile-hours { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--sp-4); margin-bottom: var(--sp-4); align-items: start; }
+@media (max-width: 1099px) { .profile-hours { grid-template-columns: minmax(0, 1fr); } }
+.hours-panel .card-head { flex-wrap: wrap; row-gap: var(--sp-2); }
+.hours-panel .metric-strip { --n: 2 !important; margin-block-end: var(--sp-3); box-shadow: none; }
+.hours-marks { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.hours-period.seg { min-height: 44px; min-width: 220px; }
+@media (max-width: 767px) { .hours-period.seg { width: 100%; } }
+.subject-teachers li, .subject-overview li { display: flex; align-items: center; gap: var(--sp-3); }
+.subject-hours { display: grid; justify-items: end; font-weight: 600; font-size: 13px; color: var(--ss-navy); white-space: nowrap; }
+.plist.plist-always { display: block; }
+/* Rate line under a Fees / Salary title. */
+.rate-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-top: var(--sp-1); font-size: 13px; }
+.rate-line .btn { min-height: 32px; padding-inline: var(--sp-2); }
+.fee-panel .metric-strip { margin-block: var(--sp-3); box-shadow: none; }
+.pay-h3 { font-size: 15px; margin: var(--sp-4) 0 var(--sp-2); }
+.pay-row { display: flex; align-items: flex-start; gap: var(--sp-3); }
+.pay-row.voided strong { text-decoration: line-through; color: var(--ss-text-2); }
+.pay-rates summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--ss-blue); font-weight: 600; }
+/* Subjects page. */
+.subjects-scope { margin-bottom: var(--sp-3); max-width: 360px; }
+.subject-group { font-size: 15px; margin: var(--sp-4) 0 var(--sp-2); color: var(--ss-navy); }
+.subject-figures { display: grid; grid-template-columns: repeat(4, minmax(64px, auto)); gap: var(--sp-1) var(--sp-4); margin: 0; text-align: end; }
+.subject-figures dt { font-size: 11px; color: var(--ss-text-2); }
+.subject-figures dd { margin: 0; font-weight: 600; color: var(--ss-navy); font-variant-numeric: tabular-nums; }
+@media (max-width: 767px) {
+  .subject-overview li { flex-wrap: wrap; }
+  .subject-figures { width: 100%; grid-template-columns: repeat(4, minmax(0, 1fr)); text-align: start; }
+}
+/* Academics: default catalogue strip. */
+.catalogue-defaults { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-4); }
+.catalogue-defaults .grow { min-width: 220px; }
+@media (max-width: 767px) { .catalogue-defaults .btn { width: 100%; } }
+/* Admission: subjects of the chosen class. */
+.admit-subjects-h { font-size: 14px; margin: var(--sp-3) 0 var(--sp-2); color: var(--ss-text-2); }
+.person-calendar-head { margin: var(--sp-3) 0 var(--sp-2); }
+.person-calendar .card-head { flex-wrap: wrap; row-gap: var(--sp-2); }
+@media (max-width: 767px) {
+  /* 44 px touch targets: rate links and the compact month grid's day numbers (cells are ~48 px wide at 360 px). */
+  .rate-line .btn { min-height: 44px; }
+  .calendar .day-num { width: 44px; max-width: 100%; height: 44px; line-height: 44px; }
+}
+/* Quick attendance (teacher Home / Tasks): one card per finished class, Present / Late / Absent per student. */
+.qa-list { display: grid; gap: var(--sp-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+.qa-home .qa-list { grid-template-columns: minmax(0, 1fr); }
+.qa-card { background: var(--ss-white); border: 1px solid var(--ss-hairline); border-radius: var(--r-card); box-shadow: var(--shadow-1); padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.qa-home .qa-card { box-shadow: none; background: var(--ss-fill); border: 0; }
+.qa-head { display: flex; align-items: flex-start; gap: var(--sp-2); }
+.qa-title { font-size: 15px; line-height: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qa-head .btn { min-height: 36px; }
+.qa-row { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; padding-block: var(--sp-1); }
+.qa-name { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qa-marks { display: inline-flex; gap: 4px; padding: 3px; background: var(--ss-slate-50); border-radius: var(--r-pill); flex: none; }
+.qa-mark { min-height: 36px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: transparent; color: var(--ss-text-2); font: 600 13px/1 var(--font-body); cursor: pointer; transition: background 150ms var(--ease), color 150ms var(--ease); }
+.qa-mark:hover { background: var(--ss-white); color: var(--ss-text); }
+.qa-mark:focus-visible { outline: 2px solid var(--ss-blue); outline-offset: 1px; }
+.qa-mark:disabled { cursor: wait; opacity: .6; }
+.qa-mark.present[aria-pressed="true"] { background: var(--ss-success); color: var(--ss-white); }
+.qa-mark.late[aria-pressed="true"] { background: #B45309; color: var(--ss-white); }
+.qa-mark.absent[aria-pressed="true"] { background: var(--ss-error); color: var(--ss-white); }
+.qa-actions { display: flex; gap: var(--sp-2); justify-content: flex-end; flex-wrap: wrap; margin-top: var(--sp-1); }
+@media (max-width: 767px) {
+  .qa-head .btn, .qa-mark, .qa-actions .btn { min-height: 44px; }
+  .qa-row { flex-wrap: wrap; }
+  .qa-marks { width: 100%; }
+  .qa-mark { flex: 1 1 0; }
+  .qa-actions .btn { flex: 1 1 0; }
+}
+/* Admission: optional cards collapse to one line each. */
+.admit-more-h { font-size: 15px; margin: var(--sp-2) 0 calc(-1 * var(--sp-2)); color: var(--ss-text-2); }
+.admit-optional > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: var(--sp-2); min-height: 44px; }
+.admit-optional > summary::-webkit-details-marker { display: none; }
+.admit-optional > summary::after { content: "+"; margin-inline-start: auto; font: 600 20px/1 var(--font-body); color: var(--ss-blue); }
+.admit-optional[open] > summary::after { content: "−"; }
+.admit-optional > summary h2 { margin: 0; }
+.admit-optional[open] > summary { margin-bottom: var(--sp-3); }
+/* Teacher form: a subject given for only some classes. */
+.pick[aria-pressed="mixed"] { background: var(--ss-blue-50); color: var(--ss-navy); box-shadow: inset 0 0 0 1px var(--ss-blue); }
+.teacher-subject-find { margin-bottom: var(--sp-3); }
+/* ---------- Automations (Settings ▸ Automations, 2026-11-17) ---------- */
+.auto-ready { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.auto-h { display: flex; align-items: center; gap: var(--sp-2); font-size: 17px; margin-bottom: var(--sp-2); }
+.auto-row { border-top: 1px solid var(--ss-border); padding-block: var(--sp-3); }
+.auto-row:first-of-type { border-top: 0; }
+.auto-main { display: flex; align-items: center; gap: var(--sp-4); cursor: pointer; min-height: 44px; }
+.auto-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.auto-title { font-weight: 600; color: var(--ss-navy); }
+.auto-extra { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-3); padding: var(--sp-3); background: var(--ss-fill); border-radius: var(--r-control); }
+.auto-nums { gap: var(--sp-3); }
+.auto-num { max-width: 200px; margin: 0; }
+.auto-hint { font-size: 12px; color: var(--ss-orange-text); margin: calc(-1 * var(--sp-2)) 0 var(--sp-2); }
+.auto-save { position: sticky; bottom: var(--sp-3); z-index: 5; }
+.auto-msg { display: flex; gap: var(--sp-3); padding: var(--sp-3) 0; border-top: 1px solid var(--ss-border); list-style: none; }
+.auto-log { padding: 0; margin: 0; }
+/* Switch: a real checkbox (role="switch"), 44 × 26 track with a sliding knob. */
+.switch { appearance: none; -webkit-appearance: none; flex: none; width: 44px; height: 26px; border-radius: var(--r-pill); background: #CBD5E1; position: relative; cursor: pointer; transition: background 150ms var(--ease); margin: 0; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(11,40,84,.3); transition: transform 150ms var(--ease); }
+.switch:checked { background: var(--ss-success); }
+.switch:checked::after { transform: translateX(18px); }
+.switch:focus-visible { outline: 2px solid var(--ss-blue); outline-offset: 2px; }
+.switch:disabled { opacity: .45; cursor: not-allowed; }
+[dir="rtl"] .switch:checked::after { transform: translateX(-18px); }
+[dir="rtl"] .switch::after { left: auto; right: 3px; }
+
+/* Payment link under a package. */
+.pay-link { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-2); padding: var(--sp-3); border-radius: var(--r-control); background: var(--ss-blue-50); }
+.warn-text { color: var(--ss-orange-text); }
+
+/* Salaries. */
+.salary-month { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); padding-block: var(--sp-2); }
+.salary-list { padding: 0; margin: 0; }
+.salary-row { display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-3) 0; border-top: 1px solid var(--ss-border); list-style: none; }
+.salary-row:first-child { border-top: 0; }
+.salary-figures { display: grid; grid-template-columns: repeat(3, minmax(84px, auto)); gap: var(--sp-1) var(--sp-4); margin: 0; text-align: end; }
+.salary-figures dt { font-size: 11px; color: var(--ss-text-2); }
+.salary-figures dd { margin: 0; font-weight: 600; color: var(--ss-navy); font-variant-numeric: tabular-nums; }
+.salary-figures dd.due { color: var(--ss-orange-deep); }
+.salary-act { flex: none; min-width: 96px; text-align: end; }
+
+/* Progress reports. */
+.pr-filter { margin-bottom: var(--sp-4); max-width: 420px; }
+.pr-list { display: grid; gap: var(--sp-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); }
+.pr-card { display: flex; flex-direction: column; gap: var(--sp-3); }
+.pr-title { font-size: 16px; }
+.pr-figures { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-2); margin: 0; padding: var(--sp-3); background: var(--ss-fill); border-radius: var(--r-control); }
+.pr-figures dt { font-size: 11px; color: var(--ss-text-2); }
+.pr-figures dd { margin: 0; font-weight: 600; color: var(--ss-navy); font-variant-numeric: tabular-nums; }
+.pr-remark { margin: 0; color: var(--ss-text-2); }
+
+/* Printable receipt / salary slip. */
+.doc-actions { display: flex; justify-content: flex-end; margin-bottom: var(--sp-3); }
+.doc { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--sp-4); }
+.doc-head { display: flex; justify-content: space-between; gap: var(--sp-4); align-items: flex-start; border-bottom: 2px solid var(--ss-navy); padding-bottom: var(--sp-3); }
+.doc-from { text-align: end; }
+.doc-grid { display: grid; grid-template-columns: 160px 1fr; gap: var(--sp-2) var(--sp-4); margin: 0; }
+.doc-grid dt { color: var(--ss-text-2); }
+.doc-grid dd { margin: 0; font-weight: 500; }
+.doc-total { display: flex; justify-content: space-between; align-items: baseline; padding: var(--sp-3) var(--sp-4); background: var(--ss-fill); border-radius: var(--r-control); }
+.doc-total strong { font: 700 24px/1.2 var(--font-head); color: var(--ss-navy); }
+.doc-foot { border-top: 1px solid var(--ss-border); padding-top: var(--sp-3); }
+
+@media (max-width: 767px) {
+  .salary-row { flex-wrap: wrap; }
+  .salary-figures { width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); text-align: start; }
+  .salary-act { width: 100%; text-align: start; }
+  .salary-act .btn { width: 100%; min-height: 44px; }
+  .pr-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .doc-grid { grid-template-columns: 1fr; gap: 2px; }
+  .doc-grid dd { margin-bottom: var(--sp-2); }
+  .doc-head { flex-direction: column; }
+  .doc-from { text-align: start; }
+  .auto-main { gap: var(--sp-3); }
+  .auto-num { max-width: none; }
+}
+@media print {
+  .sidebar, .topbar, .tabbar, .no-print, .toasts, install-banner, nav { display: none !important; }
+  body, .main, .content { background: #fff !important; padding: 0 !important; margin: 0 !important; }
+  .doc.card { box-shadow: none; border: 0; max-width: none; }
+}
+.auto-h svg { width: 20px; height: 20px; flex: none; color: var(--ss-blue); }
+.auto-ready a { display: inline-flex; align-items: center; min-height: 44px; }

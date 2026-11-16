@@ -15,14 +15,25 @@ try {
   await page.type('#tn', `Sahla Test ${stamp} (Demo Teacher)`);
   await page.type('#te', `sahla-${stamp}@horizon.example.test`);
   await page.type('#tph', '+971 50 555 0101');
-  // Whole subject (every class) in one pick, then a single class of another subject.
-  await page.select('#tsadd', 'all:Mathematics');
-  await page.waitForFunction(() => [...document.querySelectorAll('.teacher-form .badge.removable')].some((b) => /Mathematics\s+\d+ classes/.test(b.innerText)));
-  assert.equal(await page.$eval('#tsadd', (s) => s.value), '', 'the add box resets after a pick');
-  const arabic = await page.$eval('#tsadd', (s) => [...s.querySelectorAll('optgroup:not(:first-child) option')].find((o) => o.textContent.trim() === 'Arabic')?.value);
+  await page.type('#trate', '300');
+  // Whole subject (every class) with one tap on its chip, then a single class of another subject under "Only some classes".
+  // A long list can be filtered; chosen subjects stay visible.
+  if (await page.$('#tsf')) {
+    await page.type('#tsf', 'math');
+    await page.waitForFunction(() => [...document.querySelectorAll('.teacher-form .pick')].every((b) => /math/i.test(b.innerText)));
+  }
+  await page.$$eval('.teacher-form .pick', (bs) => bs.find((b) => b.innerText.trim() === 'Mathematics').click());
+  if (await page.$('#tsf')) { await page.click('#tsf', { clickCount: 3 }); await page.keyboard.press('Backspace'); }
+  await page.waitForFunction(() => [...document.querySelectorAll('.teacher-form .pick')].some((b) => b.innerText.trim() === 'Mathematics' && b.getAttribute('aria-pressed') === 'true'));
+  await page.$$eval('.teacher-form details summary', (ss) => ss.find((s) => s.innerText.includes('Only some classes')).click());
+  const arabic = await page.$eval('#tsadd', (s) => [...s.querySelectorAll('option')].find((o) => o.textContent.trim() === 'Arabic')?.value);
   await page.select('#tsadd', arabic);
   await page.waitForFunction(() => [...document.querySelectorAll('.teacher-form .badge.removable')].some((b) => b.innerText.includes('Arabic')));
   assert.equal(await page.$eval('#tsadd', (s) => s.value), '', 'the add box resets after a pick');
+  // A subject given for only some classes shows as half-chosen ("1 of N") when it exists in several classes.
+  console.log('chips:', await page.$$eval('.teacher-form .pick[aria-pressed="true"], .teacher-form .pick[aria-pressed="mixed"]', (bs) => bs.map((b) => b.innerText.trim())));
+  // Qualifications and experience are optional, under "More details".
+  await page.$$eval('.teacher-form details.teacher-more > summary', (ss) => ss[0].click());
   await page.$$eval('button', (bs) => bs.find((b) => b.innerText.includes('Add qualification')).click());
   await page.waitForSelector('#qt0');
   await page.type('#qt0', 'B.Ed');
@@ -39,7 +50,7 @@ try {
   }
   await page.setViewport(viewports.desktop);
 
-  await page.$$eval('.modal button', (bs) => bs.find((b) => b.innerText.trim() === 'Save teacher').click());
+  await page.$$eval('.modal button', (bs) => bs.find((b) => b.innerText.trim() === 'Add teacher').click());
   await page.waitForFunction(() => /temporary password/i.test(document.body.innerText), { timeout: 15000 });
   await page.keyboard.press('Escape');
   await page.type('input[aria-label="Search teachers"]', stamp);
@@ -54,6 +65,7 @@ try {
   const unexpected = failedRequests.filter((r) => !r.includes('/files/download'));
   assert.deepEqual(consoleErrors, [], 'console errors');
   assert.deepEqual(unexpected, [], 'failed requests (photo downloads excluded: known missing local files)');
+  // The pay rate typed in the form was saved with the teacher (PUT .../pay/rate after create; failures land in failedRequests).
   console.log('Teacher profile check passed at 375, 768 and 1440px.');
 } finally {
   await browser.close();

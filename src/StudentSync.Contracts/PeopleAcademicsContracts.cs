@@ -72,8 +72,9 @@ public sealed record SaveGradeLevelRequest(string Name, int SortOrder);
 public sealed record CurriculumDto(Guid Id, string Code, string Name, CatalogStatus Status, int StudentCount);
 public sealed record SaveCurriculumRequest(string Code, string Name, CatalogStatus Status);
 
-public sealed record CourseDto(Guid Id, string Code, string Name, string? Description, Guid? GradeLevelId, string? GradeLevelName, CatalogStatus Status, int SubjectCount, int StudentCount);
-public sealed record SaveCourseRequest(string Code, string Name, string? Description, Guid? GradeLevelId, Guid? AcademicYearId, CatalogStatus Status);
+public sealed record CourseDto(Guid Id, string Code, string Name, string? Description, Guid? GradeLevelId, string? GradeLevelName, CatalogStatus Status, int SubjectCount, int StudentCount,
+    Guid? CurriculumId = null, string? CurriculumName = null);
+public sealed record SaveCourseRequest(string Code, string Name, string? Description, Guid? GradeLevelId, Guid? AcademicYearId, CatalogStatus Status, Guid? CurriculumId = null);
 
 public sealed record SubjectDto(Guid Id, Guid CourseId, string CourseName, string Code, string Name, string? Description, CatalogStatus Status, IReadOnlyList<ChapterDto> Chapters, IReadOnlyList<LookupItem> Teachers,
     SubjectKind Kind = SubjectKind.Core, string? ChoiceGroup = null, bool IsCentreSubject = false);

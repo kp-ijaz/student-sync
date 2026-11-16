@@ -91,6 +91,30 @@ docker exec -i studentsync-postgres-1 pg_restore -U postgres -d StudentSync --cl
 docker compose -f compose.api.yml start api
 ```
 
+**Weekly restore test.** `/etc/cron.d/studentsync-restore-check` runs `/opt/studentsync/restore-check.sh` on Sundays at
+22:30 UTC: it loads the newest dump into a throw-away database `restore_check` in the same container, checks institutes,
+users, classes and migrations came back, then drops it (the live database is never touched). The result is in
+`/opt/studentsync/restore-check.status` (`ok …` or `FAILED …`) and `/var/log/studentsync-restore-check.log`.
+
+**Default catalogue for an existing institute.** `docker compose -f compose.api.yml run --rm api load-catalogue <institution code>`
+adds NCERT / Kerala State / ICSE, Classes 1–12, their subjects and the current academic year — the same idempotent
+merge as Academics ▸ "Load default catalogue" (running it again adds nothing).
+
+**Uptime monitoring.** `https://api.84-12-174-142.sslip.io/health/live` (200 when the API runs) and
+`/health/ready` (also checks the database) need no sign-in; point a free monitor (e.g. UptimeRobot, every 5 minutes)
+at both and at `https://app.84-12-174-142.sslip.io/login`.
+
+**One-click deploy (optional).** `.github/workflows/deploy.yml` deploys from GitHub Actions after CI passes on `main`:
+"Run workflow" on the Actions tab, or automatically when the repository variable `AUTO_DEPLOY` is `true`. It needs the
+secrets `DEPLOY_SSH_KEY` and `DEPLOY_SSH_CONFIG` (and a `production` environment, where approvals can be required),
+backs up the database first, then runs `deploy/oracle/deploy.sh`. Without the secrets it stops before touching anything.
+
+**Payment webhooks.** Online fee payments are recorded when the server confirms them with Razorpay/Stripe: either a
+signed webhook to `https://api.84-12-174-142.sslip.io/api/v1/webhooks/payments/{razorpay|stripe}/{institution code}`
+(event `payment_link.paid` / `checkout.session.completed`; the URL is shown in Settings ▸ Integrations) or the
+15-minute check of open links. Payment links send families to `{App:WebBaseUrl}/payment-done` (default: the first
+`Cors__Origins__` entry).
+
 **Institute integrations (Settings ▸ Integrations).** An admin can connect the institute's own SMTP server, an SMS
 provider (Twilio or MSG91) and a payment gateway (Razorpay or Stripe). Passwords and secret keys are stored in the
 `InstitutionIntegrations` table encrypted with the API's Data Protection keys (`apikeys` volume). Those keys are not in

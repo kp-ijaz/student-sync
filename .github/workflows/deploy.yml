@@ -1,0 +1,62 @@
+name: Deploy (Oracle demo)
+
+# Optional one-click deploy (owner request 2026-11-17). It never runs by itself unless the repository variable
+# AUTO_DEPLOY is "true"; otherwise use "Run workflow" on the Actions tab. Either way it waits for the CI workflow to
+# pass on main, takes a database backup on the server first, then runs deploy/oracle/deploy.sh.
+#
+# Needs two repository secrets (Settings ▸ Secrets and variables ▸ Actions), never committed:
+#   DEPLOY_SSH_KEY     the private key that opens both VMs (contents of ~/.ssh/studentsync_oracle)
+#   DEPLOY_SSH_CONFIG  the ssh_config with hosts "ss-api" and "ss-web" (IdentityFile ~/.ssh/studentsync_oracle)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: What to deploy
+        type: choice
+        options: [all, api, web]
+        default: all
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-oracle
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (vars.AUTO_DEPLOY == 'true' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: SSH access
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_CONFIG: ${{ secrets.DEPLOY_SSH_CONFIG }}
+        run: |
+          test -n "$DEPLOY_SSH_KEY" && test -n "$DEPLOY_SSH_CONFIG" || { echo "Add the DEPLOY_SSH_KEY and DEPLOY_SSH_CONFIG secrets first."; exit 1; }
+          mkdir -p ~/.ssh ~/.studentsync-deploy && chmod 700 ~/.ssh ~/.studentsync-deploy
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/studentsync_oracle && chmod 600 ~/.ssh/studentsync_oracle
+          printf '%s\n' "$DEPLOY_SSH_CONFIG" > ~/.studentsync-deploy/ssh_config && chmod 600 ~/.studentsync-deploy/ssh_config
+      - name: Back up the database first
+        run: ssh -F ~/.studentsync-deploy/ssh_config -o StrictHostKeyChecking=accept-new ss-api 'sudo /opt/studentsync/backup.sh'
+      - name: Deploy
+        run: deploy/oracle/deploy.sh "${{ inputs.target || 'all' }}"
+      - name: Check the site answers
+        run: |
+          sleep 20
+          curl -fsS https://api.84-12-174-142.sslip.io/health/live
+          curl -fsS -o /dev/null https://app.84-12-174-142.sslip.io/login

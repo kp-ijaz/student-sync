@@ -49,6 +49,8 @@ public interface IAppDbContext
     DbSet<StudentSchoolMark> StudentSchoolMarks { get; }
     DbSet<StudentPackage> StudentPackages { get; }
     DbSet<FeePayment> FeePayments { get; }
+    DbSet<TeacherPayRate> TeacherPayRates { get; }
+    DbSet<TeacherPayment> TeacherPayments { get; }
     DbSet<CourseEnrolment> CourseEnrolments { get; }
     DbSet<StudentSubject> StudentSubjects { get; }
     DbSet<Curriculum> Curricula { get; }
@@ -106,6 +108,11 @@ public interface IAppDbContext
     DbSet<IdempotencyRecord> IdempotencyRecords { get; }
     DbSet<IntegrationConnection> Integrations { get; }
     DbSet<InstitutionIntegration> InstitutionIntegrations { get; }
+    DbSet<AutomationSettings> AutomationSettings { get; }
+    DbSet<OutboundMessage> OutboundMessages { get; }
+    DbSet<AutomationRun> AutomationRuns { get; }
+    DbSet<PaymentLink> PaymentLinks { get; }
+    DbSet<ProgressReport> ProgressReports { get; }
     DbSet<FeatureFlag> FeatureFlags { get; }
 
     DatabaseFacade Database { get; }
@@ -181,12 +188,24 @@ public interface IIntegrationSecrets
 public sealed record SmtpSettings(string Host, int Port, bool UseStartTls, string? Username, string? Password, string FromAddress, string FromName);
 public sealed record SmsSettings(SmsProvider Provider, string? AccountId, string? Sender, string? TemplateId, string Secret);
 public sealed record PaymentSettings(PaymentProvider Provider, string KeyId, string Secret);
+/// <summary>The web app's public address (null in tests / when unknown).</summary>
+public sealed record PublicLinks(string? WebBaseUrl);
+/// <summary>A gateway payment link request. Amounts are in the currency's minor unit (paise, fils, cents).</summary>
+public sealed record GatewayLinkRequest(long AmountMinor, string Currency, string Description, string ReferenceId, string CustomerName, string? CustomerPhoneE164,
+    DateTime ExpiresAtUtc, string? ReturnUrl);
+public sealed record GatewayLink(bool Ok, string? Id, string? Url, string? Error);
+/// <summary>What the gateway says about a link: paid (with its payment id and amount), closed (expired/cancelled), or neither.</summary>
+public sealed record GatewayLinkState(bool Ok, bool Paid, bool Closed, string? PaymentId, long? AmountPaidMinor, string? Error);
 
 /// <summary>Talks to the outside services an institute connects (SMTP, Twilio/MSG91, Razorpay/Stripe).</summary>
 public interface IIntegrationClients
 {
     Task<DeliveryResult> SendEmailAsync(SmtpSettings settings, EmailMessage message, CancellationToken ct);
     Task<DeliveryResult> SendSmsAsync(SmsSettings settings, string toE164, string text, CancellationToken ct);
+    Task<GatewayLink> CreatePaymentLinkAsync(PaymentSettings settings, GatewayLinkRequest request, CancellationToken ct);
+    Task<GatewayLinkState> GetPaymentLinkAsync(PaymentSettings settings, string linkId, CancellationToken ct);
+    /// <summary>Stops a link from being paid (Razorpay: cancel; Stripe: deactivate).</summary>
+    Task<bool> ClosePaymentLinkAsync(PaymentSettings settings, string linkId, CancellationToken ct);
     /// <summary>Makes a read-only call with the keys; Accepted = the gateway accepted them.</summary>
     Task<DeliveryResult> VerifyPaymentKeysAsync(PaymentSettings settings, CancellationToken ct);
 }

@@ -58,7 +58,8 @@ public sealed record ConflictCheckResponse(bool HasBlockingConflicts, IReadOnlyL
 public sealed record OccurrencePreviewDto(DateOnly LocalDate, DateTime StartUtc, DateTime EndUtc, string Resolution, bool SkippedHoliday);
 
 public sealed record RescheduleSessionRequest(string TimeZoneId, DateOnly LocalDate, TimeOnly LocalStartTime, int DurationMinutes, string? Reason, string RowVersion, bool AcknowledgeConflicts = false);
-public sealed record CancelSessionRequest(string Reason, bool CancelFutureSeriesOccurrences = false);
+/// <summary>Kind: why the class did not happen (teacher absent = the teacher's missed hours; student absent = the student's).</summary>
+public sealed record CancelSessionRequest(string Reason, bool CancelFutureSeriesOccurrences = false, CancellationKind Kind = CancellationKind.Other);
 public sealed record UpdateSessionDetailsRequest(string Title, Guid? SubjectId, Guid? ChapterId, DeliveryMode DeliveryMode, string? MeetingUrl, string? Location, string? Objectives, string RowVersion);
 public sealed record SetSessionStatusRequest(SessionStatus Status);
 public sealed record AddParticipantRequest(Guid StudentId);

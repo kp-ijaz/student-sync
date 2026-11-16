@@ -97,7 +97,18 @@
 <Modal @bind-Open="_cancelOpen" Title="Cancel session">
     <div class="stack">
         <p>Participants and linked parents will be notified. Unresolved doubts scheduled for this class will be carried to the next one.</p>
-        <div class="field"><label for="cr">Reason *</label><input id="cr" class="input" @bind="_cancelReason" /></div>
+        <fieldset class="field">
+            <legend>Why is it cancelled? *</legend>
+            <div class="pick-group cols-2">
+                @foreach (var (kind, label) in CancelKinds)
+                { <button type="button" class="pick" aria-pressed="@Aria.Bool(_cancelKind == kind)" @onclick="() => _cancelKind = kind">@label</button> }
+            </div>
+            <span class="help">@(_cancelKind switch {
+                CancellationKind.TeacherAbsent => "Counts as the teacher's missed hours; not paid.",
+                CancellationKind.StudentAbsent => "Counts as the student's missed hours; no hours are used.",
+                _ => "Counts for neither the teacher nor the student." })</span>
+        </fieldset>
+        <div class="field"><label for="cr">Note *</label><input id="cr" class="input" placeholder="For example: Teacher unwell" @bind="_cancelReason" /></div>
         @if (Session.SeriesId is not null) { <label class="check"><input type="checkbox" @bind="_cancelSeries" /> Also cancel all later sessions in this series</label> }
         <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _cancelOpen = false">Keep session</button><button class="btn btn-danger" @onclick="Cancel" disabled="@(Busy || string.IsNullOrWhiteSpace(_cancelReason))">Cancel session</button></div>
     </div>
@@ -117,6 +128,9 @@
     private List<LookupItem> _lookup = [];
     private Guid? _addStudent;
     private bool _editOpen, _rescheduleOpen, _cancelOpen, _cancelSeries, _rAck;
+    private CancellationKind _cancelKind = CancellationKind.Other;
+    private static readonly (CancellationKind, string)[] CancelKinds =
+        [(CancellationKind.TeacherAbsent, "Teacher absent"), (CancellationKind.StudentAbsent, "Student absent"), (CancellationKind.Holiday, "Holiday"), (CancellationKind.Other, "Other reason")];
     private string _editTitle = "", _cancelReason = "", _removeReason = "", _rTz = "UTC";
     private string? _editMeeting, _editLocation, _editObjectives, _rReason;
     private DeliveryMode _editDelivery;
@@ -168,7 +182,7 @@
 
     private async Task Cancel()
     {
-        if (await Run(() => Api.PostAsync($"sessions/{Session.Id}/cancel", new CancelSessionRequest(_cancelReason, _cancelSeries)), "Session cancelled."))
+        if (await Run(() => Api.PostAsync($"sessions/{Session.Id}/cancel", new CancelSessionRequest(_cancelReason, _cancelSeries, _cancelKind)), "Session cancelled."))
         { _cancelOpen = false; await OnChanged.InvokeAsync(); }
     }
 

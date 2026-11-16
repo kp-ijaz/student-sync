@@ -103,6 +103,61 @@ internal static class ModelConfiguration
             e.Property(x => x.LastCheckMessage).HasMaxLength(500);
         });
         Max<InstitutionIntegration>(b, x => x.SettingsJson, x => x.EncryptedSecrets);
+        b.Entity<AutomationSettings>(e =>
+        {
+            e.HasIndex(x => x.TenantId).IsUnique();
+            e.Property(x => x.LowHoursAt).HasPrecision(6, 2);
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_AutomationSettings_Ranges", "\"AttendanceNudgeAfterMinutes\" BETWEEN 0 AND 720 AND \"AbsenceFlagAt\" BETWEEN 0 AND 31 AND \"LowHoursAt\" >= 0 AND \"FeeReminderDaysBefore\" BETWEEN 0 AND 30 AND \"FeeReminderDaysAfter\" BETWEEN 0 AND 60");
+            });
+        });
+        b.Entity<OutboundMessage>(e =>
+        {
+            e.HasIndex(x => new { x.TenantId, x.DedupeKey }).IsUnique();
+            e.HasIndex(x => new { x.Status, x.NotBeforeUtc });
+            e.HasIndex(x => new { x.TenantId, x.CreatedAtUtc });
+            e.Property(x => x.Kind).HasMaxLength(40);
+            e.Property(x => x.PhoneMasked).HasMaxLength(24);
+            e.Property(x => x.Text).HasMaxLength(480);
+            e.Property(x => x.DedupeKey).HasMaxLength(200);
+            e.Property(x => x.ProviderMessageId).HasMaxLength(120);
+            e.Property(x => x.Error).HasMaxLength(500);
+        });
+        Fk<OutboundMessage, Student>(b, x => x.StudentId);
+        b.Entity<AutomationRun>(e =>
+        {
+            e.HasIndex(x => new { x.TenantId, x.Task, x.RunKey }).IsUnique();
+            e.Property(x => x.Task).HasMaxLength(40);
+            e.Property(x => x.RunKey).HasMaxLength(40);
+        });
+        b.Entity<PaymentLink>(e =>
+        {
+            e.HasIndex(x => new { x.TenantId, x.Provider, x.ProviderLinkId }).IsUnique();
+            e.HasIndex(x => new { x.Provider, x.ProviderPaymentId }).IsUnique().HasFilter("\"ProviderPaymentId\" IS NOT NULL");
+            // At most one payable link per package (two would invite paying twice).
+            e.HasIndex(x => x.PackageId).IsUnique().HasFilter("\"Status\" = 'Open'").HasDatabaseName("IX_PaymentLinks_PackageId_Open");
+            e.Property(x => x.Provider).HasMaxLength(20);
+            e.Property(x => x.ProviderLinkId).HasMaxLength(120);
+            e.Property(x => x.ProviderPaymentId).HasMaxLength(120);
+            e.Property(x => x.Url).HasMaxLength(500);
+            e.Property(x => x.CurrencyCode).HasMaxLength(3);
+            e.Property(x => x.Amount).HasPrecision(18, 2);
+            e.ToTable(t => t.HasCheckConstraint("CK_PaymentLinks_Amount", "\"Amount\" > 0"));
+        });
+        Fk<PaymentLink, StudentPackage>(b, x => x.PackageId);
+        Fk<PaymentLink, Student>(b, x => x.StudentId);
+        b.Entity<ProgressReport>(e =>
+        {
+            e.HasIndex(x => new { x.TenantId, x.StudentId, x.Month }).IsUnique();
+            e.HasIndex(x => new { x.TeacherId, x.Status });
+            e.Property(x => x.Remark).HasMaxLength(1000);
+            e.Property(x => x.HoursAttended).HasPrecision(8, 2);
+            e.Property(x => x.HoursLeft).HasPrecision(8, 2);
+            e.Property(x => x.AverageMarkPercent).HasPrecision(5, 1);
+        });
+        Fk<ProgressReport, Student>(b, x => x.StudentId);
+        Fk<ProgressReport, Teacher>(b, x => x.TeacherId);
 
         // ---------- People ----------
         foreach (var (type, nav) in new[] { (typeof(Teacher), nameof(Teacher.User)), (typeof(Student), nameof(Student.User)), (typeof(Parent), nameof(Parent.User)) })
@@ -168,6 +223,29 @@ internal static class ModelConfiguration
             e.Property(x => x.VoidReason).HasMaxLength(300);
             e.ToTable(t => t.HasCheckConstraint("CK_FeePayments_Amount", "\"Amount\" > 0"));
         });
+        // ---------- Teacher pay (rate per hour from a date; salary payments, voided never edited) ----------
+        b.Entity<TeacherPayRate>(e =>
+        {
+            e.HasIndex(x => new { x.TeacherId, x.EffectiveFrom }).IsUnique();
+            e.HasOne<Teacher>().WithMany().HasForeignKey(x => x.TeacherId).OnDelete(R);
+            e.Property(x => x.CurrencyCode).HasMaxLength(3);
+            e.ToTable(t => t.HasCheckConstraint("CK_TeacherPayRates_Rate", "\"HourlyRate\" >= 0"));
+        });
+        b.Entity<TeacherPayment>(e =>
+        {
+            e.HasIndex(x => new { x.TeacherId, x.PaidOn });
+            e.HasOne<Teacher>().WithMany().HasForeignKey(x => x.TeacherId).OnDelete(R);
+            e.Property(x => x.CurrencyCode).HasMaxLength(3);
+            e.Property(x => x.Reference).HasMaxLength(100);
+            e.Property(x => x.Note).HasMaxLength(300);
+            e.Property(x => x.VoidReason).HasMaxLength(300);
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_TeacherPayments_Amount", "\"Amount\" > 0");
+                t.HasCheckConstraint("CK_TeacherPayments_Period", "\"PeriodTo\" IS NULL OR \"PeriodFrom\" IS NULL OR \"PeriodTo\" >= \"PeriodFrom\"");
+            });
+        });
+        b.Entity<Student>().ToTable(t => t.HasCheckConstraint("CK_Students_HourlyRate", "\"HourlyRate\" IS NULL OR \"HourlyRate\" >= 0"));
         Fk<Student, GradeLevel>(b, x => x.GradeLevelId);
         Fk<Student, Curriculum>(b, x => x.CurriculumId);
         Fk<Student, AcademicYear>(b, x => x.AcademicYearId);
@@ -215,6 +293,7 @@ internal static class ModelConfiguration
         {
             e.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
             e.HasOne(x => x.GradeLevel).WithMany().HasForeignKey(x => x.GradeLevelId).OnDelete(R);
+            e.HasOne<Curriculum>().WithMany().HasForeignKey(x => x.CurriculumId).OnDelete(R);
             e.HasMany(x => x.Subjects).WithOne(x => x.Course).HasForeignKey(x => x.CourseId).OnDelete(R);
             e.Property(x => x.Description).HasMaxLength(2000);
         });

@@ -1,3 +1,4 @@
+using StudentSync.Application.Reporting;
 using Microsoft.AspNetCore.Mvc;
 using StudentSync.Api.Hosting;
 using StudentSync.Application.Academics;
@@ -91,6 +92,12 @@ public static class CoreEndpoints
     public static void MapPeople(this RouteGroupBuilder api)
     {
         var t = api.MapGroup("/teachers").WithTags("People");
+        // One teacher's profile, hours and pay: admins any teacher, a teacher only themselves (enforced in the services).
+        t.MapGet("/{id:guid}/overview", (Guid id, HoursService s, CancellationToken ct) => s.TeacherAsync(id, ct));
+        t.MapGet("/{id:guid}/pay", (Guid id, TeacherPayService s, CancellationToken ct) => s.PayAsync(id, ct));
+        t.MapPut("/{id:guid}/pay/rate", async (Guid id, SetTeacherRateRequest r, TeacherPayService s, CancellationToken ct) => { await s.SetRateAsync(id, r, ct); return Results.NoContent(); });
+        t.MapPost("/{id:guid}/pay/payments", async (Guid id, AddTeacherPaymentRequest r, TeacherPayService s, CancellationToken ct) => new IdResponse(await s.AddPaymentAsync(id, r, ct))).AddEndpointFilter<IdempotencyFilter>();
+        t.MapPost("/{id:guid}/pay/payments/{paymentId:guid}/void", async (Guid id, Guid paymentId, VoidTeacherPaymentRequest r, TeacherPayService s, CancellationToken ct) => { await s.VoidPaymentAsync(id, paymentId, r, ct); return Results.NoContent(); });
         t.MapGet("/", ([AsParameters] PersonQuery q, PeopleService s, CancellationToken ct) => s.TeachersAsync(q, ct));
         t.MapPost("/", (CreateTeacherRequest r, PeopleService s, CancellationToken ct) => s.CreateTeacherAsync(r, ct));
         t.MapPut("/{id:guid}", async (Guid id, UpdateTeacherRequest r, PeopleService s, CancellationToken ct) => { await s.UpdateTeacherAsync(id, r, ct); return Results.NoContent(); });
@@ -129,6 +136,9 @@ public static class CoreEndpoints
         st.MapPost("/{id:guid}/packages/{packageId:guid}/cancel", async (Guid id, Guid packageId, FeeService s, CancellationToken ct) => { await s.CancelPackageAsync(id, packageId, ct); return Results.NoContent(); });
         st.MapPost("/{id:guid}/packages/{packageId:guid}/payments", async (Guid id, Guid packageId, RecordPaymentRequest r, FeeService s, CancellationToken ct) => new IdResponse(await s.RecordPaymentAsync(id, packageId, r, ct))).AddEndpointFilter<IdempotencyFilter>();
         st.MapPost("/{id:guid}/payments/{paymentId:guid}/void", async (Guid id, Guid paymentId, VoidPaymentRequest r, FeeService s, CancellationToken ct) => { await s.VoidPaymentAsync(id, paymentId, r, ct); return Results.NoContent(); });
+        st.MapPut("/{id:guid}/rate", async (Guid id, SetStudentRateRequest r, FeeService s, CancellationToken ct) => { await s.SetRateAsync(id, r, ct); return Results.NoContent(); });
+        // Attendance and hours (attended / missed, this month and all time) and the teacher of each subject; scope in the service.
+        st.MapGet("/{id:guid}/hours", (Guid id, HoursService s, CancellationToken ct) => s.StudentAsync(id, ct));
         api.MapGet("/fees/due", (int? take, FeeService s, CancellationToken ct) => s.DueAsync(take, ct)).WithTags("Fees");
         st.MapPut("/{id:guid}/subjects", (Guid id, SaveStudentSubjectsRequest r, StudentCurriculumService s, CancellationToken ct) => s.SaveForStudentAsync(id, r, ct));
         // Learning profile (addendum C): weak subjects and staff notes. Scope (admin / teacher-of-student / self) is enforced in the service.
@@ -154,6 +164,10 @@ public static class CoreEndpoints
         a.MapPost("/years", async (SaveAcademicYearRequest r, AcademicsService s, CancellationToken ct) => new IdResponse(await s.SaveYearAsync(null, r, ct)));
         a.MapPut("/years/{id:guid}", async (Guid id, SaveAcademicYearRequest r, AcademicsService s, CancellationToken ct) => new IdResponse(await s.SaveYearAsync(id, r, ct)));
         a.MapPost("/years/{id:guid}/terms", async (Guid id, SaveTermRequest r, AcademicsService s, CancellationToken ct) => new IdResponse(await s.AddTermAsync(id, r, ct)));
+        a.MapGet("/subjects/overview", (AcademicsService s, CancellationToken ct) => s.SubjectsOverviewAsync(ct));
+        a.MapGet("/catalogue/suggest", (Guid gradeLevelId, Guid curriculumId, DefaultCatalogue s, CancellationToken ct) => s.SuggestAsync(gradeLevelId, curriculumId, ct)).RequirePermission(Permissions.AcademicsManage);
+        a.MapPost("/catalogue/classes", async (QuickClassRequest r, DefaultCatalogue s, CancellationToken ct) => new IdResponse(await s.CreateClassAsync(r, ct))).RequirePermission(Permissions.AcademicsManage);
+        a.MapPost("/catalogue/defaults", (DefaultCatalogue s, CancellationToken ct) => s.LoadAsync(ct)).RequirePermission(Permissions.AcademicsManage);
         a.MapGet("/curricula", (AcademicsService s, CancellationToken ct) => s.CurriculaAsync(ct));
         a.MapPost("/curricula", async (SaveCurriculumRequest r, AcademicsService s, CancellationToken ct) => new IdResponse(await s.SaveCurriculumAsync(null, r, ct)));
         a.MapPut("/curricula/{id:guid}", async (Guid id, SaveCurriculumRequest r, AcademicsService s, CancellationToken ct) => new IdResponse(await s.SaveCurriculumAsync(id, r, ct)));

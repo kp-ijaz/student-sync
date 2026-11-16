@@ -572,6 +572,7 @@ public sealed class SchedulingService(
     {
         var s = await access.GetManageableSessionAsync(id, ct, includeParticipants: true);
         var reason = Text.Required(r.Reason, "reason", 500);
+        if (!Enum.IsDefined(r.Kind)) throw RequestValidationException.For("kind", "Choose why the class is cancelled.");
         var targets = new List<LearningSession> { s };
         if (r.CancelFutureSeriesOccurrences && s.SeriesId is { } seriesId)
         {
@@ -583,11 +584,11 @@ public sealed class SchedulingService(
         }
         foreach (var t in targets)
         {
-            db.SessionChanges.Add(t.Cancel(reason, user.UserId, clock.UtcNow));
+            db.SessionChanges.Add(t.Cancel(reason, user.UserId, clock.UtcNow, r.Kind));
             // Unresolved doubts scheduled for this class must be carried forward again.
             await db.Doubts.Where(d => d.FollowUpSessionId == t.Id).ExecuteUpdateAsync(u => u.SetProperty(d => d.FollowUpSessionId, (Guid?)null), ct);
         }
-        audit.Record("session.cancelled", "LearningSession", s.Id, $"{targets.Count} session(s): {reason}");
+        audit.Record("session.cancelled", "LearningSession", s.Id, $"{targets.Count} session(s), {r.Kind}: {reason}");
         var studentIds = targets.SelectMany(t => t.Participants).Where(p => p.Status == ParticipantStatus.Active).Select(p => p.StudentId);
         await notify.NotifyAsync(await notify.WithGuardiansAsync(studentIds, ct), NotificationType.SessionCancelled,
             $"Class cancelled: {s.Title}", targets.Count > 1 ? $"{targets.Count} sessions cancelled. Reason: {reason}" : $"{DescribeLocal(s.StartUtc, s.TimeZoneId)} — {reason}",

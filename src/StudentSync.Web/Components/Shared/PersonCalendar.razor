@@ -1,0 +1,53 @@
+@inherits AppComponent
+@* PersonCalendar: a month of one student's or one teacher's classes (MonthGrid with dots), month arrows, and the list
+   for the chosen day (or the whole month). Filter: "studentId=…" or "teacherId=…" for GET /sessions. *@
+<section class="card person-calendar" aria-labelledby="@_id">
+    <div class="card-head">
+        <h2 id="@_id">Class calendar</h2>
+        <div class="cal-period" role="group" aria-label="Month">
+            <button class="btn btn-secondary btn-sm" @onclick="() => Shift(-1)" aria-label="Previous month"><Icon Name="chevron-left" /></button>
+            <strong class="cal-period-label" aria-live="polite">@_anchor.ToString("MMMM yyyy")</strong>
+            <button class="btn btn-secondary btn-sm" @onclick="() => Shift(1)" aria-label="Next month"><Icon Name="chevron-right" /></button>
+        </div>
+    </div>
+    <DataView Loading="_items is null && _error is null" Error="_error" OnRetry="Load">
+        @if (_items is not null)
+        {
+            <MonthGrid Items="_items" Anchor="_anchor" Tz="@Tz" Selected="_selected" SelectedChanged="d => _selected = d" ShowSubject="true" />
+            var shown = _items.Where(s => _selected is null || DateOnly.FromDateTime(Time.ToLocal(s.StartUtc, Tz)) == _selected).OrderBy(s => s.StartUtc).ToList();
+            <div class="row-between person-calendar-head">
+                <span class="small muted">@(_selected is { } d ? d.ToString("dddd d MMMM") : $"All classes in {_anchor:MMMM}") · @shown.Count @(shown.Count == 1 ? "class" : "classes")</span>
+                @if (_selected is not null) { <button class="btn btn-ghost btn-sm" @onclick="() => _selected = null">Whole month</button> }
+            </div>
+            @if (shown.Count == 0) { <InlineEmpty Icon="calendar" Text="@(_selected is null ? "No classes this month." : "No classes on this day. Pick a day with a dot.")" /> }
+            else { <ul class="list">@foreach (var s in shown) { <li><SessionItem Session="s" Tz="@Tz" ShowCount="false" /></li> }</ul> }
+        }
+    </DataView>
+</section>
+
+@code {
+    private readonly string _id = "cal-" + Guid.NewGuid().ToString("N")[..6];
+    [Parameter, EditorRequired] public string Filter { get; set; } = "";
+    private List<SessionListItemDto>? _items;
+    private ApiException? _error;
+    private DateOnly _anchor;
+    private DateOnly? _selected;
+
+    // Opens on today (a month of classes listed in full would make the profile very long); "Whole month" lists them all.
+    protected override Task OnInitializedAsync()
+    {
+        _anchor = DateOnly.FromDateTime(Time.ToLocal(DateTime.UtcNow, Tz));
+        _selected = _anchor;
+        return Load();
+    }
+
+    private Task Shift(int months) { _anchor = _anchor.AddMonths(months); _selected = null; return Load(); }
+
+    private async Task Load()
+    {
+        _items = null; _error = null;
+        var days = CalendarMath.MonthDays(_anchor);
+        var (from, to) = (CalendarMath.DayStartUtc(days.First(), Tz), CalendarMath.DayStartUtc(days.Last().AddDays(1), Tz));
+        (_items, _error) = await Fetch(() => Api.GetAsync<List<SessionListItemDto>>($"sessions?fromUtc={from:O}&toUtc={to:O}&limit=500&{Filter}"));
+    }
+}

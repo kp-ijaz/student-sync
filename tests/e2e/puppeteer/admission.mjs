@@ -26,6 +26,9 @@ try {
   await page.type('#an', `Hafiz Test ${stamp} (Demo Student)`);
   await page.type('#ae', `hafiz-${stamp}@horizon.example.test`);
   await page.type('#aph', '+971 50 222 0101');
+  await page.type('#arate', '400');
+  // Parent, school result and goal are optional cards: open them to fill in.
+  await page.$$eval('details.admit-optional', (ds) => ds.forEach((d) => { d.open = true; }));
   await page.type('#agn', 'Fictional Parent');
   await page.type('#agp', '+971 50 222 0202');
   await page.type('#asc', 'Fictional Public School');

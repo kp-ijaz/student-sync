@@ -4,7 +4,7 @@ using StudentSync.Domain.People;
 namespace StudentSync.Domain.Fees;
 
 public enum PackageStatus { Active, Cancelled }
-public enum PaymentMethod { Cash, Card, BankTransfer, Upi, Cheque, Other }
+public enum PaymentMethod { Cash, Card, BankTransfer, Upi, Cheque, Other, Online }
 
 /// <summary>
 /// Prepaid learning hours sold to one student (addendum A): usable across any subject. The name, hours and price are

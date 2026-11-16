@@ -112,32 +112,10 @@ public sealed class NotificationDeliveryJob(IAppDbContext db, IEmailSender email
 }
 
 /// <summary>Recurring maintenance jobs. Each runs once per active tenant inside its own DI scope and tenant scope.</summary>
-public sealed class MaintenanceJobs(IServiceScopeFactory scopes, ILogger<MaintenanceJobs> logger)
+public sealed class MaintenanceJobs(TenantJobRunner runner)
 {
-    private async Task ForEachTenantAsync(string name, Func<IServiceProvider, CancellationToken, Task<int>> work, CancellationToken ct)
-    {
-        List<Guid> tenantIds;
-        using (var scope = scopes.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
-            tenantIds = await db.Tenants.Where(t => t.Status == TenantStatus.Active).Select(t => t.Id).ToListAsync(ct);
-        }
-        foreach (var tenantId in tenantIds)
-        {
-            using var scope = scopes.CreateScope();
-            using var _ = scope.ServiceProvider.GetRequiredService<ITenantContext>().BeginScope(tenantId);
-            try
-            {
-                var count = await work(scope.ServiceProvider, ct);
-                if (count > 0) logger.LogInformation("{Job} processed {Count} item(s) for tenant {TenantId}", name, count, tenantId);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                // One tenant's failure must not stop the others.
-                logger.LogError(ex, "{Job} failed for tenant {TenantId}", name, tenantId);
-            }
-        }
-    }
+    private Task ForEachTenantAsync(string name, Func<IServiceProvider, CancellationToken, Task<int>> work, CancellationToken ct) =>
+        runner.ForEachTenantAsync(name, work, ct);
 
     public Task SessionRemindersAsync(CancellationToken ct) => ForEachTenantAsync("session-reminders", async (sp, c) =>
     {

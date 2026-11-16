@@ -203,6 +203,11 @@ public static class RecurringJobs
         jobs.AddOrUpdate<MaintenanceJobs>("exam-finalise", j => j.FinaliseExpiredExamsAsync(CancellationToken.None), "*/5 * * * *");
         jobs.AddOrUpdate<MaintenanceJobs>("recording-retention", j => j.RecordingRetentionAsync(CancellationToken.None), "30 2 * * *");
         jobs.AddOrUpdate<MaintenanceJobs>("weekly-digest", j => j.WeeklyDigestAsync(CancellationToken.None), "0 16 * * 5");
+        // Settings ▸ Automations (2026-11-17). Times inside each job follow the centre's own clock and settings.
+        jobs.AddOrUpdate<AutomationJobs>("sms-outbox", j => j.SendSmsAsync(CancellationToken.None), "* * * * *");
+        jobs.AddOrUpdate<AutomationJobs>("attendance-nudge", j => j.AttendanceNudgeAsync(CancellationToken.None), "*/10 * * * *");
+        jobs.AddOrUpdate<AutomationJobs>("daily-automations", j => j.DailyAsync(CancellationToken.None), "*/15 * * * *");
+        jobs.AddOrUpdate<AutomationJobs>("payment-links", j => j.PaymentLinksAsync(CancellationToken.None), "7-59/15 * * * *");
     }
 }
 

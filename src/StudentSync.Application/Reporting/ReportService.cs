@@ -11,7 +11,7 @@ using StudentSync.Domain.Scheduling;
 
 namespace StudentSync.Application.Reporting;
 
-public sealed class ReportService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, DashboardService dashboards)
+public sealed class ReportService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, DashboardService dashboards, Fees.FeeService fees, Fees.TeacherPayService pay)
 {
     public async Task<InstitutionReportDto> InstitutionAsync(ReportQuery q, CancellationToken ct)
     {
@@ -33,6 +33,16 @@ public sealed class ReportService(IAppDbContext db, ICurrentUser user, AccessPol
         var byType = await dashboards.SessionTypeCountsAsync(sessions.Where(s => s.Status != SessionStatus.Cancelled), ct);
         var attendance = await dashboards.AttendanceSummaryAsync(sessions, ct);
 
+        var seeMoney = user.Has(Permissions.UsersManage);
+        // Completed classes in the period (with the local day, for the rate in force that day).
+        var completed = (await sessions.Where(s => s.Status == SessionStatus.Completed)
+                .Select(s => new { s.Id, s.TeacherId, s.SubjectId, s.StartUtc, s.EndUtc }).ToListAsync(ct))
+            .Select(s => new { s.Id, s.TeacherId, s.SubjectId, Day = DateOnly.FromDateTime(ZonedTime.ToLocal(s.StartUtc, tz)), Hours = Domain.Fees.TeacherPayRules.Hours(s.StartUtc, s.EndUtc) })
+            .ToList();
+        var teacherMissed = (await sessions.Where(s => s.Status == SessionStatus.Cancelled && s.CancelledBecause == CancellationKind.TeacherAbsent)
+            .Select(s => new { s.TeacherId, s.StartUtc, s.EndUtc }).ToListAsync(ct)).Select(s => (s.TeacherId, Hours: Domain.Fees.TeacherPayRules.Hours(s.StartUtc, s.EndUtc))).ToList();
+        var allRates = seeMoney ? await db.TeacherPayRates.Select(r => new { r.TeacherId, r.EffectiveFrom, r.HourlyRate }).ToListAsync(ct) : [];
+
         var teacherRows = await db.Teachers.Select(x => new { x.Id, x.User!.FullName }).OrderBy(x => x.FullName).ToListAsync(ct);
         var teachers = new List<TeacherReportRowDto>();
         foreach (var tr in teacherRows.Where(x => q.TeacherId is null || x.Id == q.TeacherId))
@@ -44,8 +54,12 @@ public sealed class ReportService(IAppDbContext db, ICurrentUser user, AccessPol
             var resolved = await db.Doubts.Where(d => d.AssignedTeacherId == tr.Id && d.ResolvedAtUtc >= fromUtc && d.ResolvedAtUtc < toUtc)
                 .Select(d => new { d.CreatedAtUtc, d.ResolvedAtUtc }).ToListAsync(ct);
             var gradedCount = await db.Submissions.CountAsync(s => s.GradedByUserId == tr.Id && s.GradedAtUtc >= fromUtc && s.GradedAtUtc < toUtc, ct);
+            var taught = completed.Where(c => c.TeacherId == tr.Id).ToList();
+            var rates = allRates.Where(r => r.TeacherId == tr.Id).Select(r => new Domain.Fees.TeacherPayRules.Rate(r.EffectiveFrom, r.HourlyRate)).ToList();
             teachers.Add(new TeacherReportRowDto(tr.Id, tr.FullName, delivered, cancelled, att.AttendanceRatePercent, resolved.Count,
-                resolved.Count == 0 ? null : Math.Round(resolved.Average(r => (r.ResolvedAtUtc!.Value - r.CreatedAtUtc).TotalHours), 1), gradedCount));
+                resolved.Count == 0 ? null : Math.Round(resolved.Average(r => (r.ResolvedAtUtc!.Value - r.CreatedAtUtc).TotalHours), 1), gradedCount,
+                taught.Sum(c => c.Hours), teacherMissed.Where(m => m.TeacherId == tr.Id).Sum(m => m.Hours),
+                seeMoney ? Domain.Fees.TeacherPayRules.Earned(taught.Select(c => new Domain.Fees.TeacherPayRules.TaughtClass(c.Day, c.Hours)), rates) : null));
         }
 
         var batchRows = await db.Batches.Where(x => x.Status != CatalogStatus.Archived && (q.BatchId == null || x.Id == q.BatchId))
@@ -68,7 +82,35 @@ public sealed class ReportService(IAppDbContext db, ICurrentUser user, AccessPol
         var assignments = new AssignmentReportDto(await published.CountAsync(ct), expected, await subs.CountAsync(ct),
             await subs.CountAsync(s => s.Status == SubmissionStatus.Graded, ct), await subs.CountAsync(s => s.IsLate, ct));
 
-        return new InstitutionReportDto(from, to, byType, attendance, teachers, batches, doubts, assignments);
+        // Per subject: completed classes in the period, their hours, students and teachers.
+        var subjectIds = completed.Where(c => c.SubjectId != null).Select(c => c.SubjectId!.Value).Distinct().ToList();
+        var subjectInfo = await db.Subjects.Where(x => subjectIds.Contains(x.Id)).Select(x => new { x.Id, x.Name, Course = x.Course!.Name }).ToListAsync(ct);
+        var sessionIds = completed.Select(c => c.Id).ToList();
+        var participants = await db.SessionParticipants.Where(p => sessionIds.Contains(p.SessionId) && p.Status == ParticipantStatus.Active)
+            .Select(p => new { p.SessionId, p.StudentId }).ToListAsync(ct);
+        var names = teacherRows.ToDictionary(x => x.Id, x => x.FullName);
+        var subjects = subjectInfo.Select(sub =>
+        {
+            var rows = completed.Where(c => c.SubjectId == sub.Id).ToList();
+            var ids = rows.Select(r => r.Id).ToHashSet();
+            return new SubjectReportRowDto(sub.Id, sub.Name, sub.Course, rows.Count, rows.Sum(r => r.Hours),
+                participants.Where(p => ids.Contains(p.SessionId)).Select(p => p.StudentId).Distinct().Count(),
+                rows.Select(r => r.TeacherId).Distinct().Select(id => names.GetValueOrDefault(id, "Teacher")).OrderBy(n => n).ToList());
+        }).OrderByDescending(x => x.Hours).ThenBy(x => x.SubjectName).ToList();
+
+        MoneyReportDto? money = null;
+        if (seeMoney)
+        {
+            var currency = await db.Tenants.Where(t => t.Id == user.TenantId).Select(t => t.CurrencyCode).FirstAsync(ct);
+            var collected = await db.FeePayments.Where(p => p.VoidedAtUtc == null && p.PaidOn >= from && p.PaidOn <= to).SumAsync(p => (decimal?)p.Amount, ct) ?? 0;
+            var salaryPaid = await db.TeacherPayments.Where(p => p.VoidedAtUtc == null && p.PaidOn >= from && p.PaidOn <= to).SumAsync(p => (decimal?)p.Amount, ct) ?? 0;
+            var pending = (await fees.DueAsync(1, ct)).TotalDue;
+            decimal salaryDue = 0;
+            foreach (var tr in teacherRows) salaryDue += Math.Max(0, (await pay.PayAsync(tr.Id, ct)).Due);
+            money = new MoneyReportDto(currency, completed.Count, completed.Sum(c => c.Hours), collected, salaryPaid, pending, salaryDue);
+        }
+
+        return new InstitutionReportDto(from, to, byType, attendance, teachers, batches, doubts, assignments, money, subjects);
     }
 
     public async Task<string> AttendanceCsvAsync(ReportQuery q, CancellationToken ct)

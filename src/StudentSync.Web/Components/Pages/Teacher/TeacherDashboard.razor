@@ -49,10 +49,19 @@
                     }
                 </section>
 
-                @if (_d.PendingAttendance.Count > 0)
+                @if (_d.PendingAttendance.Any(x => !_marked.Contains(x.Id)) && Me is not null)
                 {
-                    <ClassAgenda Sessions="_d.PendingAttendance.Take(4).ToList()" Tz="@Tz" Title="Attendance to mark" LinkHref="/teacher/tasks#attendance" LinkLabel="@($"All {_d.PendingAttendance.Count}")"
-                                 ShowTeacher="false" MarkNext="false" HrefFor="AttendanceHref" />
+                    @* After class: mark attendance here in one tap (the first three; the rest on Tasks). *@
+                    <section class="card qa-home" aria-labelledby="qa-home-h">
+                        <div class="card-head"><h2 id="qa-home-h">Mark attendance</h2>
+                            @if (_d.PendingAttendance.Count(x => !_marked.Contains(x.Id)) > 3) { <a href="/teacher/tasks#attendance">All @_d.PendingAttendance.Count(x => !_marked.Contains(x.Id))</a> }</div>
+                        <div class="qa-list">
+                            @foreach (var s in _d.PendingAttendance.Where(x => !_marked.Contains(x.Id)).Take(3))
+                            {
+                                <QuickAttendance @key="s.Id" Session="s" Me="Me" OnSaved="id => _marked.Add(id)" />
+                            }
+                        </div>
+                    </section>
                 }
 
                 <section class="card" aria-labelledby="doubts-h">
@@ -74,6 +83,7 @@
 </DataView>
 
 @code {
+    private readonly HashSet<Guid> _marked = [];
     private static readonly IReadOnlyList<ShortcutItem> Shortcuts =
     [
         new("Timetable", "/sessions", "calendar"),
@@ -109,9 +119,10 @@
         get
         {
             var items = new List<NeedsList.Item>();
-            if (_d!.PendingAttendance.Count > 0)
-                items.Add(new($"{_d.PendingAttendance.Count}", _d.PendingAttendance.Count == 1 ? "class needs attendance marked" : "classes need attendance marked",
-                    _d.PendingAttendance.Count == 1 ? AttendanceHref(_d.PendingAttendance[0]) : "/teacher/tasks#attendance", Action: "Mark"));
+            var toMark = _d!.PendingAttendance.Where(x => !_marked.Contains(x.Id)).ToList();
+            if (toMark.Count > 0)
+                items.Add(new($"{toMark.Count}", toMark.Count == 1 ? "class needs attendance marked" : "classes need attendance marked",
+                    toMark.Count == 1 ? AttendanceHref(toMark[0]) : "/teacher/tasks#attendance", Action: "Mark"));
             if (_d.SubmissionsToGrade.Count > 0)
                 items.Add(new($"{_d.SubmissionsToGrade.Count}", _d.SubmissionsToGrade.Count == 1 ? "submission to grade" : "submissions to grade", "/teacher/tasks", Action: "Grade"));
             if (_openDoubts.Count > 0)

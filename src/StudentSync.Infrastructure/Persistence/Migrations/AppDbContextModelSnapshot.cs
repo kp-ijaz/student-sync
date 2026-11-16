@@ -731,6 +731,9 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("CurriculumId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Description")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
@@ -766,6 +769,8 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("AcademicYearId");
+
+                    b.HasIndex("CurriculumId");
 
                     b.HasIndex("GradeLevelId");
 
@@ -3452,6 +3457,108 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("StudentSync.Domain.Fees.PaymentLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("FeePaymentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("LastCheckedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("PackageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("PaidAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ProviderLinkId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("ProviderPaymentId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PackageId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_PaymentLinks_PackageId_Open")
+                        .HasFilter("\"Status\" = 'Open'");
+
+                    b.HasIndex("StudentId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("Provider", "ProviderPaymentId")
+                        .IsUnique()
+                        .HasFilter("\"ProviderPaymentId\" IS NOT NULL");
+
+                    b.HasIndex("TenantId", "Provider", "ProviderLinkId")
+                        .IsUnique();
+
+                    b.ToTable("PaymentLinks", t =>
+                        {
+                            t.HasCheckConstraint("CK_PaymentLinks_Amount", "\"Amount\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("StudentSync.Domain.Fees.StudentPackage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3532,6 +3639,149 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_StudentPackages_Hours", "\"Hours\" > 0");
 
                             t.HasCheckConstraint("CK_StudentPackages_Price", "\"Price\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("StudentSync.Domain.Fees.TeacherPayRate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<DateOnly>("EffectiveFrom")
+                        .HasColumnType("date");
+
+                    b.Property<decimal>("HourlyRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<Guid>("TeacherId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TeacherId", "EffectiveFrom")
+                        .IsUnique();
+
+                    b.ToTable("TeacherPayRates", t =>
+                        {
+                            t.HasCheckConstraint("CK_TeacherPayRates_Rate", "\"HourlyRate\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("StudentSync.Domain.Fees.TeacherPayment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateOnly>("PaidOn")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("PeriodFrom")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("PeriodTo")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("RecordedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<Guid>("TeacherId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("VoidReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime?>("VoidedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("VoidedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TeacherId", "PaidOn");
+
+                    b.ToTable("TeacherPayments", t =>
+                        {
+                            t.HasCheckConstraint("CK_TeacherPayments_Amount", "\"Amount\" > 0");
+
+                            t.HasCheckConstraint("CK_TeacherPayments_Period", "\"PeriodTo\" IS NULL OR \"PeriodFrom\" IS NULL OR \"PeriodTo\" >= \"PeriodFrom\"");
                         });
                 });
 
@@ -3798,6 +4048,92 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
                     b.ToTable("ParentLinks");
                 });
 
+            modelBuilder.Entity("StudentSync.Domain.People.ProgressReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AssignmentsGraded")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("AverageMarkPercent")
+                        .HasPrecision(5, 1)
+                        .HasColumnType("numeric(5,1)");
+
+                    b.Property<int>("ClassesAttended")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ClassesMissed")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("HoursAttended")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("numeric(8,2)");
+
+                    b.Property<decimal?>("HoursLeft")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("numeric(8,2)");
+
+                    b.Property<DateOnly>("Month")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Remark")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<DateTime?>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("SentByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TeacherId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StudentId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TeacherId", "Status");
+
+                    b.HasIndex("TenantId", "StudentId", "Month")
+                        .IsUnique();
+
+                    b.ToTable("ProgressReports");
+                });
+
             modelBuilder.Entity("StudentSync.Domain.People.Student", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3825,6 +4161,10 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
                     b.Property<string>("GuardianPhone")
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
+
+                    b.Property<decimal?>("HourlyRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<DateOnly?>("JoinedOn")
                         .HasColumnType("date");
@@ -3875,7 +4215,10 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "StudentCode")
                         .IsUnique();
 
-                    b.ToTable("Students");
+                    b.ToTable("Students", t =>
+                        {
+                            t.HasCheckConstraint("CK_Students_HourlyRate", "\"HourlyRate\" IS NULL OR \"HourlyRate\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("StudentSync.Domain.People.StudentLearningNeed", b =>
@@ -4307,6 +4650,170 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
                     b.ToTable("AuditLogs");
                 });
 
+            modelBuilder.Entity("StudentSync.Domain.Platform.AutomationRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("FinishedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Items")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("RunKey")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Task")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Task", "RunKey")
+                        .IsUnique();
+
+                    b.ToTable("AutomationRuns");
+                });
+
+            modelBuilder.Entity("StudentSync.Domain.Platform.AutomationSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AbsenceFlagAt")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("AbsenceSms")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("AttendanceNudge")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("AttendanceNudgeAfterMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("AutoAiNotes")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ClassDaySms")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("EveningTimetable")
+                        .HasColumnType("boolean");
+
+                    b.Property<TimeOnly>("EveningTimetableAt")
+                        .HasColumnType("time without time zone");
+
+                    b.Property<int>("FeeReminderDaysAfter")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("FeeReminderDaysBefore")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("FeeReminderSms")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("FeeReminders")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("JobFailureAlerts")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("LowHoursAlert")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal>("LowHoursAt")
+                        .HasPrecision(6, 2)
+                        .HasColumnType("numeric(6,2)");
+
+                    b.Property<bool>("LowHoursSms")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("MonthEndReport")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("MonthEndSalaries")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("MorningSummary")
+                        .HasColumnType("boolean");
+
+                    b.Property<TimeOnly>("MorningSummaryAt")
+                        .HasColumnType("time without time zone");
+
+                    b.Property<bool>("PaymentLinks")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ProgressReportSms")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ProgressReports")
+                        .HasColumnType("boolean");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<bool>("ScheduleRunningOut")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique();
+
+                    b.ToTable("AutomationSettings", t =>
+                        {
+                            t.HasCheckConstraint("CK_AutomationSettings_Ranges", "\"AttendanceNudgeAfterMinutes\" BETWEEN 0 AND 720 AND \"AbsenceFlagAt\" BETWEEN 0 AND 31 AND \"LowHoursAt\" >= 0 AND \"FeeReminderDaysBefore\" BETWEEN 0 AND 30 AND \"FeeReminderDaysAfter\" BETWEEN 0 AND 60");
+                        });
+                });
+
             modelBuilder.Entity("StudentSync.Domain.Platform.FeatureFlag", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4533,6 +5040,104 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
                     b.ToTable("Integrations");
                 });
 
+            modelBuilder.Entity("StudentSync.Domain.Platform.OutboundMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DedupeKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("NotBeforeUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PhoneMasked")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("ProviderMessageId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<DateTime?>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(480)
+                        .HasColumnType("character varying(480)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StudentId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("Status", "NotBeforeUtc");
+
+                    b.HasIndex("TenantId", "CreatedAtUtc");
+
+                    b.HasIndex("TenantId", "DedupeKey")
+                        .IsUnique();
+
+                    b.ToTable("OutboundMessages");
+                });
+
             modelBuilder.Entity("StudentSync.Domain.Scheduling.AttendanceRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4613,6 +5218,10 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTime?>("CancelledAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CancelledBecause")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
 
                     b.Property<Guid?>("ChapterId")
                         .HasColumnType("uuid");
@@ -5722,6 +6331,11 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
                         .HasForeignKey("AcademicYearId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("StudentSync.Domain.Academics.Curriculum", null)
+                        .WithMany()
+                        .HasForeignKey("CurriculumId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("StudentSync.Domain.Academics.GradeLevel", "GradeLevel")
                         .WithMany()
                         .HasForeignKey("GradeLevelId")
@@ -6707,6 +7321,27 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("StudentSync.Domain.Fees.PaymentLink", b =>
+                {
+                    b.HasOne("StudentSync.Domain.Fees.StudentPackage", null)
+                        .WithMany()
+                        .HasForeignKey("PackageId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("StudentSync.Domain.People.Student", null)
+                        .WithMany()
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("StudentSync.Domain.Tenancy.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("StudentSync.Domain.Fees.StudentPackage", b =>
                 {
                     b.HasOne("StudentSync.Domain.People.Student", "Student")
@@ -6722,6 +7357,36 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("StudentSync.Domain.Fees.TeacherPayRate", b =>
+                {
+                    b.HasOne("StudentSync.Domain.People.Teacher", null)
+                        .WithMany()
+                        .HasForeignKey("TeacherId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("StudentSync.Domain.Tenancy.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("StudentSync.Domain.Fees.TeacherPayment", b =>
+                {
+                    b.HasOne("StudentSync.Domain.People.Teacher", null)
+                        .WithMany()
+                        .HasForeignKey("TeacherId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("StudentSync.Domain.Tenancy.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("StudentSync.Domain.Identity.AppUser", b =>
@@ -6786,6 +7451,27 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
                     b.Navigation("Parent");
 
                     b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("StudentSync.Domain.People.ProgressReport", b =>
+                {
+                    b.HasOne("StudentSync.Domain.People.Student", null)
+                        .WithMany()
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("StudentSync.Domain.People.Teacher", null)
+                        .WithMany()
+                        .HasForeignKey("TeacherId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("StudentSync.Domain.Tenancy.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("StudentSync.Domain.People.Student", b =>
@@ -6939,6 +7625,24 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("StudentSync.Domain.Platform.AutomationRun", b =>
+                {
+                    b.HasOne("StudentSync.Domain.Tenancy.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("StudentSync.Domain.Platform.AutomationSettings", b =>
+                {
+                    b.HasOne("StudentSync.Domain.Tenancy.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("StudentSync.Domain.Platform.InstitutionIntegration", b =>
                 {
                     b.HasOne("StudentSync.Domain.Tenancy.Tenant", null)
@@ -6959,6 +7663,21 @@ namespace StudentSync.Infrastructure.Persistence.Migrations
                     b.HasOne("StudentSync.Domain.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("StudentSync.Domain.Platform.OutboundMessage", b =>
+                {
+                    b.HasOne("StudentSync.Domain.People.Student", null)
+                        .WithMany()
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("StudentSync.Domain.Tenancy.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

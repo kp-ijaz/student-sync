@@ -16,7 +16,7 @@ namespace StudentSync.Application.AI;
 
 public sealed class AiService(
     IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, AuditService audit, NotificationService notify,
-    ContentService content, ILanguageModel llm, ITranscriptionProvider transcription, IBackgroundJobs jobs)
+    ContentService content, ILanguageModel llm, ITranscriptionProvider transcription, IBackgroundJobs jobs, Automation.AutomationSettingsService automations)
 {
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -86,6 +86,13 @@ public sealed class AiService(
         db.Transcripts.Add(transcript);
         audit.Record("transcript.uploaded", "ClassTranscript", transcript.Id, $"{Path.GetFileName(fileName)}, {parsed.Count} segments");
         await db.SaveChangesAsync(ct);
+        // Automation "AI class notes": start the draft now. It is still only a draft the teacher must review; every rule of
+        // RequestDraftAsync (AI switched on, consent, quota, provider) applies, and when one is not met nothing happens.
+        if (tenant.AiAssistantEnabled && llm.IsConfigured && (await automations.CurrentAsync(ct)).AutoAiNotes)
+        {
+            try { await RequestDraftAsync(s.Id, new GenerateDraftRequest(transcript.Id), ct); }
+            catch (Exception ex) when (ex is DomainException or ConflictException) { /* the teacher can still ask for it by hand */ }
+        }
         return transcript.Id;
     }
 

@@ -2,7 +2,7 @@
 <fieldset class="field fee-method">
     <legend>Paid by</legend>
     <div class="pick-group">
-        @foreach (var m in Enum.GetValues<PaymentMethod>())
+        @foreach (var m in Enum.GetValues<PaymentMethod>().Where(m => m != PaymentMethod.Online))
         {
             <button type="button" class="pick" aria-pressed="@Aria.Bool(Method == m)" @onclick="() => MethodChanged.InvokeAsync(m)">@StudentFeesPanel.MethodName(m)</button>
         }

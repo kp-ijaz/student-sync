@@ -1,0 +1,75 @@
+@inherits AppComponent
+@* QuickAttendance: mark a finished class's attendance without leaving Home/Tasks. One student: tap Present, Late or
+   Absent and it is saved. Several: "All present", change anyone who was not, then Save. The class page (Open) still has
+   Excused, notes per student and corrections. Uses GET/PUT /sessions/{id}/attendance (the API checks the teacher may). *@
+<article class="qa-card" aria-labelledby="@_id">
+    <div class="qa-head">
+        <div class="grow">
+            <h3 id="@_id" class="qa-title">@Session.Title</h3>
+            <span class="caption">@Time.Range(Session.StartUtc, Session.EndUtc, Tz)</span>
+        </div>
+        <a class="btn btn-ghost btn-sm" href="/sessions/@Session.Id?tab=attendance" aria-label="@($"Open {Session.Title}")">Open</a>
+    </div>
+    @if (_roster is null && _error is null) { <div class="sk sk-line w60" aria-hidden="true"></div> }
+    else if (_error is not null) { <p class="caption">Could not load the students. <button class="btn btn-ghost btn-sm" @onclick="Load">Retry</button></p> }
+    else if (_roster!.Rows.Count == 0) { <p class="caption">No students in this class.</p> }
+    else if (!_roster.CanEdit) { <p class="caption">You cannot mark this class.</p> }
+    else
+    {
+        @foreach (var r in _roster.Rows)
+        {
+            <div class="qa-row" role="group" aria-label="@($"Attendance for {r.StudentName}")">
+                <Avatar Name="@r.StudentName" Size="sm" Decorative="true" />
+                <span class="qa-name">@r.StudentName</span>
+                <div class="qa-marks">
+                    @foreach (var (status, label) in Marks)
+                    {
+                        <button type="button" class="qa-mark @status.ToString().ToLowerInvariant()" aria-pressed="@Aria.Bool(Chosen(r) == status)" disabled="@Busy"
+                                @onclick="() => Choose(r, status)">@label</button>
+                    }
+                </div>
+            </div>
+        }
+        @if (_roster.Rows.Count > 1)
+        {
+            <div class="qa-actions">
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="AllPresent" disabled="@Busy">All present</button>
+                <button type="button" class="btn btn-primary btn-sm" @onclick="Save" disabled="@(Busy || _roster.Rows.Any(r => Chosen(r) is null))">Save attendance</button>
+            </div>
+        }
+    }
+</article>
+
+@code {
+    private readonly string _id = "qa-" + Guid.NewGuid().ToString("N")[..6];
+    [Parameter, EditorRequired] public SessionListItemDto Session { get; set; } = default!;
+    /// <summary>Called after attendance was saved (the parent removes the card / reloads its list).</summary>
+    [Parameter] public EventCallback<Guid> OnSaved { get; set; }
+    private AttendanceRosterDto? _roster;
+    private ApiException? _error;
+    private readonly Dictionary<Guid, AttendanceStatus> _chosen = [];
+    private static readonly (AttendanceStatus, string)[] Marks = [(AttendanceStatus.Present, "Present"), (AttendanceStatus.Late, "Late"), (AttendanceStatus.Absent, "Absent")];
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load() => (_roster, _error) = await Fetch(() => Api.GetAsync<AttendanceRosterDto>($"sessions/{Session.Id}/attendance"));
+
+    private AttendanceStatus? Chosen(AttendanceRowDto r) => _chosen.TryGetValue(r.StudentId, out var s) ? s : r.Status;
+
+    private async Task Choose(AttendanceRowDto r, AttendanceStatus status)
+    {
+        _chosen[r.StudentId] = status;
+        // One student: the tap is the whole job.
+        if (_roster!.Rows.Count == 1) await Save();
+    }
+
+    private void AllPresent() { foreach (var r in _roster!.Rows) _chosen[r.StudentId] = AttendanceStatus.Present; }
+
+    private async Task Save()
+    {
+        var entries = _roster!.Rows.Select(r => new AttendanceEntry(r.StudentId, Chosen(r) ?? AttendanceStatus.Present, r.Note)).ToList();
+        var who = entries.Count == 1 ? _roster.Rows[0].StudentName.Split(' ')[0] : $"{entries.Count} students";
+        if (await Run(() => Api.PutAsync($"sessions/{Session.Id}/attendance", new MarkAttendanceRequest(entries)), $"Attendance saved for {who}."))
+            await OnSaved.InvokeAsync(Session.Id);
+    }
+}
