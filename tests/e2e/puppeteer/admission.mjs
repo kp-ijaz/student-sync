@@ -4,11 +4,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { launch, newPage, signIn, users, viewports, screenshot, BASE_URL } from './browser.mjs';
+import { launch, newPage, signIn, users, viewports, screenshot, BASE_URL, SCREENSHOT_DIR } from './browser.mjs';
 
 const pdf = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ss-admission-')), 'term1-report.pdf');
 fs.writeFileSync(pdf, '%PDF-1.4\n% fictional test report\n%%EOF\n');
-const pressed = (page, label) => page.$$eval('.admit-subjects button', (bs, l) => bs.find((b) => b.innerText.trim() === l)?.getAttribute('aria-pressed'), label);
+// The class's subjects are a tick list: "true" / "false" when the subject is offered, undefined when the class has none.
+const pressed = (page, label) => page.$$eval('.admit-subjects label', (ls, l) => { const x = ls.find((b) => b.innerText.trim() === l); return x ? String(x.querySelector('input').checked) : undefined; }, label);
+const isTicked = (n) => [...document.querySelectorAll('.admit-subjects label')].some((b) => b.innerText.trim() === n && b.querySelector('input').checked);
 
 const browser = await launch();
 let page;
@@ -34,23 +36,31 @@ try {
   await page.type('#asc', 'Fictional Public School');
   const grade = await page.$eval('#ag', (s) => [...s.options].find((o) => /7/.test(o.textContent))?.value ?? [...s.options].find((o) => o.value)?.value);
   await page.select('#ag', grade);
+  // Syllabus next: only that class's subjects are offered.
+  const syllabus = await page.$eval('#asy', (s) => ([...s.options].find((o) => /kerala/i.test(o.textContent)) ?? [...s.options].find((o) => o.value)).value);
+  await page.select('#asy', syllabus);
+  await page.waitForFunction(() => /Subjects in /.test(document.body.innerText));
 
-  // Tuition subjects from the centre's simple list; "Add" creates them the first time and selects them.
+  // Tuition subjects of the chosen class; "Add subject" adds a missing one to the class and selects it.
   for (const name of ['Maths', 'Arabic']) {
     console.log('subject', name, 'pressed =', await pressed(page, name));
     if (await pressed(page, name) === null || await pressed(page, name) === undefined) {
       await page.type('#anew', name);
-      await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.innerText.trim() === 'Add' && !b.disabled));
-      await page.$$eval('button', (bs) => bs.find((b) => b.innerText.trim() === 'Add').click());
-      await page.waitForFunction((n) => [...document.querySelectorAll('.admit-subjects button')].some((b) => b.innerText.trim() === n && b.getAttribute('aria-pressed') === 'true'), { timeout: 15000 }, name);
+      await page.waitForFunction(() => [...document.querySelectorAll('.admit-add-subj button')].some((b) => !b.disabled));
+      await page.click('.admit-add-subj button');
+      await page.waitForFunction(isTicked, { timeout: 15000 }, name);
     } else if (await pressed(page, name) !== 'true') {
-      await page.$$eval('.admit-subjects button', (bs, n) => bs.find((b) => b.innerText.trim() === n).click(), name);
-      await page.waitForFunction((n) => [...document.querySelectorAll('.admit-subjects button')].some((b) => b.innerText.trim() === n && b.getAttribute('aria-pressed') === 'true'), {}, name);
+      await page.$$eval('.admit-subjects label', (ls, n) => ls.find((b) => b.innerText.trim() === n).querySelector('input').click(), name);
+      await page.waitForFunction(isTicked, {}, name);
     }
   }
   // A marks row was offered for each tuition subject.
   await page.waitForSelector('#ms1');
   assert.deepEqual(await page.$$eval('.admit-mark input[id^="ms"]', (i) => i.map((x) => x.value)), ['Maths', 'Arabic']);
+
+  // Only this class's subjects are offered, as a tick list (no other lists).
+  console.log('subjects offered:', (await page.$$eval('.admit-subjects label', (l) => l.map((x) => x.innerText.trim()))).length, 'in', await page.$eval('.admit-subjects-h', (h) => h.innerText));
+  assert.equal(await page.$('.admit-subj-edit'), null, 'no edit mode on admission');
   await page.type('#mm0', '58'); await page.type('#mx0', '100');
   await page.type('#mm1', '41'); await page.type('#mx1', '50');
   await page.type('#art', 'Term 1 2026');

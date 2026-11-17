@@ -345,6 +345,29 @@ student has their own rate per hour; syllabi are NCERT, State (Kerala SCERT) and
   with hours taught/missed and earned, and a Subjects table. **Admin home** metric strip adds Subjects (being studied)
   and Hours taught (this month).
 
+### Admission subjects from the chosen class; subjects add/edit/remove (2026-11-17)
+
+- **Admit a student**: step 2 asks Class * and Syllabus * first; step 3 then shows only "Subjects in Class 7 · Kerala"
+  as a compact tick list (`.admit-check-list`, one row per subject; chips took too much room on phones). No edit or
+  remove here; **Add a subject to …** at the end adds it to that class (creating the class course if needed) and ticks it.
+  Changing class or syllabus drops ticks from the old class.
+- **Learning ▸ Subjects**: **Add subject** (class + syllabus + name; code automatic) and per-row **Edit** (rename) and
+  **Remove** (refused with the reason while in use).
+
+### Academics by syllabus; Students by class (2026-11-17)
+
+- **Courses & subjects** tab: pick a syllabus (`.pick` chips, plus "Other courses" for anything without a syllabus),
+  then a class (chip row; scrolls sideways on phones and keeps the chosen class in view; classes without a course are
+  dimmed). Only that class's subjects are listed, each with Edit · Teacher · Chapter · Remove.
+- **Add subject** asks syllabus → class → name, pre-filled from the chips. *Kind* and *Choice group* are no longer shown
+  (not needed for a tuition centre; existing values are kept on edit).
+- "Default catalogue" is now a closed **Standard syllabi and classes** section explaining what it is (NCERT, Kerala
+  State and ICSE, Classes 1–12, usual subjects, the current year) with **Check the standard list** (adds only what is
+  missing, tidies names).
+- **Reports ▸ Students by class** (`/admin/student-numbers`, admins only): academic-year select, syllabus metric strip,
+  class × syllabus grid with totals (desktop/tablet) or one row per class with the syllabus split underneath (phones),
+  and a by-year list. Counts active students; "Not set" rows show students missing a class, syllabus or year.
+
 ### Academics: edit, remove and automatic codes (2026-11-17)
 
 - Tabs: Courses & subjects · Syllabi · Academic years · **Classes** (was "Grades"). Every course, subject, syllabus, year

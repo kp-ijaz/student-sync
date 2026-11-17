@@ -250,6 +250,7 @@ public static class LearningEndpoints
 
         var r = api.MapGroup("/reports").WithTags("Dashboards & reports").RequirePermission(Permissions.ReportsView);
         r.MapGet("/institution", ([AsParameters] ReportQuery q, ReportService s, CancellationToken ct) => s.InstitutionAsync(q, ct));
+        r.MapGet("/students", (Guid? academicYearId, ReportService s, CancellationToken ct) => s.StudentsBreakdownAsync(academicYearId, ct));
         r.MapGet("/attendance.csv", async ([AsParameters] ReportQuery q, ReportService s, CancellationToken ct) =>
             Results.File(System.Text.Encoding.UTF8.GetBytes(await s.AttendanceCsvAsync(q, ct)), "text/csv", "attendance.csv"));
         api.MapGet("/students/{id:guid}/progress", (Guid id, ProgressService s, CancellationToken ct) => s.ForStudentAsync(id, ct)).WithTags("Dashboards & reports");

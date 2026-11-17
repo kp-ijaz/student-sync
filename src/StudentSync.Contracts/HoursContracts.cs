@@ -48,8 +48,8 @@ public sealed record SetStudentRateRequest(decimal? HourlyRate);
 public sealed record SubjectOverviewDto(Guid Id, string Name, string Code, string? CourseName, Guid? CurriculumId, string? CurriculumName,
     Guid? GradeLevelId, string? GradeName, int GradeOrder, IReadOnlyList<LookupItem> Teachers, int Students, int ClassesDone, decimal HoursDone, decimal? FeeValue);
 
-/// <summary>What "Load default catalogue" added (zeros when everything was already there).</summary>
-/// <summary>Tidied: class and syllabus names made consistent ("+1" → "Class 11", "CBSE" → "CBSE / NCERT").</summary>
+/// <summary>What "Load default catalogue" added (zeros when everything was already there). Tidied: class and syllabus
+/// names made consistent ("+1" → "Class 11", "CBSE" → "CBSE / NCERT").</summary>
 public sealed record DefaultCatalogueResult(int Syllabi, int Classes, int Courses, int Subjects, int AcademicYears, int Tidied = 0);
 
 /// <summary>"Add a class" (Academics): the course name it will get, the course if it already exists, the usual subjects of
@@ -65,3 +65,10 @@ public sealed record PaySalaryRequest(DateOnly Month, PaymentMethod Method, stri
 
 /// <summary>An online payment link for what is owed on a package.</summary>
 public sealed record PaymentLinkDto(Guid Id, string Url, decimal Amount, string CurrencyCode, DateTime ExpiresAtUtc, string Status, string Provider);
+
+/// <summary>Active students by academic year, syllabus and class (admins; Reports ▸ Students). Year filter applies to
+/// Syllabi, Classes and Cells; Years always counts every active student. Id null = not set on the student.</summary>
+public sealed record StudentsBreakdownDto(int Total, IReadOnlyList<BreakdownItemDto> Years, IReadOnlyList<BreakdownItemDto> Syllabi,
+    IReadOnlyList<BreakdownItemDto> Classes, IReadOnlyList<BreakdownCellDto> Cells);
+public sealed record BreakdownItemDto(Guid? Id, string Name, int Count);
+public sealed record BreakdownCellDto(Guid? ClassId, Guid? SyllabusId, int Count);

@@ -6,7 +6,8 @@
    take it, classes and hours done, and the value of those hours (hours × each student's rate). By default only subjects
    in use are listed, so the full catalogue (NCERT, Kerala State, ICSE × Classes 1–12) does not bury them. *@
 <PageHeader Title="Subjects" Subtitle="Who teaches each subject, how many students take it, and the hours done.">
-    <Actions><a class="btn btn-secondary" href="/admin/academics"><Icon Name="settings" /> Manage catalogue</a></Actions>
+    <Actions><div class="btn-group"><a class="btn btn-secondary" href="/admin/academics"><Icon Name="settings" /> Manage catalogue</a>
+        <button class="btn btn-primary" @onclick="NewSubject"><Icon Name="plus" /> Add subject</button></div></Actions>
 </PageHeader>
 <div class="card">
     <div class="list-tools">
@@ -28,6 +29,10 @@
                             <strong>@s.Name</strong> <span class="caption">@s.Code</span>
                             <div class="caption">@(s.Teachers.Count == 0 ? "No teacher assigned" : string.Join(", ", s.Teachers.Select(t => t.Name)))</div>
                         </div>
+                        <div class="btn-group subject-actions">
+                            <button class="btn btn-ghost btn-sm" @onclick="() => Edit(s)">Edit<span class="sr-only"> @s.Name</span></button>
+                            <button class="btn btn-ghost btn-sm danger-text" @onclick="() => _removing = s">Remove<span class="sr-only"> @s.Name</span></button>
+                        </div>
                         <dl class="subject-figures">
                             <div><dt>Students</dt><dd>@s.Students</dd></div>
                             <div><dt>Classes</dt><dd>@s.ClassesDone</dd></div>
@@ -42,7 +47,68 @@
     </DataView>
 </div>
 
+<Modal @bind-Open="_addOpen" Title="Add subject">
+    <div class="form-grid">
+        <div class="field"><label for="ns-g">Class *</label><select id="ns-g" class="select" @bind="_addGrade"><option value="">Choose the class</option>@foreach (var g in _grades) { <option value="@g.Id">@g.Name</option> }</select></div>
+        <div class="field"><label for="ns-c">Syllabus *</label><select id="ns-c" class="select" @bind="_addCur"><option value="">Choose the syllabus</option>@foreach (var c in _curricula.Where(c => c.Status == CatalogStatus.Active)) { <option value="@c.Id">@c.Name</option> }</select></div>
+        <div class="field full"><label for="ns-n">Subject name *</label><input id="ns-n" class="input" maxlength="100" placeholder="e.g. Accountancy" @bind="_addName" @bind:event="oninput" /></div>
+    </div>
+    <p class="caption">The code is assigned automatically. If the class has no subjects yet, it is set up too.</p>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _addOpen = false">Cancel</button>
+        <button class="btn btn-primary" @onclick="AddSubject" disabled="@(Busy || _addGrade is null || _addCur is null || string.IsNullOrWhiteSpace(_addName))">Add subject</button></div>
+</Modal>
+<Modal Open="_editing is not null" OpenChanged="_ => _editing = null" Title="Edit subject">
+    @if (_editing is { } e)
+    {
+        <div class="form-grid">
+            <div class="field full"><label for="es-n">Name *</label><input id="es-n" class="input" maxlength="150" @bind="_editName" @bind:event="oninput" /></div>
+            <div class="field"><span class="label">Class</span><span class="code-ro">@(e.CourseName ?? "—")</span></div>
+            <div class="field"><span class="label">Code</span><span class="code-ro">@e.Code</span></div>
+        </div>
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _editing = null">Cancel</button>
+            <button class="btn btn-primary" @onclick="SaveEdit" disabled="@(Busy || string.IsNullOrWhiteSpace(_editName))">Save</button></div>
+    }
+</Modal>
+<Modal Open="_removing is not null" OpenChanged="_ => _removing = null" Title="@($"Remove {_removing?.Name}?")">
+    <p>@_removing?.Name (@_removing?.CourseName) is removed for everyone. This is only possible when no student, class or work uses it.</p>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _removing = null">Keep it</button>
+        <button class="btn btn-danger" @onclick="Remove" disabled="@Busy">Remove</button></div>
+</Modal>
+
 @code {
+    private List<SubjectDto> _subjects = [];
+    private List<GradeLevelDto> _grades = [];
+    private List<CurriculumDto> _curricula = [];
+    private bool _addOpen;
+    private Guid? _addGrade, _addCur;
+    private string _addName = "", _editName = "";
+    private SubjectOverviewDto? _editing, _removing;
+
+    private void NewSubject() { (_addGrade, _addCur, _addName) = (Guid.TryParse(_grade, out var g) ? g : null, Guid.TryParse(_syllabus, out var c) ? c : null, ""); _addOpen = true; }
+
+    private async Task AddSubject()
+    {
+        var name = _addName.Trim();
+        if (await Run(() => Api.PostAsync<IdResponse>("academics/catalogue/classes", new QuickClassRequest(_addGrade!.Value, _addCur!.Value, [name])), $"“{name}” added."))
+        { _addOpen = false; _inUse = false; _search = name; await LoadAsync(); }
+    }
+
+    private void Edit(SubjectOverviewDto s) { (_editing, _editName) = (s, s.Name); }
+
+    private async Task SaveEdit()
+    {
+        if (_editing is not { } o || _subjects.FirstOrDefault(x => x.Id == o.Id) is not { } s) return;
+        if (await Run(() => Api.PutAsync($"academics/subjects/{s.Id}", new SaveSubjectRequest(s.CourseId, s.Code, _editName.Trim(), s.Description, s.Status, s.Kind, s.ChoiceGroup)), "Subject saved."))
+        { _editing = null; await LoadAsync(); }
+    }
+
+    private async Task Remove()
+    {
+        if (_removing is not { } s) return;
+        if (await Run(() => Api.DeleteAsync($"academics/subjects/{s.Id}"), $"{s.Name} removed.")) await LoadAsync();
+        _removing = null;
+    }
+
     private List<SubjectOverviewDto>? _rows;
     private ApiException? _error;
     private string _search = "", _syllabus = "", _grade = "", Currency = "";
@@ -61,6 +127,9 @@
     protected override async Task LoadAsync()
     {
         (_rows, _error) = await Fetch(() => Api.GetAsync<List<SubjectOverviewDto>>("academics/subjects/overview"));
+        _subjects = (await Fetch(() => Api.GetAsync<List<SubjectDto>>("academics/subjects"))).Value ?? [];
+        _grades = (await Fetch(() => Api.GetAsync<List<GradeLevelDto>>("academics/grades"))).Value ?? [];
+        _curricula = (await Fetch(() => Api.GetAsync<List<CurriculumDto>>("academics/curricula"))).Value ?? [];
         Currency = (await Fetch(() => Api.GetAsync<InstitutionSettingsDto>("institution/settings"))).Value?.CurrencyCode ?? "";
     }
 }

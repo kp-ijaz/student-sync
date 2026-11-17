@@ -1865,3 +1865,55 @@ a.metric-cell:hover { text-decoration:none; background:#F7F9FD; }
 .code-ro { display: inline-block; padding: 10px 14px; border-radius: var(--r-control); background: var(--ss-slate-50); font: 600 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ss-text-2); }
 .grade-add { flex-wrap: nowrap; margin-bottom: var(--sp-2); }
 @media (max-width: 767px) { .grade-add { flex-wrap: wrap; } .grade-add .btn { width: 100%; } }
+/* Admission: the class's subjects can be renamed / removed in place; Subjects page row actions. */
+.admit-subj-head { margin: var(--sp-1) 0 var(--sp-2); }
+.admit-subj-head .admit-subjects-h { margin: 0; }
+.admit-subj-edit { list-style: none; padding: 0; margin: 0 0 var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-2); }
+.admit-subj-edit li { display: flex; align-items: center; gap: var(--sp-2); }
+.admit-add-subj { margin-top: var(--sp-4); }
+.subject-actions { flex: none; }
+@media (max-width: 767px) {
+  .admit-subj-edit li { flex-wrap: wrap; }
+  .admit-subj-edit li .input { flex: 1 1 100%; }
+  .admit-subj-edit li .btn { flex: 1 1 0; }
+  .admit-add-subj .row { flex-wrap: wrap !important; }
+  .admit-add-subj .row .btn { width: 100%; }
+  .subject-actions { width: 100%; }
+  .subject-actions .btn { flex: 1 1 0; }
+}
+/* Reports ▸ Students by class. */
+.sn-filter { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); }
+.sn-filter .select { max-width: 320px; }
+.sn-table th[scope=row] { font-weight: 600; color: var(--ss-navy); white-space: nowrap; }
+.sn-table td.num, .sn-table th.num { text-align: end; font-variant-numeric: tabular-nums; }
+.sn-table td.zero { color: var(--ss-text-2); }
+.sn-table .total { font-weight: 700; color: var(--ss-navy); }
+.sn-table tfoot th, .sn-table tfoot td { border-top: 2px solid var(--ss-border); }
+.sn-wrap { overflow-x: auto; }
+.sn-list { display: none; }
+.sn-list li { display: flex; flex-direction: column; gap: 2px; }
+.sn-list .sn-list-total { flex-direction: row; border-top: 2px solid var(--ss-border); }
+@media (max-width: 767px) { .sn-filter { flex-wrap: wrap; } .sn-filter .select { max-width: none; } .sn-wrap { display: none; } .sn-list { display: block; } }
+/* Admission: the class's subjects as a compact tick list (2 columns on phones, more on wider screens). */
+.admit-check-list { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: 2px var(--sp-4); }
+.admit-check-list .check { width: 100%; min-height: 44px; padding: 0 var(--sp-2); border-radius: var(--r-control); }
+.admit-check-list .check:has(input:checked) { background: var(--ss-blue-50); color: var(--ss-navy); font-weight: 600; }
+@media (max-width: 767px) { .admit-check-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Academics: syllabus → class chips, then that class's subjects. */
+.acad-head { margin-bottom: var(--sp-3); gap: var(--sp-3); }
+.acad-picker { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+.acad-picker .bk-label { margin-top: var(--sp-1); }
+.acad-classes .pick.empty:not([aria-pressed="true"]) { opacity: .55; }
+.acad-subjects { list-style: none; padding: 0; margin: 0; }
+.acad-subjects > li { display: flex; align-items: flex-start; gap: var(--sp-3); padding: var(--sp-3) 0; border-top: 1px solid var(--ss-border); }
+.acad-subjects > li:first-child { border-top: 0; }
+.acad-subject-actions { flex: none; }
+.acad-chapters { margin: var(--sp-2) 0 0; padding-inline-start: var(--sp-4); }
+.catalogue-defaults > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+@media (max-width: 767px) {
+  .acad-classes { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .acad-classes .pick { flex: none; }
+  .acad-subjects > li { flex-wrap: wrap; }
+  .acad-subject-actions { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .acad-subject-actions .btn { padding-inline: 4px; }
+}

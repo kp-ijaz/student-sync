@@ -19,7 +19,7 @@ fs.mkdirSync(outDir, { recursive: true });
 const pages = {
   admin: ["/admin", "/admin/students", "/admin/teachers", "/sessions", "/sessions/new", "/admin/fees", "/admin/reports",
     "/admin/academics", "/admin/settings", "/videos", "/assignments", "/exams", "/doubts", "/messages", "/announcements",
-    "/profile", "/admin/students/new", "/admin/subjects", "/admin/salaries", "/progress-reports", "/class-requests", "/admin/settings?tab=automations", "#student", "#session", "#teacher"],
+    "/profile", "/admin/students/new", "/admin/subjects", "/admin/student-numbers", "/admin/salaries", "/progress-reports", "/class-requests", "/admin/settings?tab=automations", "#student", "#session", "#teacher"],
   teacher: ["/teacher", "/sessions", "/teacher/students", "/teacher/tasks", "/teacher/availability", "/teacher/profile", "/progress-reports", "/class-requests", "/videos", "/assignments",
     "/exams", "/questions", "/doubts", "/messages", "/profile", "#student", "#session"],
   student: ["/student", "/subjects", "/timetable", "/learning", "/learning-plan", "/doubts", "/assistant", "/messages",
@@ -53,6 +53,9 @@ const measure = () => {
   const visible = (el) => {
     const s = getComputedStyle(el);
     if (s.visibility === "hidden" || s.display === "none" || Number(s.opacity) === 0) return false;
+    // Content of a closed <details> is not rendered (Chrome still reports a box for it); its <summary> is.
+    const closed = el.closest("details:not([open])");
+    if (closed && !el.closest("summary")) return false;
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
   };

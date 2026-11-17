@@ -383,7 +383,8 @@ public static class Navigation
             NavItem.Group("Fees", "wallet",
                 new("Fees due", "/admin/fees", "wallet"), new("Salaries", "/admin/salaries", "clipboard-check")),
             NavItem.Group("Reports", "bar-chart",
-                new("Reports", "/admin/reports", "bar-chart"), new("Progress reports", "/progress-reports", "chart-line")),
+                new("Reports", "/admin/reports", "bar-chart"), new("Students by class", "/admin/student-numbers", "users"),
+                new("Progress reports", "/progress-reports", "chart-line")),
             new("Settings", "/admin/settings", "settings"),
         ],
         UserRole.Teacher =>

@@ -25,6 +25,13 @@ window.ss = {
     window.renderMathInElement(el, { delimiters: [{ left: "\\(", right: "\\)", display: false }, { left: "\\[", right: "\\]", display: true }, { left: "$$", right: "$$", display: true }], throwOnError: false });
   },
   scrollToBottom: (el) => { if (el) el.scrollTop = el.scrollHeight; },
+  // Sideways chip rows (phones): bring the chosen chip into view without scrolling the page.
+  chipIntoView: (selector) => {
+    const row = document.querySelector(selector);
+    const chip = row && row.querySelector('[aria-pressed="true"]');
+    if (!chip || row.scrollWidth <= row.clientWidth) return;
+    row.scrollLeft = chip.offsetLeft - row.offsetLeft - (row.clientWidth - chip.offsetWidth) / 2;
+  },
   // Deep links such as /sessions/{id}?tab=notes scroll to that section of the class page once it has loaded.
   scrollToId: (id) => {
     const el = document.getElementById(id);

@@ -37,8 +37,8 @@
     <section class="card" aria-labelledby="ad-school">
         <h2 id="ad-school" class="easy-step"><span class="planner-step-number" aria-hidden="true">2</span> Class</h2>
         <div class="form-grid">
-            <div class="field"><label for="ag">Class *</label><select id="ag" class="select" @bind="_grade"><option value="">Choose the class</option>@foreach (var g in _grades) { <option value="@g.Id">@g.Name</option> }</select></div>
-            <div class="field"><label for="asy">Syllabus</label><select id="asy" class="select" @bind="_curriculum"><option value="">Not known</option>@foreach (var c in _curricula.Where(c => c.Status == CatalogStatus.Active)) { <option value="@c.Id">@c.Name</option> }</select></div>
+            <div class="field"><label for="ag">Class *</label><select id="ag" class="select" @bind="_grade" @bind:after="ClassChanged"><option value="">Choose the class</option>@foreach (var g in _grades) { <option value="@g.Id">@g.Name</option> }</select></div>
+            <div class="field"><label for="asy">Syllabus *</label><select id="asy" class="select" @bind="_curriculum" @bind:after="ClassChanged"><option value="">Choose the syllabus</option>@foreach (var c in _curricula.Where(c => c.Status == CatalogStatus.Active)) { <option value="@c.Id">@c.Name</option> }</select></div>
             <div class="field"><label for="asc">School name</label><input id="asc" class="input" @bind="_school" /></div>
             <div class="field"><label for="ay">Academic year</label><select id="ay" class="select" @bind="_year"><option value="">—</option>@foreach (var y in _years) { <option value="@y.Id">@y.Name@(y.IsCurrent ? " (current)" : "")</option> }</select></div>
         </div>
@@ -46,52 +46,33 @@
 
     <section class="card" aria-labelledby="ad-subjects">
         <h2 id="ad-subjects" class="easy-step"><span class="planner-step-number" aria-hidden="true">3</span> Tuition subjects *</h2>
-        <p class="caption">Only the subjects they need tuition for. These are the subjects offered when you add their classes.</p>
-        @if (ClassCourse is { } cc)
+        @* Only the chosen class's subjects (owner request 2026-11-17), as a compact tick list. A missing subject can be added
+           here; renaming or removing subjects is done in Learning ▸ Subjects. *@
+        @if (_grade is null || _curriculum is null)
         {
-            <h3 class="admit-subjects-h">Subjects in @cc.Name</h3>
-            <div class="pick-group multi admit-subjects" role="group" aria-label="@($"Subjects in {cc.Name}")">
-                @foreach (var s in ClassSubjects)
-                {
-                    <button type="button" class="pick" aria-pressed="@(Aria.Bool(_subjectIds.Contains(s.Id)))" @onclick="() => ToggleSubject(s.Id)">@s.Name</button>
-                }
-            </div>
-            @if (CentreSubjects.Count > 0) { <h3 class="admit-subjects-h">Your centre's own subjects</h3> }
+            <p class="muted small">Choose the class and the syllabus above; that class's subjects appear here.</p>
         }
-        else if (_grade is not null && _curriculum is null) { <p class="help">Choose the syllabus too to see that class's subjects.</p> }
-        @if (CentreSubjects.Count > 0)
+        else
         {
-            <div class="pick-group multi admit-subjects" role="group" aria-label="Tuition subjects">
-                @foreach (var s in CentreSubjects)
-                {
-                    <button type="button" class="pick" aria-pressed="@(Aria.Bool(_subjectIds.Contains(s.Id)))" @onclick="() => ToggleSubject(s.Id)">@s.Name</button>
-                }
-            </div>
-        }
-        else if (ClassCourse is null) { <p class="muted small">Choose the class and syllabus above to see their subjects, or add your centre's own subject below.</p> }
-        @if (OtherChosen.Any())
-        {
-            <div class="pill-list" style="margin-top:8px">@foreach (var s in OtherChosen) { <span class="badge removable blue"><span>@s.Name <span class="caption">@s.CourseName</span></span><button type="button" class="chip-remove" aria-label="@($"Remove {s.Name}")" @onclick="() => ToggleSubject(s.Id)"><Icon Name="x" /></button></span> }</div>
-        }
-        <div class="form-grid" style="margin-top:12px">
-            <div class="field">
-                <label for="anew">Add a new subject to your list</label>
-                <div class="row" style="flex-wrap:nowrap"><input id="anew" class="input grow" placeholder="e.g. Accountancy" @bind="_newSubject" @bind:event="oninput" @onkeydown="NewSubjectKey" /><button type="button" class="btn btn-secondary" @onclick="AddCentreSubject" disabled="@(Busy || string.IsNullOrWhiteSpace(_newSubject))">Add</button></div>
-            </div>
-            @if (_subjects.Any(s => !s.IsCentreSubject))
+            <h3 class="admit-subjects-h">Subjects in @ClassLabel</h3>
+            @if (ClassSubjects.Count == 0) { <p class="caption">No subjects for this class yet. Add the ones you teach below.</p> }
+            else
             {
-                <div class="field">
-                    <label for="aother">Or pick from a class syllabus</label>
-                    <select id="aother" class="select" @key="_subjectIds.Count" value="" @onchange="PickOther">
-                        <option value="">Other subject…</option>
-                        @foreach (var course in _subjects.Where(s => !s.IsCentreSubject && !_subjectIds.Contains(s.Id)).GroupBy(s => s.CourseName))
-                        {
-                            <optgroup label="@course.Key">@foreach (var s in course) { <option value="@s.Id">@s.Name</option> }</optgroup>
-                        }
-                    </select>
-                </div>
+                <p class="caption">Tick the subjects this student needs tuition for.</p>
+                <ul class="admit-check-list admit-subjects" role="group" aria-label="@($"Subjects in {ClassLabel}")">
+                    @foreach (var sub in ClassSubjects)
+                    {
+                        <li><label class="check"><input type="checkbox" checked="@_subjectIds.Contains(sub.Id)" @onchange="() => ToggleSubject(sub.Id)" /> @sub.Name</label></li>
+                    }
+                </ul>
             }
-        </div>
+            <div class="field admit-add-subj">
+                <label for="anew">Add a subject to @ClassLabel</label>
+                <div class="row" style="flex-wrap:nowrap"><input id="anew" class="input grow" placeholder="e.g. Accountancy" maxlength="100" @bind="_newSubject" @bind:event="oninput" @onkeydown="NewSubjectKey" />
+                    <button type="button" class="btn btn-secondary" @onclick="AddClassSubject" disabled="@(Busy || string.IsNullOrWhiteSpace(_newSubject))"><Icon Name="plus" /> Add subject</button></div>
+                <span class="help">It is added to the class and ticked for this student.</span>
+            </div>
+        }
     </section>
 
 
@@ -171,12 +152,44 @@
     private readonly List<Guid> _subjectIds = [];
     private List<MarkRow> _marks = [];
 
-    private List<SubjectDto> CentreSubjects => _subjects.Where(s => s.IsCentreSubject).OrderBy(s => s.Name).ToList();
     private List<CourseDto> _courses = [];
     // The class course for the chosen class and syllabus (e.g. "Class 10 · NCERT"), and its subjects.
     private CourseDto? ClassCourse => _grade is { } g && _curriculum is { } c ? _courses.FirstOrDefault(x => x.GradeLevelId == g && x.CurriculumId == c && x.Status == CatalogStatus.Active) : null;
     private List<SubjectDto> ClassSubjects => ClassCourse is { } cc ? _subjects.Where(s => s.CourseId == cc.Id).OrderBy(s => s.Name).ToList() : [];
-    private IEnumerable<SubjectDto> OtherChosen => _subjects.Where(s => !s.IsCentreSubject && _subjectIds.Contains(s.Id) && !ClassSubjects.Any(x => x.Id == s.Id));
+    private string ClassLabel => ClassCourse?.Name
+        ?? $"{_grades.FirstOrDefault(g => g.Id == _grade)?.Name} · {_curricula.FirstOrDefault(c => c.Id == _curriculum)?.Name}";
+
+    /// <summary>A different class or syllabus: only its subjects can be chosen, so earlier picks from another class go.</summary>
+    private void ClassChanged()
+    {
+        var keep = ClassSubjects.Select(x => x.Id).ToHashSet();
+        _subjectIds.RemoveAll(id => !keep.Contains(id));
+    }
+
+    private async Task ReloadCatalogueAsync()
+    {
+        _subjects = (await Fetch(() => Api.GetAsync<List<SubjectDto>>("academics/subjects"))).Value?.Where(s => s.Status == CatalogStatus.Active).ToList() ?? _subjects;
+        _courses = (await Fetch(() => Api.GetAsync<List<CourseDto>>("academics/courses"))).Value ?? _courses;
+    }
+
+    /// <summary>Adds the subject to this class (creating the class course if it has none yet) and ticks it.</summary>
+    private async Task AddClassSubject()
+    {
+        var name = _newSubject.Trim();
+        if (name.Length == 0 || _grade is not { } g || _curriculum is not { } c) return;
+        if (ClassSubjects.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase)) is { } existing)
+        {
+            if (!_subjectIds.Contains(existing.Id)) ToggleSubject(existing.Id);
+            _newSubject = "";
+            return;
+        }
+        if (await Run(() => Api.PostAsync<IdResponse>("academics/catalogue/classes", new QuickClassRequest(g, c, [name])), $"“{name}” added to {ClassLabel}."))
+        {
+            await ReloadCatalogueAsync();
+            if (ClassSubjects.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase)) is { } added && !_subjectIds.Contains(added.Id)) ToggleSubject(added.Id);
+            _newSubject = "";
+        }
+    }
 
     protected override async Task LoadAsync()
     {
@@ -207,25 +220,7 @@
             _marks.Add(new MarkRow { Subject = name });
     }
 
-    private void PickOther(ChangeEventArgs e)
-    {
-        if (Guid.TryParse(e.Value as string, out var id) && !_subjectIds.Contains(id)) ToggleSubject(id);
-    }
-
-    private async Task NewSubjectKey(KeyboardEventArgs e) { if (e.Key == "Enter") await AddCentreSubject(); }
-
-    private async Task AddCentreSubject()
-    {
-        var name = _newSubject.Trim();
-        if (name.Length == 0) return;
-        IdResponse? created = null;
-        if (await Run(async () => created = await Api.PostAsync<IdResponse>("academics/centre-subjects", new CentreSubjectRequest(name)), $"“{name}” added to your subjects."))
-        {
-            _subjects = (await Fetch(() => Api.GetAsync<List<SubjectDto>>("academics/subjects"))).Value?.Where(s => s.Status == CatalogStatus.Active).ToList() ?? _subjects;
-            if (created is not null && !_subjectIds.Contains(created.Id)) ToggleSubject(created.Id);
-            _newSubject = "";
-        }
-    }
+    private async Task NewSubjectKey(KeyboardEventArgs e) { if (e.Key == "Enter") await AddClassSubject(); }
 
     private async Task UploadReport(InputFileChangeEventArgs e)
     {
@@ -254,6 +249,7 @@
         if (string.IsNullOrWhiteSpace(_name)) missing.Add("Enter the student’s name.");
         if (string.IsNullOrWhiteSpace(_email)) missing.Add("Enter an email for the student’s sign-in.");
         if (_grade is null) missing.Add("Choose the class.");
+        if (_curriculum is null) missing.Add("Choose the syllabus.");
         if (_subjectIds.Count == 0) missing.Add("Choose at least one tuition subject.");
         if (_rate is < 0) missing.Add("The fee per hour cannot be negative.");
         _errors = missing.Count > 0 ? new Dictionary<string, string[]> { ["form"] = missing.ToArray() } : new Dictionary<string, string[]>();

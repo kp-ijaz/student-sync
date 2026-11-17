@@ -13,6 +13,27 @@ namespace StudentSync.Application.Reporting;
 
 public sealed class ReportService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, DashboardService dashboards, Fees.FeeService fees, Fees.TeacherPayService pay)
 {
+    /// <summary>How many active students are in each class, syllabus and academic year (admins only — owner request 2026-11-17).</summary>
+    public async Task<StudentsBreakdownDto> StudentsBreakdownAsync(Guid? academicYearId, CancellationToken ct)
+    {
+        access.Require(Permissions.UsersManage);
+        var all = await db.Students.Where(s => s.Status == Domain.People.PersonStatus.Active)
+            .Select(s => new { s.GradeLevelId, s.CurriculumId, s.AcademicYearId }).ToListAsync(ct);
+        var years = await db.AcademicYears.OrderByDescending(y => y.StartDate).Select(y => new { y.Id, y.Name }).ToListAsync(ct);
+        var grades = await db.GradeLevels.OrderBy(g => g.SortOrder).ThenBy(g => g.Name).Select(g => new { g.Id, g.Name }).ToListAsync(ct);
+        var syllabi = await db.Curricula.OrderBy(c => c.Name).Select(c => new { c.Id, c.Name }).ToListAsync(ct);
+        var rows = academicYearId is { } y ? all.Where(s => s.AcademicYearId == y).ToList() : all;
+
+        var yearItems = years.Select(x => new BreakdownItemDto(x.Id, x.Name, all.Count(s => s.AcademicYearId == x.Id))).ToList();
+        if (all.Any(s => s.AcademicYearId == null)) yearItems.Add(new BreakdownItemDto(null, "Not set", all.Count(s => s.AcademicYearId == null)));
+        var syllabusItems = syllabi.Select(x => new BreakdownItemDto(x.Id, x.Name, rows.Count(s => s.CurriculumId == x.Id))).ToList();
+        if (rows.Any(s => s.CurriculumId == null)) syllabusItems.Add(new BreakdownItemDto(null, "Not set", rows.Count(s => s.CurriculumId == null)));
+        var classItems = grades.Select(x => new BreakdownItemDto(x.Id, x.Name, rows.Count(s => s.GradeLevelId == x.Id))).ToList();
+        if (rows.Any(s => s.GradeLevelId == null)) classItems.Add(new BreakdownItemDto(null, "Not set", rows.Count(s => s.GradeLevelId == null)));
+        var cells = rows.GroupBy(s => (s.GradeLevelId, s.CurriculumId)).Select(g => new BreakdownCellDto(g.Key.GradeLevelId, g.Key.CurriculumId, g.Count())).ToList();
+        return new StudentsBreakdownDto(rows.Count, yearItems, syllabusItems, classItems, cells);
+    }
+
     public async Task<InstitutionReportDto> InstitutionAsync(ReportQuery q, CancellationToken ct)
     {
         access.Require(Permissions.ReportsView);

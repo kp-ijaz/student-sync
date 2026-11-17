@@ -35,7 +35,7 @@ try {
   console.log('syllabus row:', row);
   assert.match(row, /DB/);
   await page.$$eval('.list li', (li, t) => [...li.find((x) => x.innerText.includes(`Demo Board ${t}`)).querySelectorAll('button')].find((b) => b.innerText.startsWith('Remove')).click(), tag);
-  await page.waitForFunction(() => /Only possible when/.test(document.body.innerText));
+  await page.waitForFunction(() => /Only possible when/.test(document.body.innerText) && document.querySelectorAll(".modal .form-actions button").length === 2);
   await page.screenshot({ path: `${SCREENSHOT_DIR}/academics-remove-confirm-mobile.png` });
   await clickIn(page, '.modal .form-actions button', 'Remove');
   await toast(page, /Syllabus removed/);

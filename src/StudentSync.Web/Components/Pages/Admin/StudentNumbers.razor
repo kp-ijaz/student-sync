@@ -1,0 +1,75 @@
+@page "/admin/student-numbers"
+@attribute [Authorize(Roles = "InstitutionAdmin")]
+@inherits AppPage
+@* Reports ▸ Students by class (admins only, owner request 2026-11-17): how many active students are in each class,
+   each syllabus and each academic year, with a class × syllabus grid. *@
+<PageTitle>Students by class · Student Sync</PageTitle>
+<PageHeader Title="Students by class" Subtitle="Active students in each class, syllabus and academic year." />
+
+<DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_d is { } d)
+    {
+        <div class="card sn-filter">
+            <label for="sn-year" class="label">Academic year</label>
+            <select id="sn-year" class="select" @bind="_year" @bind:after="LoadAsync">
+                <option value="">All years (@d.Years.Sum(y => y.Count))</option>
+                @foreach (var y in d.Years.Where(y => y.Id != null)) { <option value="@y.Id">@y.Name (@y.Count)</option> }
+            </select>
+        </div>
+
+        <MetricStrip AriaLabel="Students by syllabus" Items="@(d.Syllabi.Where(s => s.Count > 0).Select(s => new MetricStrip.Item(s.Name, s.Count.ToString(), s.Count == 1 ? "student" : "students", "book")).Prepend(new MetricStrip.Item("All students", d.Total.ToString(), _year == "" ? "active" : "in this year", "users")).Take(5).ToList())" />
+
+        <section class="card" aria-labelledby="sn-h">
+            <div class="card-head"><h2 id="sn-h">By class and syllabus</h2>
+                <label class="check small"><input type="checkbox" @bind="_showEmpty" /> Show empty classes</label></div>
+            @if (d.Total == 0) { <InlineEmpty Icon="users" Text="No active students yet." /> }
+            else
+            {
+                var syllabi = d.Syllabi.Where(s => s.Count > 0).ToList();
+                <div class="table-wrap sn-wrap">
+                    <table class="table sn-table">
+                        <thead><tr><th scope="col">Class</th>@foreach (var s in syllabi) { <th scope="col" class="num">@s.Name</th> }<th scope="col" class="num">Total</th></tr></thead>
+                        <tbody>
+                            @foreach (var c in d.Classes.Where(c => _showEmpty || c.Count > 0))
+                            {
+                                <tr><th scope="row">@c.Name</th>
+                                    @foreach (var s in syllabi)
+                                    {
+                                        var n = d.Cells.Where(x => x.ClassId == c.Id && x.SyllabusId == s.Id).Sum(x => x.Count);
+                                        <td class="num @(n == 0 ? "zero" : "")">@(n == 0 ? "–" : n)</td>
+                                    }
+                                    <td class="num total">@c.Count</td></tr>
+                            }
+                        </tbody>
+                        <tfoot><tr><th scope="row">Total</th>@foreach (var s in syllabi) { <td class="num total">@s.Count</td> }<td class="num total">@d.Total</td></tr></tfoot>
+                    </table>
+                </div>
+                @* Phones: one row per class, the syllabus split underneath (a wide grid would scroll sideways). *@
+                <ul class="list sn-list">
+                    @foreach (var c in d.Classes.Where(c => _showEmpty || c.Count > 0))
+                    {
+                        var parts = syllabi.Select(s => (s.Name, N: d.Cells.Where(x => x.ClassId == c.Id && x.SyllabusId == s.Id).Sum(x => x.Count))).Where(x => x.N > 0).ToList();
+                        <li><div class="row-between"><strong>@c.Name</strong><strong class="num">@c.Count</strong></div>
+                            @if (parts.Count > 0) { <span class="caption">@string.Join(" · ", parts.Select(x => $"{x.Name} {x.N}"))</span> }</li>
+                    }
+                    <li class="sn-list-total row-between"><strong>Total</strong><strong class="num">@d.Total</strong></li>
+                </ul>
+            }
+        </section>
+
+        <section class="card" aria-labelledby="sn-y">
+            <div class="card-head"><h2 id="sn-y">By academic year</h2></div>
+            <ul class="list sn-years">@foreach (var y in d.Years) { <li class="row-between"><span>@y.Name</span><strong class="num">@y.Count</strong></li> }</ul>
+        </section>
+    }
+</DataView>
+
+@code {
+    private StudentsBreakdownDto? _d;
+    private ApiException? _error;
+    private string _year = "";
+    private bool _showEmpty;
+
+    protected override async Task LoadAsync() =>
+        (_d, _error) = await Fetch(() => Api.GetAsync<StudentsBreakdownDto>(_year == "" ? "reports/students" : $"reports/students?academicYearId={_year}"));
+}
