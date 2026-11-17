@@ -3,9 +3,9 @@
 @inherits AppPage
 
 @* The front desk's money list: who owes fees (most overdue first) and who is running out of prepaid hours.
-   Hours are sold and payments recorded on each student's profile (Fees & hours). *@
+   Hours are added and payments recorded on each student's profile (Fees & hours). *@
 <PageTitle>Fees · Student Sync</PageTitle>
-<PageHeader Title="Fees" Subtitle="Who owes fees and who is running out of hours. Open a student to sell hours or take a payment." />
+<PageHeader Title="Fees" Subtitle="Who owes fees and who is running out of hours. Open a student to add hours or take a payment." />
 
 <DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync">
     @if (_d is { } d)
@@ -22,7 +22,7 @@
             <PillTabs TKey="string" Tabs="Tabs" @bind-Active="_filter" Label="Show students">
                 @if (Shown.Count == 0)
                 {
-                    <InlineEmpty Icon="check-circle" Text="@(d.TotalItems == 0 ? "Everyone is paid up and has hours left. Sell hours from a student's profile (Fees & hours)." : "No students in this view.")" />
+                    <InlineEmpty Icon="check-circle" Text="@(d.TotalItems == 0 ? "Everyone is paid up and has hours left. Add hours from a student's profile (Fees & hours)." : "No students in this view.")" />
                 }
                 else
                 {

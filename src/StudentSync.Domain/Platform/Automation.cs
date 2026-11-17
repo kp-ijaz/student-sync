@@ -33,8 +33,11 @@ public class AutomationSettings : TenantEntity
     public int FeeReminderDaysBefore { get; set; } = 3;
     public int FeeReminderDaysAfter { get; set; } = 3;
     public bool FeeReminderSms { get; set; }
-    /// <summary>Attach an online payment link (Razorpay/Stripe) to fee reminders when payments are switched on.</summary>
-    public bool PaymentLinks { get; set; } = true;
+    /// <summary>
+    /// Attach an online payment link (Razorpay/Stripe) to fee reminders. Off, and not offered in the app this phase (owner
+    /// decision 2026-11-17): online payment will come with the parents module; the gateway connection is kept for it.
+    /// </summary>
+    public bool PaymentLinks { get; set; }
     public bool MonthEndSalaries { get; set; } = true;
 
     // Reports

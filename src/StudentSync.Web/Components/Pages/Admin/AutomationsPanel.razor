@@ -11,8 +11,7 @@
                 <span class="caption">Connections used by automations:</span>
                 <span class="badge @(_s.EmailReady ? "green" : "amber")">Email @(_s.EmailReady ? "on" : "off")</span>
                 <span class="badge @(_s.SmsReady ? "green" : "amber")">SMS @(_s.SmsReady ? "on" : "off")</span>
-                <span class="badge @(_s.PaymentsReady ? "green" : "amber")">Online payments @(_s.PaymentsReady ? "on" : "off")</span>
-                @if (!_s.SmsReady || !_s.PaymentsReady) { <a class="small" href="/admin/settings?tab=integrations">Connect in Integrations</a> }
+                @if (!_s.SmsReady) { <a class="small" href="/admin/settings?tab=integrations">Connect SMS in Integrations</a> }
                 @if (_s.SmsReady) { <span class="caption grow" style="text-align:end">@_s.SmsSentThisMonth SMS sent this month</span> }
             </div>
 
@@ -35,7 +34,7 @@
 
             <section class="card" aria-labelledby="au-money">
                 <h2 id="au-money" class="auto-h"><Icon Name="wallet" /> Fees &amp; salaries</h2>
-                <AutoToggle Title="Running low on hours" Description="When a student's hours fall to this level, the admins are told (with a link to sell more) and so is the student." @bind-Value="_r.LowHoursAlert">
+                <AutoToggle Title="Running low on hours" Description="When a student's hours fall to this level, the admins are told (with a link to add more) and so is the student." @bind-Value="_r.LowHoursAlert">
                     <div class="field auto-num"><label for="au-lh">Hours left</label><input id="au-lh" class="input" type="number" min="0" max="100" step="0.5" @bind="_r.LowHoursAt" /></div>
                     <label class="check"><input type="checkbox" @bind="_r.LowHoursSms" disabled="@(!_s.SmsReady)" /> Also SMS the family</label>
                 </AutoToggle>
@@ -45,7 +44,6 @@
                         <div class="field auto-num"><label for="au-fa">Days late</label><input id="au-fa" class="input" type="number" min="0" max="60" @bind="_r.FeeReminderDaysAfter" /></div>
                     </div>
                     <label class="check"><input type="checkbox" @bind="_r.FeeReminderSms" disabled="@(!_s.SmsReady)" /> Also SMS the family</label>
-                    <label class="check"><input type="checkbox" @bind="_r.PaymentLinks" disabled="@(!_s.PaymentsReady)" /> Add an online payment link@(_s.PaymentsReady ? "" : " (connect Razorpay or Stripe first)")</label>
                 </AutoToggle>
                 <AutoToggle Title="Month-end salaries" Description="On the 1st, the admins get each teacher's hours, earnings and what to pay, with one-tap “Mark paid” in Fees ▸ Salaries. Teachers get their own hours." @bind-Value="_r.MonthEndSalaries" />
             </section>
@@ -140,7 +138,7 @@
                 EveningTimetable = s.EveningTimetable, EveningTimetableAt = s.EveningTimetableAt, ClassDaySms = s.ClassDaySms, ScheduleRunningOut = s.ScheduleRunningOut,
                 LowHoursAlert = s.LowHoursAlert, LowHoursAt = s.LowHoursAt, LowHoursSms = s.LowHoursSms,
                 FeeReminders = s.FeeReminders, FeeReminderDaysBefore = s.FeeReminderDaysBefore, FeeReminderDaysAfter = s.FeeReminderDaysAfter, FeeReminderSms = s.FeeReminderSms,
-                PaymentLinks = s.PaymentLinks, MonthEndSalaries = s.MonthEndSalaries, MorningSummary = s.MorningSummary, MorningSummaryAt = s.MorningSummaryAt,
+                PaymentLinks = false, MonthEndSalaries = s.MonthEndSalaries, MorningSummary = s.MorningSummary, MorningSummaryAt = s.MorningSummaryAt,
                 MonthEndReport = s.MonthEndReport, ProgressReports = s.ProgressReports, ProgressReportSms = s.ProgressReportSms, AutoAiNotes = s.AutoAiNotes, JobFailureAlerts = s.JobFailureAlerts,
             };
     }

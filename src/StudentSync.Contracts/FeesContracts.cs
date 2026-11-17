@@ -5,7 +5,7 @@ namespace StudentSync.Contracts;
 
 // ---------- Fees: prepaid hour packages and payments ----------
 
-/// <summary>Sell a package of hours to a student. <paramref name="PaidNow"/> records the first payment in the same step.</summary>
+/// <summary>Add a package of hours to a student. <paramref name="PaidNow"/> records the first payment in the same step.</summary>
 public sealed record SavePackageRequest(
     decimal Hours, decimal Price, DateOnly? StartsOn = null, DateOnly? PaymentDueOn = null, string? Name = null, string? Notes = null,
     decimal? PaidNow = null, PaymentMethod Method = PaymentMethod.Cash, string? Reference = null);

@@ -42,7 +42,16 @@ public sealed record CreateSessionBatchRequest(List<CreateSessionRequest> Items,
 /// and how to fix it — teachers of that subject who are free (and within their recorded hours) and nearby free start times.
 /// </summary>
 public sealed record WeeklyPlanCheckResponse(bool HasBlockingConflicts, IReadOnlyList<ScheduleConflictDto> Conflicts, IReadOnlyList<OccurrencePreviewDto> Occurrences,
-    IReadOnlyList<string> Warnings, IReadOnlyList<PlanPartCheckDto> Parts);
+    IReadOnlyList<string> Warnings, IReadOnlyList<PlanPartCheckDto> Parts, IReadOnlyList<HoursCheckDto>? Hours = null);
+
+/// <summary>
+/// Classes must fit the student's prepaid hours (owner decision 2026-11-17). Left = hours added − hours used; Free = Left −
+/// hours already booked (classes not yet marked). Needed = these classes; FitCount = how many of them, in date order, fit.
+/// </summary>
+public sealed record HoursCheckDto(Guid StudentId, string StudentName, bool HasHours, decimal Left, decimal Booked, decimal Free, decimal Needed, int FitCount, int Classes)
+{
+    public bool Fits => HasHours && Needed <= Free;
+}
 
 /// <param name="Index">Position of the part in the request's Items.</param>
 /// <param name="ClashDates">Local dates of this part that overlap another class of the teacher or the student.</param>
@@ -54,7 +63,8 @@ public sealed record CreateSessionResponse(IReadOnlyList<Guid> SessionIds, Guid?
 
 public sealed record ScheduleConflictDto(string Kind, Guid PersonId, string PersonName, Guid SessionId, string SessionTitle, DateTime StartUtc, DateTime EndUtc);
 
-public sealed record ConflictCheckResponse(bool HasBlockingConflicts, IReadOnlyList<ScheduleConflictDto> Conflicts, IReadOnlyList<OccurrencePreviewDto> Occurrences, IReadOnlyList<string> Warnings);
+public sealed record ConflictCheckResponse(bool HasBlockingConflicts, IReadOnlyList<ScheduleConflictDto> Conflicts, IReadOnlyList<OccurrencePreviewDto> Occurrences, IReadOnlyList<string> Warnings,
+    IReadOnlyList<HoursCheckDto>? Hours = null);
 public sealed record OccurrencePreviewDto(DateOnly LocalDate, DateTime StartUtc, DateTime EndUtc, string Resolution, bool SkippedHoliday);
 
 public sealed record RescheduleSessionRequest(string TimeZoneId, DateOnly LocalDate, TimeOnly LocalStartTime, int DurationMinutes, string? Reason, string RowVersion, bool AcknowledgeConflicts = false);

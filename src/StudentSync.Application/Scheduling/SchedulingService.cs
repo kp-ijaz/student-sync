@@ -13,7 +13,7 @@ using StudentSync.Domain.Scheduling;
 namespace StudentSync.Application.Scheduling;
 
 public sealed class SchedulingService(
-    IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, AuditService audit, NotificationService notify, PhotoUrls photos)
+    IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, AuditService audit, NotificationService notify, PhotoUrls photos, Fees.HoursBudgetService hours)
 {
     private sealed record Occurrence(DateOnly LocalDate, DateTime StartUtc, DateTime EndUtc, LocalTimeResolution Resolution);
 
@@ -33,7 +33,8 @@ public sealed class SchedulingService(
         var preview = plan.Occurrences.Select(o => new OccurrencePreviewDto(o.LocalDate, o.StartUtc, o.EndUtc, o.Resolution.ToString(), false))
             .Concat(plan.SkippedHolidays.Select(h => new OccurrencePreviewDto(h.Date, default, default, $"Skipped: {h.Name}", true)))
             .OrderBy(o => o.LocalDate).ToList();
-        return new ConflictCheckResponse(conflicts.Any(c => c.Kind == "Teacher"), conflicts, preview, plan.Warnings);
+        var hoursCheck = await hours.CheckAsync(plan.Students.Select(x => x.Id).ToList(), plan.Occurrences.Select(o => (o.StartUtc, o.EndUtc)).ToList(), null, ct);
+        return new ConflictCheckResponse(conflicts.Any(c => c.Kind == "Teacher"), conflicts, preview, plan.Warnings, hoursCheck);
     }
 
     public async Task<CreateSessionResponse> CreateAsync(CreateSessionRequest request, CancellationToken ct)
@@ -42,6 +43,7 @@ public sealed class SchedulingService(
         var conflicts = await FindConflictsAsync(plan.Teacher.Id, plan.Students.Select(s => s.Id).ToList(),
             plan.Occurrences.Select(o => (o.StartUtc, o.EndUtc)).ToList(), null, ct);
         ThrowIfConflicts(conflicts, request.AcknowledgeConflicts);
+        await hours.EnsureFitsAsync(plan.Students.Select(x => x.Id).ToList(), plan.Occurrences.Select(o => (o.StartUtc, o.EndUtc)).ToList(), null, ct);
         var response = await AddPlanAsync(plan, ct);
         await db.SaveChangesAsync(ct);
         return response;
@@ -82,12 +84,14 @@ public sealed class SchedulingService(
             parts.Add(new PlanPartCheckDto(i, plan.Occurrences.Count, conflicts.Any(c => c.Kind == "Teacher"), conflicts, clashDates, outside, freeTeachers, freeTimes));
         }
 
+        // Hours are checked for the whole plan together (all parts use the same student's hours).
+        var hoursCheck = await hours.CheckAsync(studentIds, plans.SelectMany(p => p.Occurrences).Select(o => (o.StartUtc, o.EndUtc)).ToList(), null, ct);
         return new WeeklyPlanCheckResponse(
             results.Any(r => r.HasBlockingConflicts),
             results.SelectMany(r => r.Conflicts).DistinctBy(c => (c.Kind, c.PersonId, c.SessionId)).Take(100).ToList(),
             results.SelectMany(r => r.Occurrences).OrderBy(o => o.LocalDate).ThenBy(o => o.StartUtc).ToList(),
             results.SelectMany(r => r.Warnings).Distinct().ToList(),
-            parts);
+            parts, hoursCheck);
     }
 
     private sealed record Busy(Guid TeacherId, bool HasStudent, DateTime Start, DateTime End);
@@ -162,6 +166,7 @@ public sealed class SchedulingService(
             conflicts.AddRange(await FindConflictsAsync(plan.Teacher.Id, plan.Students.Select(s => s.Id).ToList(),
                 plan.Occurrences.Select(o => (o.StartUtc, o.EndUtc)).ToList(), null, ct));
         ThrowIfConflicts(conflicts.DistinctBy(c => (c.Kind, c.PersonId, c.SessionId)).ToList(), request.AcknowledgeConflicts);
+        await hours.EnsureFitsAsync(plans[0].Students.Select(x => x.Id).ToList(), plans.SelectMany(p => p.Occurrences).Select(o => (o.StartUtc, o.EndUtc)).ToList(), null, ct);
 
         var responses = new List<CreateSessionResponse>();
         foreach (var plan in plans) responses.Add(await AddPlanAsync(plan, ct));
@@ -553,6 +558,7 @@ public sealed class SchedulingService(
         var studentIds = s.Participants.Where(p => p.Status == ParticipantStatus.Active).Select(p => p.StudentId).ToList();
         var conflicts = await FindConflictsAsync(s.TeacherId, studentIds, [(zoned.Utc, end)], s.Id, ct);
         ThrowIfConflicts(conflicts, r.AcknowledgeConflicts);
+        if (end - zoned.Utc > s.EndUtc - s.StartUtc) await hours.EnsureFitsAsync(studentIds, [(zoned.Utc, end)], s.Id, ct);
 
         await VideoService.PinUnlockedAsync(db, s, clock.UtcNow, ct);
         var change = s.Reschedule(zoned.Utc, end, r.TimeZoneId, Text.Optional(r.Reason, "reason", 500), user.UserId, clock.UtcNow);
@@ -617,6 +623,7 @@ public sealed class SchedulingService(
         LearningSession.ValidateShape(s.SessionType, s.BatchId, activeAfter);
         var conflicts = await FindConflictsAsync(Guid.Empty, [student.Id], [(s.StartUtc, s.EndUtc)], s.Id, ct);
         if (conflicts.Count > 0) throw new ConflictException($"{student.User!.FullName} already has a session at this time.", "student_conflict", conflicts);
+        if (s.Status is SessionStatus.Scheduled or SessionStatus.Live) await hours.EnsureFitsAsync([student.Id], [(s.StartUtc, s.EndUtc)], null, ct);
 
         if (existing is not null) { existing.Status = ParticipantStatus.Active; existing.RemovedAtUtc = null; existing.RemovalReason = null; }
         else s.Participants.Add(new SessionParticipant { TenantId = s.TenantId, SessionId = s.Id, StudentId = student.Id });

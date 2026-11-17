@@ -127,7 +127,7 @@ public sealed class DailyAutomations(IAppDbContext db, ITenantContext tenant, IC
             var left = b.Left <= 0 ? "No hours" : Fmt.Hours(b.Left);
             var key = $"{b.StudentId}:{b.LatestPackageId}";
             await notify.NotifyAsync(admins, NotificationType.LowHours, $"Running low: {name}",
-                $"{left} left of {Fmt.Hours(b.Bought)} bought. Sell more hours from their Fees tab.", $"/students/{b.StudentId}?tab=fees", $"low:{key}", ct);
+                $"{left} left of {Fmt.Hours(b.Bought)} added. Add more hours from their Fees tab.", $"/students/{b.StudentId}#fees", $"low:{key}", ct);
             await notify.NotifyAsync([b.StudentId], NotificationType.LowHours, "Your learning hours are running low",
                 $"{left} left. Please talk to {c.Name} to add more hours so your classes continue.", "/student", $"low:{key}", ct);
             if (s.LowHoursSms)
@@ -172,7 +172,7 @@ public sealed class DailyAutomations(IAppDbContext db, ITenantContext tenant, IC
             if (stage == "after")
                 await notify.NotifyAsync(admins, NotificationType.FeeReminder, $"Overdue: {name}",
                     $"{amount} for “{p.Name}” is overdue since {Fmt.Day(p.DueOn)}. Remind them, or put their classes on hold.",
-                    $"/students/{p.StudentId}?tab=fees", $"fee-admin:{p.PackageId}", ct);
+                    $"/students/{p.StudentId}#fees", $"fee-admin:{p.PackageId}", ct);
         }
         await db.SaveChangesAsync(ct);
         return due.Count;
@@ -235,8 +235,8 @@ public sealed class DailyAutomations(IAppDbContext db, ITenantContext tenant, IC
             if (byStudent.TryGetValue(id, out var b) && booked > b.Left && booked > 0)
             {
                 await notify.NotifyAsync(admins, NotificationType.ScheduleEnding, $"{name}: booked classes need more hours",
-                    $"{Fmt.Hours(booked)} booked, {Fmt.Hours(Math.Max(0, b.Left))} left. Sell more hours or shorten the timetable.",
-                    $"/students/{id}?tab=fees", $"sched-hours:{id}:{b.LatestPackageId}", ct);
+                    $"{Fmt.Hours(booked)} booked, {Fmt.Hours(Math.Max(0, b.Left))} left. Add hours or shorten the timetable.",
+                    $"/students/{id}#fees", $"sched-hours:{id}:{b.LatestPackageId}", ct);
                 n++;
             }
         }

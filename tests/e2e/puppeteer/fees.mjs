@@ -1,4 +1,4 @@
-// Fees & hours (addendum A) in a real browser: the admin sells hours on a student's profile with a first payment, sees the
+// Fees & hours (addendum A) in a real browser: the admin adds hours on a student's profile with a first payment, sees the
 // student on the dashboard's "Fees due" card and the Fees page, takes the rest, then removes both payments and cancels the
 // package so repeated runs leave nothing owing. Screenshots at 375/768/1440; fails on overflow, console errors or failed requests.
 import { BASE_URL, launch, newPage, signIn, users, viewports, screenshot } from "./browser.mjs";
@@ -44,14 +44,14 @@ try {
   await page.goto(`${BASE_URL}${href}`, { waitUntil: "networkidle0" });
   await page.waitForSelector("#fees");
 
-  // Sell 10 hours for 5000 with 2000 paid now by UPI.
-  await clickText(page, "#fees", "Sell hours");
+  // Add 10 hours for 5000 with 2000 paid now by UPI.
+  await clickText(page, "#fees", "Add hours");
   await clickText(page, ".modal", "10 hours");
   await fill(page, "#fp", 5000);
   await fill(page, "#fn", 2000);
   await clickText(page, ".modal", "UPI");
   await fill(page, ".modal .fee-method + .field input", "E2E-UPI-1");
-  await clickText(page, ".modal", "Sell 10 h");
+  await clickText(page, ".modal", "Add 10 h");
   await page.waitForFunction(() => !document.querySelector(".modal"), { timeout: 10000 });
   const pkg = await page.waitForFunction(() => [...document.querySelectorAll(".fee-packages > li")].find((li) => li.textContent.includes("E2E-UPI-1")), { timeout: 10000 });
   const pkgText = await pkg.evaluate((li) => li.textContent);
@@ -96,7 +96,7 @@ try {
   const failed = failedRequests.filter((r) => !r.includes("/files/download") && !r.includes("/photo"));
   if (consoleErrors.length) fail(`Console errors: ${consoleErrors.join(" | ")}`);
   if (failed.length) fail(`Failed requests: ${failed.join(" | ")}`);
-  console.log("Fees checks passed at 375, 768 and 1440px (sell, dashboard card, Fees page, take payment, remove, cancel).");
+  console.log("Fees checks passed at 375, 768 and 1440px (add hours, dashboard card, Fees page, take payment, remove, cancel).");
 } finally {
   await browser.close();
 }

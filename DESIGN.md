@@ -345,6 +345,19 @@ student has their own rate per hour; syllabi are NCERT, State (Kerala SCERT) and
   with hours taught/missed and earned, and a Subjects table. **Admin home** metric strip adds Subjects (being studied)
   and Hours taught (this month).
 
+### Classes must fit the hours; "Add hours"; no payment screens this phase (2026-11-17)
+
+- **Hours rule** (owner decision): a student can be booked only for classes their prepaid hours cover. Free = hours added
+  − used (attended) − already booked (not yet marked). Checked on the server for new classes, weekly plans, adding a
+  student to a class and making a class longer (409 `hours_exceeded` with the numbers).
+- **Add classes**: the summary card shows "Uses 7.5 h of Hiro's 195.5 h free hours" when it fits. When it does not, a red
+  status — "No hours added yet" or "Only 1.5 h free · 1.5 h left, 0 h booked · these 4 classes need 3 h" — with
+  **Book only the first N classes** (leaves out the later dates) and **Add hours** (to the student's Fees section);
+  Create stays disabled, and the phone bar reads "Only 1.5 h free · Add hours or book fewer classes".
+- Wording: packages are **added**, never "sold" (Add hours button and dialog, "5 h added." toast, empty states).
+- **Online payment**: no payment screens this phase — no Payment link button, no link option in Automations, no
+  payments badge. The gateway connection stays in Settings ▸ Integrations for the parents module later.
+
 ### Automations, salaries, receipts and progress reports (2026-11-17)
 
 Owner request: automate the reminders, money follow-up and reports. Nothing automatic changes money, attendance or
@@ -360,8 +373,8 @@ classes; it reminds, alerts and prepares, and people decide.
 - **Receipts and slips** (`/receipts/{id}`, `/salary-slips/{teacher}/{id}`): one printable card (`.doc`), "Print or save
   as PDF" uses the browser; print styles hide the shell. Linked from each payment (Fees tab, teacher pay) and from the
   "Payment received" notification. Removed payments still print, marked.
-- **Payment link** on a package with money due: shows the link with Copy; payments are recorded only when the gateway
-  confirms (webhook or 15-minute check). `/payment-done` is a public thank-you page that records nothing.
+- **Payment link** (server only this phase; no button): payments are recorded only when the gateway confirms (webhook or
+  15-minute check). `/payment-done` is a public thank-you page that records nothing.
 - **Progress reports** (`/progress-reports`, admins and teachers; menu Reports / Teaching): "To send / Sent / Skipped"
   `Segmented`; each card shows attended of booked, hours, hours left and average marks, a remark box, Skip / Send.
 - **Holidays**: adding a holiday opens "Classes on <day>" with **Move each to the next free day** or **Cancel all**

@@ -248,6 +248,19 @@
                 {
                     var blocking = AllIssues.Where(i => i.Blocking).ToList();
                     @if (ClassCount == 0) { <div class="warn-panel">No class falls on the chosen days in this period. Pick other days or a longer period.</div> }
+                    else if (HoursShort is { } hs)
+                    {
+                        @* Classes must fit the student's prepaid hours: offer to book only what fits, or to add hours. *@
+                        <div class="easy-status bad hours-short"><Icon Name="timer" />
+                            <span><strong>@(hs.HasHours ? $"Only {Money.Hours(Math.Max(0, hs.Free))} free" : "No hours added yet")</strong>
+                                @(hs.HasHours ? $"{FirstName(hs.StudentName)} has {Money.Hours(Math.Max(0, hs.Left))} left, {Money.Hours(hs.Booked)} already booked. These {hs.Classes} classes need {Money.Hours(hs.Needed)}."
+                                              : $"Add hours for {FirstName(hs.StudentName)} before booking classes.")</span>
+                        </div>
+                        <div class="hours-fix">
+                            @if (hs.FitCount > 0) { <button type="button" class="btn btn-secondary btn-sm" @onclick="() => KeepFirst(hs.FitCount)">Book only the first @hs.FitCount class@(hs.FitCount == 1 ? "" : "es")</button> }
+                            <a class="btn btn-primary btn-sm" href="@($"/students/{hs.StudentId}#fees")"><Icon Name="plus" /> Add hours</a>
+                        </div>
+                    }
                     else if (blocking.Count > 0)
                     {
                         <div class="easy-status bad"><Icon Name="alert" />
@@ -276,10 +289,11 @@
             @if (_check is not null && !_checking)
             {
                 <div class="bk-notes">
-                    @if (_skip.Count > 0) { <p>@_skip.Count @(_skip.Count == 1 ? "date is" : "dates are") left out because of a clash. <button type="button" class="easy-link inline" @onclick="UndoSkip">Undo</button></p> }
+                    @if (_skip.Count > 0) { <p>@_skip.Count @(_skip.Count == 1 ? "date is" : "dates are") left out. <button type="button" class="easy-link inline" @onclick="UndoSkip">Undo</button></p> }
                     @if (HolidayCount > 0) { <p>@HolidayCount @(HolidayCount == 1 ? "date falls" : "dates fall") on a holiday and will be skipped.</p> }
                     @foreach (var w in _check.Warnings.Where(w => !w.Contains("holiday"))) { <p>@w</p> }
                     @if (StudentSeesLabel is { } sees) { <p>@sees</p> }
+                    @if (_check.Hours?.FirstOrDefault() is { Fits: true } h) { <p>Uses @Money.Hours(h.Needed) of @FirstName(h.StudentName)'s @Money.Hours(h.Free) free hours.</p> }
                 </div>
                 @if (ClassCount > 1)
                 {
@@ -436,8 +450,20 @@
     private int ClassCount => _check?.Occurrences.Count(o => !o.SkippedHoliday) ?? 0;
     private int HolidayCount => _check?.Occurrences.Count(o => o.SkippedHoliday && !o.Resolution.StartsWith("Skipped: you chose")) ?? 0;
     private bool CheckIsCurrent => _check is not null && !_checking && _checkedFor == Fingerprint(BuildRequest());
-    private bool CanCreate => Missing.Count == 0 && CheckIsCurrent && ClassCount > 0
+    private bool CanCreate => Missing.Count == 0 && CheckIsCurrent && ClassCount > 0 && HoursShort is null
         && !_check!.HasBlockingConflicts && (_check.Conflicts.Count == 0 || _ack);
+    /// <summary>The student whose prepaid hours do not cover these classes (the server refuses them too).</summary>
+    private HoursCheckDto? HoursShort => CheckIsCurrent ? _check?.Hours?.FirstOrDefault(h => !h.Fits) : null;
+
+    /// <summary>Leaves out every date after the first <paramref name="count"/> classes (in date order).</summary>
+    private Task KeepFirst(int count)
+    {
+        if (_check is null) return Task.CompletedTask;
+        var dates = _check.Occurrences.Where(o => !o.SkippedHoliday).OrderBy(o => o.StartUtc).Select(o => o.LocalDate).ToList();
+        var keep = dates.Take(count).ToHashSet();
+        _skip.UnionWith(dates.Skip(count).Where(d => !keep.Contains(d)));
+        return Changed();
+    }
     private string CreateLabel => CheckIsCurrent && ClassCount > 0 ? (ClassCount == 1 ? "Create class" : $"Create {ClassCount} classes") : "Create classes";
 
     private string WhenLabel
@@ -589,7 +615,7 @@
     }
 
     private string BarKind => Missing.Count > 0 ? "todo" : _checkError is not null ? "bad" : !CheckIsCurrent ? "wait"
-        : ClassCount == 0 || AllIssues.Any(i => i.Blocking) ? "bad" : "good";
+        : ClassCount == 0 || HoursShort is not null || AllIssues.Any(i => i.Blocking) ? "bad" : "good";
 
     private string BarTitle => BarKind switch
     {
@@ -597,6 +623,8 @@
         "wait" => "Checking dates…",
         "bad" when _checkError is not null => "Could not check the dates",
         "bad" when ClassCount == 0 => "No dates in this period",
+        "bad" when HoursShort is { HasHours: false } => "No hours added yet",
+        "bad" when HoursShort is { } hs => $"Only {Money.Hours(Math.Max(0, hs.Free))} free",
         "bad" => AllIssues.Where(i => i.Blocking).ToList() is [var one] ? $"Clash on {(Repeats ? Short(one.Day) : "this date")}"
             : $"{AllIssues.Count(i => i.Blocking)} days clash",
         _ => "All dates free",
@@ -605,6 +633,7 @@
     private string? BarSub => BarKind switch
     {
         "todo" => Missing.Count == 1 ? "1 thing left to choose" : $"{Missing.Count} things left to choose",
+        "bad" when HoursShort is not null => "Add hours or book fewer classes",
         "bad" when _checkError is null && ClassCount > 0 => "Fix it in the week list",
         "good" => DatesLabel,
         _ => null,

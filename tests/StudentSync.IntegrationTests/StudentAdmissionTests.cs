@@ -66,6 +66,7 @@ public sealed class StudentAdmissionTests(ApiFixture api)
         Assert.Equal(HttpStatusCode.NotFound, (await amira.GetRaw($"students/{id}/school-reports")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await amira.GetRaw($"files/{file.Id}/link")).StatusCode);
         var day = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(400 + Random.Shared.Next(200)));
+        await admin.Post<IdResponse>($"students/{id}/packages", new SavePackageRequest(10, 5000)); // classes must fit the hours added
         await amira.Post<CreateSessionResponse>("sessions", new CreateSessionRequest("Maths · Hafiz", SessionType.OneToOne, null, null, null, null, maths, null, [id],
             "Asia/Dubai", day, new TimeOnly(3, 15), 45, DeliveryMode.InPerson, null, null, null, null));
         Assert.Single(await amira.Get<List<SchoolReportDto>>($"students/{id}/school-reports"));

@@ -1806,3 +1806,6 @@ a.metric-cell:hover { text-decoration:none; background:#F7F9FD; }
 }
 .auto-h svg { width: 20px; height: 20px; flex: none; color: var(--ss-blue); }
 .auto-ready a { display: inline-flex; align-items: center; min-height: 44px; }
+/* Add classes: the student's hours do not cover these classes. */
+.hours-fix { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-2); }
+@media (max-width: 767px) { .hours-fix .btn { flex: 1 1 auto; min-height: 44px; } }

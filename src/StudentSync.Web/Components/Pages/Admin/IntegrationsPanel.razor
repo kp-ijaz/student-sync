@@ -66,7 +66,7 @@
                 <div class="int-head">
                     <IconTile Icon="wallet" Tone="violet" Size="md" />
                     <div class="grow"><h2 id="int-pay">Online payments</h2>
-                        <p class="caption">Families pay fees through a payment link (from a student's Fees tab, or attached to fee reminders). Paid links are recorded automatically as “Online” payments with a receipt.</p></div>
+                        <p class="caption">Connect the institute's gateway now; online fee payment will be offered to families with the parents module (a later phase). Until then no payment links are sent and fees are recorded under each student's Fees tab.</p></div>
                     <StatusChip Enabled="_d.Payments.Enabled" Check="_d.Payments.LastCheck" />
                 </div>
                 <Segmented TValue="PaymentProvider" Label="Payment gateway" Options="@([new(PaymentProvider.Razorpay, "Razorpay (India)"), new(PaymentProvider.Stripe, "Stripe (UAE)")])" @bind-Value="_pProvider" />

@@ -1,7 +1,7 @@
 @inherits AppComponent
 
 @* Fees & hours (admin): the student's prepaid hours (bought − used = left) and money (price − paid = due).
-   Sell hours with an optional first payment, take a payment, or remove a payment entered by mistake (kept on record).
+   Add hours with an optional first payment, take a payment, or remove a payment entered by mistake (kept on record).
    Hours used come from attendance: present or late, class not cancelled. *@
 <section class="card fee-panel" id="fees" aria-labelledby="fees-h">
     <div class="card-head">
@@ -15,20 +15,20 @@
                 </div>
             }
         </div>
-        <button class="btn btn-primary btn-sm btn-pill" @onclick="NewSale"><Icon Name="plus" /> Sell hours</button>
+        <button class="btn btn-primary btn-sm btn-pill" @onclick="NewSale"><Icon Name="plus" /> Add hours</button>
     </div>
     <DataView Loading="_f is null && _error is null" Error="_error" OnRetry="LoadAsync">
         @if (_f is { } f)
         {
             @if (f.Packages.Count == 0)
             {
-                <InlineEmpty Icon="wallet" Text="No hours sold yet. Sell a package (for example 30 hours) and record what was paid." />
+                <InlineEmpty Icon="wallet" Text="No hours added yet. Add a package (for example 30 hours) and record what was paid. Classes can be booked only within the hours added." />
             }
             else
             {
                 @if (f.HoursBought == 0)
                 {
-                    <InlineEmpty Icon="wallet" Text="No active package. Sell hours to start; earlier packages are listed below." />
+                    <InlineEmpty Icon="wallet" Text="No active package. Add hours to book classes; earlier packages are listed below." />
                 }
                 else
                 {
@@ -53,7 +53,7 @@
                 }
                 @if (f.HoursBought > 0 && f.HoursLeft <= 0)
                 {
-                    <p class="fee-warn" role="status"><Icon Name="alert" /> @(f.HoursLeft == 0 ? "All hours are used." : $"Classes went {Money.Hours(-f.HoursLeft)} past the hours bought.") Sell more hours or put the student on hold.</p>
+                    <p class="fee-warn" role="status"><Icon Name="alert" /> @(f.HoursLeft == 0 ? "All hours are used." : $"Classes went {Money.Hours(-f.HoursLeft)} past the hours added.") Add more hours to book more classes.</p>
                 }
 
                 <ul class="fee-packages">
@@ -83,21 +83,12 @@
                                     }
                                 </ul>
                             }
-                            @if (_links.TryGetValue(p.Id, out var link))
-                            {
-                                <div class="pay-link" role="status">
-                                    <span class="caption">Online payment link for @Money.Format(link.Amount, link.CurrencyCode) (valid until @Time.Date(link.ExpiresAtUtc, Tz)). Send it to the family; the payment is recorded automatically.</span>
-                                    <div class="row" style="flex-wrap:nowrap"><input class="input grow" readonly value="@link.Url" aria-label="Payment link" onfocus="this.select()" />
-                                        <button class="btn btn-secondary btn-sm" @onclick="() => Copy(link.Url)">Copy</button></div>
-                                </div>
-                            }
                             @if (p.Status == PackageStatus.Active)
                             {
                                 <div class="row fee-pkg-actions">
                                     @if (p.Balance > 0)
                                     {
                                         <button class="btn btn-secondary btn-sm btn-pill" @onclick="() => NewPayment(p)" disabled="@Busy"><Icon Name="plus" /> Take payment</button>
-                                        <button class="btn btn-ghost btn-sm" @onclick="() => PaymentLink(p)" disabled="@Busy"><Icon Name="link" /> Payment link</button>
                                     }
                                     @if (!p.Payments.Any(x => !x.Voided)) { <button class="btn btn-ghost btn-sm" @onclick="() => Cancel(p)" disabled="@Busy">Cancel package<span class="sr-only"> @p.Name</span></button> }
                                 </div>
@@ -123,7 +114,7 @@
     </DataView>
 </section>
 
-<Modal @bind-Open="_saleOpen" Title="Sell hours">
+<Modal @bind-Open="_saleOpen" Title="Add hours">
     <fieldset class="field fee-method">
         <legend>Hours</legend>
         <div class="pick-group">
@@ -143,7 +134,7 @@
     @if (_paidNow > 0) { <MethodPicker @bind-Method="_method" @bind-Reference="_reference" /> }
     <div class="form-actions">
         <button class="btn btn-secondary" @onclick="() => _saleOpen = false">Cancel</button>
-        <button class="btn btn-primary" @onclick="Sell" disabled="@(Busy || _hours is not > 0 || _price is null)">Sell @(_hours is > 0 ? Money.Hours(_hours.Value) : "hours")</button>
+        <button class="btn btn-primary" @onclick="AddHours" disabled="@(Busy || _hours is not > 0 || _price is null)">Add @(_hours is > 0 ? Money.Hours(_hours.Value) : "hours")</button>
     </div>
 </Modal>
 
@@ -172,7 +163,7 @@
 <Modal @bind-Open="_rateOpen" Title="Rate per hour">
     <div class="field"><label for="fr">Fee per hour (@Currency)</label>
         <input id="fr" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_rate" />
-        <span class="help">Prices new packages (hours × rate). Packages already sold keep their price. Leave empty to remove the rate.</span></div>
+        <span class="help">Prices new packages (hours × rate). Packages already added keep their price. Leave empty to remove the rate.</span></div>
     <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _rateOpen = false">Cancel</button><button class="btn btn-primary" @onclick="SaveRate" disabled="@Busy">Save rate</button></div>
 </Modal>
 
@@ -245,10 +236,10 @@
         }
     }
 
-    private async Task Sell()
+    private async Task AddHours()
     {
         var request = new SavePackageRequest(_hours ?? 0, _price ?? 0, _starts, _dueOn, null, null, _paidNow is > 0 ? _paidNow : null, _method, _reference);
-        if (await Run(() => Api.PostAsync($"students/{StudentId}/packages", request, _idempotencyKey), $"{Money.Hours(_hours ?? 0)} sold."))
+        if (await Run(() => Api.PostAsync($"students/{StudentId}/packages", request, _idempotencyKey), $"{Money.Hours(_hours ?? 0)} added."))
         {
             _saleOpen = false;
             await LoadAsync();
@@ -278,21 +269,5 @@
     private async Task Cancel(StudentPackageDto p)
     {
         if (await Run(() => Api.PostAsync($"students/{StudentId}/packages/{p.Id}/cancel"), $"{p.Name} cancelled.")) await LoadAsync();
-    }
-
-    private readonly Dictionary<Guid, PaymentLinkDto> _links = [];
-    [Inject] private IJSRuntime Js { get; set; } = default!;
-
-    private async Task PaymentLink(StudentPackageDto p)
-    {
-        PaymentLinkDto? link = null;
-        if (await Run(async () => link = await Api.PostAsync<PaymentLinkDto>($"students/{StudentId}/packages/{p.Id}/payment-link", null)) && link is not null)
-            _links[p.Id] = link;
-    }
-
-    private async Task Copy(string url)
-    {
-        try { await Js.InvokeVoidAsync("navigator.clipboard.writeText", url); Toasts.Show("Link copied."); }
-        catch (JSException) { Toasts.Show("Select the link and copy it.", ToastKind.Info); }
     }
 }

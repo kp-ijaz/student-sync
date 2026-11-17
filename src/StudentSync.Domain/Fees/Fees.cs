@@ -7,7 +7,7 @@ public enum PackageStatus { Active, Cancelled }
 public enum PaymentMethod { Cash, Card, BankTransfer, Upi, Cheque, Other, Online }
 
 /// <summary>
-/// Prepaid learning hours sold to one student (addendum A): usable across any subject. The name, hours and price are
+/// Prepaid learning hours added for one student (addendum A): usable across any subject. The name, hours and price are
 /// recorded on the sale itself, so later price changes never rewrite what the student bought.
 /// </summary>
 public class StudentPackage : TenantEntity

@@ -43,7 +43,8 @@ public sealed class FeesTests(ApiFixture api)
             "Maths · Rafna", SessionType.OneToOne, null, null, null, null, maths, null, [id], "Asia/Dubai",
             today.AddDays(-daysAgo), new TimeOnly(Random.Shared.Next(1, 22), 5 * Random.Shared.Next(0, 6)), minutes, DeliveryMode.InPerson, null, null, null, null))).SessionIds.Single();
         var attended = await PastClass(Random.Shared.Next(20, 120), 90);
-        var missed = await PastClass(Random.Shared.Next(130, 250), 60);
+        // Classes must fit the hours added (2 h): 1.5 h booked leaves room for one 30-minute class.
+        var missed = await PastClass(Random.Shared.Next(130, 250), 30);
         await amira.Put($"sessions/{attended}/attendance", new MarkAttendanceRequest([new AttendanceEntry(id, AttendanceStatus.Present, null)]));
         await amira.Put($"sessions/{attended}/attendance", new MarkAttendanceRequest([new AttendanceEntry(id, AttendanceStatus.Late, null)]));
         await amira.Put($"sessions/{missed}/attendance", new MarkAttendanceRequest([new AttendanceEntry(id, AttendanceStatus.Absent, null)]));

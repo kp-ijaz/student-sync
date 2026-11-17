@@ -217,7 +217,7 @@ public sealed class PaymentLinkService(IAppDbContext db, ITenantContext tenant, 
         var admins = await db.Users.Where(u => u.TenantId == tenant.TenantId && u.Role == UserRole.InstitutionAdmin && u.IsActive).Select(u => u.Id).ToListAsync(ct);
         await notify.NotifyAsync(admins, NotificationType.PaymentReceived, overpaid ? $"Check: {name} paid {money} online, more than was owed" : $"{name} paid {money} online",
             overpaid ? $"The package was already paid or cancelled. Refund it, or keep it towards new hours ({link.Provider} {paymentId})." : $"Recorded automatically ({link.Provider} {paymentId}).",
-            $"/students/{link.StudentId}?tab=fees", $"paid:{payment.Id}", ct);
+            $"/students/{link.StudentId}#fees", $"paid:{payment.Id}", ct);
     }
 
     private static long MinorUnits(decimal amount) => (long)decimal.Round(amount * 100m, 0, MidpointRounding.AwayFromZero);

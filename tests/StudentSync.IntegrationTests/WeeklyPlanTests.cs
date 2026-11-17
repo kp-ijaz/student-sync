@@ -26,6 +26,7 @@ public sealed class WeeklyPlanTests(ApiFixture api)
         var admin = await api.LoginAsync(Accounts.Admin);
         var student = (await admin.Post<CreatedPersonResponse>("students", new CreateStudentRequest("Weekly Plan (Demo Student)",
             $"weekly-{Guid.NewGuid():N}@horizon.example.test", $"WP-{Guid.NewGuid():N}"[..12], null, null, "Asia/Kolkata"))).Id;
+        await admin.Post<IdResponse>($"students/{student}/packages", new SavePackageRequest(100, 50000)); // classes must fit the hours added
         var teachers = (await admin.Get<PagedResult<TeacherDto>>("teachers?pageSize=100")).Items;
         var subjects = (await admin.Get<List<SubjectDto>>("academics/subjects")).ToDictionary(s => s.Code);
         return (admin, student, teachers.Single(t => t.Email == Accounts.Amira).Id, teachers.Single(t => t.Email == Accounts.Daniel).Id,
@@ -73,6 +74,7 @@ public sealed class WeeklyPlanTests(ApiFixture api)
         // Daniel is already busy on that Tuesday.
         var other = (await admin.Post<CreatedPersonResponse>("students", new CreateStudentRequest("Busy Slot (Demo Student)",
             $"busy-{Guid.NewGuid():N}@horizon.example.test", $"BS-{Guid.NewGuid():N}"[..12], null, null, "Asia/Dubai"))).Id;
+        await admin.Post<IdResponse>($"students/{other}/packages", new SavePackageRequest(10, 5000));
         await admin.Post<CreateSessionResponse>("sessions", Part("Busy", daniel, science, other, start.AddDays(1), WeekDays.Tuesday, new TimeOnly(5, 0), weeks: 1));
 
         var plan = new CreateSessionBatchRequest([
@@ -101,6 +103,7 @@ public sealed class WeeklyPlanTests(ApiFixture api)
         // Daniel already teaches someone else on the first Tuesday at 05:00.
         var other = (await admin.Post<CreatedPersonResponse>("students", new CreateStudentRequest("Busy Tuesday (Demo Student)",
             $"busy-tue-{Guid.NewGuid():N}@horizon.example.test", $"BT-{Guid.NewGuid():N}"[..12], null, null, "Asia/Dubai"))).Id;
+        await admin.Post<IdResponse>($"students/{other}/packages", new SavePackageRequest(10, 5000));
         await admin.Post<CreateSessionResponse>("sessions", Part("Busy", daniel, science, other, start.AddDays(1), WeekDays.Tuesday, new TimeOnly(5, 0), weeks: 1));
 
         var plan = new CreateSessionBatchRequest([

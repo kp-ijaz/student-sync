@@ -16,6 +16,8 @@ using StudentSync.Domain.Scheduling;
 using StudentSync.Domain.Tenancy;
 using StudentSync.Infrastructure.Persistence;
 
+using StudentSync.Domain.Fees;
+
 namespace StudentSync.Infrastructure.Seeding;
 
 public sealed class DemoOptions
@@ -50,6 +52,7 @@ public sealed partial class DemoDataSeeder(AppDbContext db, IUserAccountService 
             await SeedPhotosAsync(ct);
             await EnsureSyllabusAsync(ct);
             await EnsureCurriculumAsync(ct);
+            await EnsureDemoHoursAsync(ct);
             return false;
         }
 
@@ -62,6 +65,7 @@ public sealed partial class DemoDataSeeder(AppDbContext db, IUserAccountService 
         await SeedPhotosAsync(ct);
         await EnsureSyllabusAsync(ct);
         await EnsureCurriculumAsync(ct);
+        await EnsureDemoHoursAsync(ct);
         return true;
     }
 
@@ -174,6 +178,47 @@ public sealed partial class DemoDataSeeder(AppDbContext db, IUserAccountService 
         if (added + reordered == 0) return 0;
         await db.SaveChangesAsync(ct);
         logger.LogInformation("Demo syllabus: added {Added} chapter(s), re-ordered {Reordered}.", added, reordered);
+        return added;
+    }
+
+    /// <summary>
+    /// Classes must fit prepaid hours (owner decision 2026-11-17), so every fictional demo student gets one paid demo package
+    /// (200 h, counted from 2020) once. Development and test data only; real institutes never run the demo seeder.
+    /// </summary>
+    public async Task<int> EnsureDemoHoursAsync(CancellationToken ct)
+    {
+        var added = 0;
+        foreach (var tid in await db.Tenants.Where(t => t.IsDemo).Select(t => t.Id).ToListAsync(ct))
+        {
+            using var _ = tenantContext.BeginScope(tid);
+            var admin = await db.Users.Where(u => u.TenantId == tid && u.Role == UserRole.InstitutionAdmin).OrderBy(u => u.Id).Select(u => (Guid?)u.Id).FirstOrDefaultAsync(ct);
+            if (admin is null) continue;
+            var currency = await db.Tenants.Where(t => t.Id == tid).Select(t => t.CurrencyCode).FirstAsync(ct);
+            var students = await db.Students.Where(st => st.TenantId == tid && st.User!.IsDemo && !db.StudentPackages.Any(p => p.StudentId == st.Id))
+                .Select(st => st.Id).ToListAsync(ct);
+            foreach (var id in students)
+            {
+                var package = new StudentPackage
+                {
+                    TenantId = tid,
+                    StudentId = id,
+                    Name = "200 hours (demo)",
+                    Hours = 200,
+                    Price = 20000,
+                    CurrencyCode = currency,
+                    StartsOn = new DateOnly(2020, 1, 1),
+                    CountsFromUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                };
+                package.Payments.Add(new FeePayment { TenantId = tid, StudentId = id, Amount = 20000, PaidOn = new DateOnly(2020, 1, 1), Method = PaymentMethod.Cash, Reference = "DEMO", RecordedByUserId = admin.Value });
+                db.StudentPackages.Add(package);
+                added++;
+            }
+        }
+        if (added > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation("Demo hours: gave {Count} demo student(s) a paid 200-hour package.", added);
+        }
         return added;
     }
 

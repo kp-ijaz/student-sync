@@ -71,7 +71,7 @@ try {
   await page.goto(`${BASE_URL}/admin/fees`, { waitUntil: 'networkidle0' });
   const student = await page.$$eval('a[href^="/students/"]', (as) => as.map((a) => a.getAttribute('href')).find((h) => /^\/students\/[0-9a-f-]{36}/.test(h)));
   if (student) {
-    await page.goto(`${BASE_URL}${student.split('?')[0]}?tab=fees`, { waitUntil: 'networkidle0' });
+    await page.goto(`${BASE_URL}${student.split('?')[0]}#fees`, { waitUntil: 'networkidle0' });
     await wait(800);
     if (await page.$('.fee-pkg-actions')) {
       const linkButton = await page.$$eval('.fee-pkg-actions button', (b) => b.some((x) => x.innerText.includes('Payment link')));
