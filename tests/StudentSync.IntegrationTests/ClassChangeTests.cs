@@ -46,7 +46,7 @@ public sealed class ClassChangeTests(ApiFixture api)
     public async Task A_reschedule_request_goes_to_the_teacher_and_accepting_moves_the_class()
     {
         var (admin, amira, aisha, sessionId, day) = await ClassAsync();
-        var proposed = (Date: day.AddDays(1), Time: new TimeOnly(3, 35));
+        var proposed = (Date: day.AddDays(1), Time: new TimeOnly(4, 35)); // test classes run 02:00–03:55, so this never clashes
         var requestId = (await aisha.Post<IdResponse>("class-requests", new CreateClassChangeRequest(sessionId, "Reschedule", proposed.Date, proposed.Time, "School exam (test)"))).Id;
         Assert.Equal(HttpStatusCode.Conflict, (await aisha.PostRaw("class-requests", new CreateClassChangeRequest(sessionId, "Postpone", null, null, "Again"))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await aisha.PostRaw("class-requests", new CreateClassChangeRequest(sessionId, "Reschedule", null, null, "No time"))).StatusCode);

@@ -163,6 +163,11 @@ public static class CoreEndpoints
         a.MapGet("/years", (AcademicsService s, CancellationToken ct) => s.YearsAsync(ct));
         a.MapPost("/years", async (SaveAcademicYearRequest r, AcademicsService s, CancellationToken ct) => new IdResponse(await s.SaveYearAsync(null, r, ct)));
         a.MapPut("/years/{id:guid}", async (Guid id, SaveAcademicYearRequest r, AcademicsService s, CancellationToken ct) => new IdResponse(await s.SaveYearAsync(id, r, ct)));
+        a.MapDelete("/years/{id:guid}", async (Guid id, AcademicsService s, CancellationToken ct) => { await s.DeleteYearAsync(id, ct); return Results.NoContent(); });
+        a.MapDelete("/curricula/{id:guid}", async (Guid id, AcademicsService s, CancellationToken ct) => { await s.DeleteCurriculumAsync(id, ct); return Results.NoContent(); });
+        a.MapDelete("/grades/{id:guid}", async (Guid id, AcademicsService s, CancellationToken ct) => { await s.DeleteGradeAsync(id, ct); return Results.NoContent(); });
+        a.MapDelete("/courses/{id:guid}", async (Guid id, AcademicsService s, CancellationToken ct) => { await s.DeleteCourseAsync(id, ct); return Results.NoContent(); });
+        a.MapDelete("/subjects/{id:guid}", async (Guid id, AcademicsService s, CancellationToken ct) => { await s.DeleteSubjectAsync(id, ct); return Results.NoContent(); });
         a.MapPost("/years/{id:guid}/terms", async (Guid id, SaveTermRequest r, AcademicsService s, CancellationToken ct) => new IdResponse(await s.AddTermAsync(id, r, ct)));
         a.MapGet("/subjects/overview", (AcademicsService s, CancellationToken ct) => s.SubjectsOverviewAsync(ct));
         a.MapGet("/catalogue/suggest", (Guid gradeLevelId, Guid curriculumId, DefaultCatalogue s, CancellationToken ct) => s.SuggestAsync(gradeLevelId, curriculumId, ct)).RequirePermission(Permissions.AcademicsManage);

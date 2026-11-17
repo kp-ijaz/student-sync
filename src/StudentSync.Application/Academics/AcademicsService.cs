@@ -62,9 +62,110 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
         var name = Text.Required(r.Name, "name", 50);
         if (await db.GradeLevels.AnyAsync(g => g.Name.ToLower() == name.ToLowerInvariant() && g.Id != id, ct)) throw RequestValidationException.For("name", "This grade already exists.");
         var g = id is { } gid ? await db.GradeLevels.FirstOrDefaultAsync(x => x.Id == gid, ct) ?? throw new NotFoundException("Grade") : db.GradeLevels.Add(new GradeLevel()).Entity;
-        g.Name = name; g.SortOrder = r.SortOrder;
+        // Order 0 = automatic: Class N sorts as N, anything else after the last class.
+        var order = r.SortOrder > 0 ? r.SortOrder
+            : DefaultCatalogue.ClassNumber(name) ?? (await db.GradeLevels.Where(x => x.Id != id).MaxAsync(x => (int?)x.SortOrder, ct) ?? 0) + 1;
+        g.Name = name; g.SortOrder = order;
+        audit.Record(id is null ? "grade.created" : "grade.updated", "GradeLevel", g.Id, name);
         await db.SaveChangesAsync(ct);
         return g.Id;
+    }
+
+    // ---------------- Remove (owner request 2026-11-17) ----------------
+    // Only entries nothing uses can be removed; otherwise the admin is told what still uses them. The database refuses any
+    // remaining link (all of these relations are "restrict"), which is reported the same way — nothing is cascaded away.
+
+    public async Task DeleteGradeAsync(Guid id, CancellationToken ct)
+    {
+        Manage();
+        var g = await db.GradeLevels.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Class");
+        await Unused(("student", await db.Students.CountAsync(x => x.GradeLevelId == id, ct)), ("course", await db.Courses.CountAsync(x => x.GradeLevelId == id, ct)),
+            ("exam", await db.Exams.CountAsync(x => x.GradeLevelId == id, ct)));
+        db.GradeLevels.Remove(g);
+        await RemoveAsync("grade.removed", "GradeLevel", id, g.Name, ct);
+    }
+
+    public async Task DeleteCurriculumAsync(Guid id, CancellationToken ct)
+    {
+        Manage();
+        var c = await db.Curricula.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Syllabus");
+        await Unused(("student", await db.Students.CountAsync(x => x.CurriculumId == id, ct)), ("course", await db.Courses.CountAsync(x => x.CurriculumId == id, ct)),
+            ("exam", await db.Exams.CountAsync(x => x.CurriculumId == id, ct)));
+        db.Curricula.Remove(c);
+        await RemoveAsync("curriculum.removed", "Curriculum", id, c.Name, ct);
+    }
+
+    public async Task DeleteYearAsync(Guid id, CancellationToken ct)
+    {
+        Manage();
+        var y = await db.AcademicYears.Include(x => x.Terms).FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Academic year");
+        await Unused(("student", await db.Students.CountAsync(x => x.AcademicYearId == id, ct)), ("course", await db.Courses.CountAsync(x => x.AcademicYearId == id, ct)));
+        db.Terms.RemoveRange(y.Terms);
+        db.AcademicYears.Remove(y);
+        await RemoveAsync("academic_year.removed", "AcademicYear", id, y.Name, ct);
+    }
+
+    /// <summary>Removes a subject nobody uses, with its (empty) chapters and topics and its teacher links.</summary>
+    public async Task DeleteSubjectAsync(Guid id, CancellationToken ct)
+    {
+        Manage();
+        var s = await db.Subjects.Include(x => x.Chapters).FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Subject");
+        await EnsureSubjectsUnusedAsync([id], ct);
+        await RemoveSubjectRowsAsync([s], ct);
+        await RemoveAsync("subject.removed", "Subject", id, $"{s.Code} {s.Name}", ct);
+    }
+
+    /// <summary>Removes a course nobody uses, together with its unused subjects.</summary>
+    public async Task DeleteCourseAsync(Guid id, CancellationToken ct)
+    {
+        Manage();
+        var c = await db.Courses.Include(x => x.Subjects).ThenInclude(x => x.Chapters).FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Course");
+        await Unused(("enrolled student", await db.CourseEnrolments.CountAsync(x => x.CourseId == id, ct)),
+            ("class", await db.Sessions.CountAsync(x => x.CourseId == id, ct)));
+        await EnsureSubjectsUnusedAsync(c.Subjects.Select(x => x.Id).ToList(), ct);
+        await RemoveSubjectRowsAsync(c.Subjects, ct);
+        db.Courses.Remove(c);
+        await RemoveAsync("course.removed", "Course", id, $"{c.Code} {c.Name}", ct);
+    }
+
+    private async Task EnsureSubjectsUnusedAsync(List<Guid> ids, CancellationToken ct)
+    {
+        if (ids.Count == 0) return;
+        await Unused(("student", await db.StudentSubjects.CountAsync(x => ids.Contains(x.SubjectId), ct)),
+            ("class", await db.Sessions.CountAsync(x => x.SubjectId != null && ids.Contains(x.SubjectId.Value), ct)),
+            ("assignment", await db.Assignments.CountAsync(x => x.SubjectId != null && ids.Contains(x.SubjectId.Value), ct)),
+            ("exam", await db.Exams.CountAsync(x => ids.Contains(x.SubjectId), ct)),
+            ("question", await db.Questions.CountAsync(x => ids.Contains(x.SubjectId), ct)));
+    }
+
+    private async Task RemoveSubjectRowsAsync(IEnumerable<Subject> subjects, CancellationToken ct)
+    {
+        var list = subjects.ToList();
+        var ids = list.Select(x => x.Id).ToList();
+        var chapterIds = list.SelectMany(x => x.Chapters).Select(x => x.Id).ToList();
+        db.Topics.RemoveRange(await db.Topics.Where(t => chapterIds.Contains(t.ChapterId)).ToListAsync(ct));
+        db.Chapters.RemoveRange(list.SelectMany(x => x.Chapters));
+        db.TeacherSubjects.RemoveRange(await db.TeacherSubjects.Where(t => ids.Contains(t.SubjectId)).ToListAsync(ct));
+        db.Subjects.RemoveRange(list);
+    }
+
+    /// <summary>Refuses with a plain sentence such as "Still used by 1 student and 2 classes." when any count is above zero.</summary>
+    private static Task Unused(params (string What, int Count)[] uses)
+    {
+        var used = uses.Where(u => u.Count > 0).Select(u => $"{u.Count} {u.What}{(u.Count == 1 ? "" : u.What.EndsWith('s') ? "es" : "s")}").ToList();
+        if (used.Count == 0) return Task.CompletedTask;
+        var list = used.Count == 1 ? used[0] : $"{string.Join(", ", used.Take(used.Count - 1))} and {used[^1]}";
+        throw new ConflictException($"Still used by {list}. Change those first, or set it to Archived to hide it.", "still_in_use");
+    }
+
+    private async Task RemoveAsync(string action, string type, Guid id, string summary, CancellationToken ct)
+    {
+        audit.Record(action, type, id, summary);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException)
+        {
+            throw new ConflictException("It is still used elsewhere (for example by notes, videos or past records). Set it to Archived to hide it instead.", "still_in_use");
+        }
     }
 
     // ---------------- Curricula (syllabi) ----------------
@@ -80,11 +181,15 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
     public async Task<Guid> SaveCurriculumAsync(Guid? id, SaveCurriculumRequest r, CancellationToken ct)
     {
         Manage();
-        var code = Text.Required(r.Code, "code", 30).ToUpperInvariant();
         var name = Text.Required(r.Name, "name", 100);
-        if (await db.Curricula.AnyAsync(c => c.Code == code && c.Id != id, ct)) throw RequestValidationException.For("code", "This curriculum code already exists.");
-        if (await db.Curricula.AnyAsync(c => c.Name.ToLower() == name.ToLowerInvariant() && c.Id != id, ct)) throw RequestValidationException.For("name", "This curriculum already exists.");
+        if (await db.Curricula.AnyAsync(c => c.Name.ToLower() == name.ToLowerInvariant() && c.Id != id, ct)) throw RequestValidationException.For("name", "This syllabus already exists.");
         var c = id is { } cid ? await db.Curricula.FirstOrDefaultAsync(x => x.Id == cid, ct) ?? throw new NotFoundException("Curriculum") : db.Curricula.Add(new Curriculum()).Entity;
+        // Codes are assigned automatically (owner request 2026-11-17); a typed code is still accepted, and editing keeps the code.
+        var code = Text.Optional(r.Code, "code", 30)?.ToUpperInvariant();
+        if (code is not null && await db.Curricula.AnyAsync(x => x.Code == code && x.Id != id, ct)) throw RequestValidationException.For("code", "This syllabus code already exists.");
+        code ??= id is null || string.IsNullOrEmpty(c.Code)
+            ? DefaultCatalogue.SyllabusCode(name, (await db.Curricula.Where(x => x.Id != id).Select(x => x.Code).ToListAsync(ct)).ToHashSet(StringComparer.OrdinalIgnoreCase))
+            : c.Code;
         c.Code = code; c.Name = name; c.Status = r.Status;
         audit.Record(id is null ? "curriculum.created" : "curriculum.updated", "Curriculum", c.Id, $"{code} {name}");
         await db.SaveChangesAsync(ct);
@@ -107,13 +212,21 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
     public async Task<Guid> SaveCourseAsync(Guid? id, SaveCourseRequest r, CancellationToken ct)
     {
         Manage();
-        var code = Text.Required(r.Code, "code", 30).ToUpperInvariant();
-        if (await db.Courses.AnyAsync(c => c.Code == code && c.Id != id, ct)) throw RequestValidationException.For("code", "This course code is already in use.");
+        var code = Text.Optional(r.Code, "code", 30)?.ToUpperInvariant();
+        if (code is not null && await db.Courses.AnyAsync(c => c.Code == code && c.Id != id, ct)) throw RequestValidationException.For("code", "This course code is already in use.");
         if (r.GradeLevelId is { } g && !await db.GradeLevels.AnyAsync(x => x.Id == g, ct)) throw RequestValidationException.For("gradeLevelId", "Grade not found.");
         if (r.AcademicYearId is { } y && !await db.AcademicYears.AnyAsync(x => x.Id == y, ct)) throw RequestValidationException.For("academicYearId", "Academic year not found.");
         if (r.CurriculumId is { } cu && !await db.Curricula.AnyAsync(x => x.Id == cu, ct)) throw RequestValidationException.For("curriculumId", "Syllabus not found.");
         var c = id is { } cid ? await db.Courses.FirstOrDefaultAsync(x => x.Id == cid, ct) ?? throw new NotFoundException("Course") : db.Courses.Add(new Course()).Entity;
-        c.Code = code; c.Name = Text.Required(r.Name, "name", 150); c.Description = Text.Optional(r.Description, "description", 2000);
+        var courseName = Text.Required(r.Name, "name", 150);
+        if (code is null && (id is null || string.IsNullOrEmpty(c.Code)))
+        {
+            var grade = r.GradeLevelId is { } gl ? await db.GradeLevels.Where(x => x.Id == gl).Select(x => x.Name).FirstOrDefaultAsync(ct) : null;
+            var syllabus = r.CurriculumId is { } cu2 ? await db.Curricula.Where(x => x.Id == cu2).Select(x => x.Code).FirstOrDefaultAsync(ct) : null;
+            var taken = (await db.Courses.Where(x => x.Id != id).Select(x => x.Code).ToListAsync(ct)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            code = DefaultCatalogue.CourseCode(courseName, grade, syllabus, taken);
+        }
+        c.Code = code ?? c.Code; c.Name = courseName; c.Description = Text.Optional(r.Description, "description", 2000);
         c.GradeLevelId = r.GradeLevelId; c.AcademicYearId = r.AcademicYearId; c.Status = r.Status;
         // An older client that does not send the syllabus keeps the course's current one.
         if (r.CurriculumId is not null || id is null) c.CurriculumId = r.CurriculumId;
@@ -224,11 +337,15 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
     public async Task<Guid> SaveSubjectAsync(Guid? id, SaveSubjectRequest r, CancellationToken ct)
     {
         Manage();
-        if (!await db.Courses.AnyAsync(c => c.Id == r.CourseId, ct)) throw RequestValidationException.For("courseId", "Course not found.");
-        var code = Text.Required(r.Code, "code", 30).ToUpperInvariant();
-        if (await db.Subjects.AnyAsync(s => s.Code == code && s.Id != id, ct)) throw RequestValidationException.For("code", "This subject code is already in use.");
+        var courseCode = await db.Courses.Where(c => c.Id == r.CourseId).Select(c => c.Code).FirstOrDefaultAsync(ct) ?? throw RequestValidationException.For("courseId", "Course not found.");
+        var code = Text.Optional(r.Code, "code", 30)?.ToUpperInvariant();
+        if (code is not null && await db.Subjects.AnyAsync(s => s.Code == code && s.Id != id, ct)) throw RequestValidationException.For("code", "This subject code is already in use.");
         var s = id is { } sid ? await db.Subjects.FirstOrDefaultAsync(x => x.Id == sid, ct) ?? throw new NotFoundException("Subject") : db.Subjects.Add(new Subject()).Entity;
-        s.CourseId = r.CourseId; s.Code = code; s.Name = Text.Required(r.Name, "name", 150); s.Description = Text.Optional(r.Description, "description", 2000); s.Status = r.Status;
+        var subjectName = Text.Required(r.Name, "name", 150);
+        code ??= id is null || string.IsNullOrEmpty(s.Code)
+            ? DefaultCatalogue.SubjectCode(courseCode, subjectName, (await db.Subjects.Where(x => x.Id != id).Select(x => x.Code).ToListAsync(ct)).ToHashSet(StringComparer.OrdinalIgnoreCase))
+            : s.Code;
+        s.CourseId = r.CourseId; s.Code = code; s.Name = subjectName; s.Description = Text.Optional(r.Description, "description", 2000); s.Status = r.Status;
         try { if (r.Kind is { } kind) s.SetKind(kind, r.ChoiceGroup); }
         catch (DomainException ex) { throw RequestValidationException.For(ex.Code == "subject_kind" ? "kind" : "choiceGroup", ex.Message); }
         audit.Record("subject.saved", "Subject", s.Id, $"{code} ({s.Kind}{(s.ChoiceGroup is null ? "" : $": {s.ChoiceGroup}")})");

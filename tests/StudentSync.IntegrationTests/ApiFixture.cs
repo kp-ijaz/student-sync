@@ -107,6 +107,7 @@ public sealed record Client(HttpClient Http, AuthResponse Auth)
     public Task<HttpResponseMessage> GetRaw(string path) => Http.GetAsync("/api/v1/" + path);
     public Task<HttpResponseMessage> PostRaw(string path, object? body) => Http.PostAsJsonAsync("/api/v1/" + path, body ?? new { }, ApiFixture.Json);
     public Task<HttpResponseMessage> PutRaw(string path, object? body) => Http.PutAsJsonAsync("/api/v1/" + path, body, ApiFixture.Json);
+    public Task<HttpResponseMessage> DeleteRaw(string path) => Http.DeleteAsync("/api/v1/" + path);
 
     public async Task<T> Post<T>(string path, object? body)
     {

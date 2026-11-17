@@ -63,3 +63,40 @@ public class TeacherPayAndCatalogueTests
     public void Class_names_are_recognised_so_existing_classes_are_not_duplicated(string name, int? expected) =>
         Assert.Equal(expected, DefaultCatalogue.ClassNumber(name));
 }
+
+/// <summary>Codes are assigned automatically (owner request 2026-11-17).</summary>
+public class CatalogueCodeTests
+{
+    private static HashSet<string> Taken(params string[] codes) => new(codes, StringComparer.OrdinalIgnoreCase);
+
+    [Theory]
+    [InlineData("Kerala State (SCERT)", "KERALA")]
+    [InlineData("CBSE", "NCERT")]
+    [InlineData("ICSE / ISC", "ICSE")]
+    [InlineData("Gulf State Board", "GSB")]
+    [InlineData("Tamil Nadu State Board", "TNSB")]   // a state board is not Kerala
+    [InlineData("IGCSE", "IGCSE")]
+    public void Syllabus_codes_come_from_the_name(string name, string code) =>
+        Assert.Equal(code, StudentSync.Application.Academics.DefaultCatalogue.SyllabusCode(name, Taken()));
+
+    [Fact]
+    public void Codes_never_repeat()
+    {
+        var taken = Taken("NCERT", "NCERT2", "NCERT-C11");
+        Assert.Equal("NCERT3", StudentSync.Application.Academics.DefaultCatalogue.SyllabusCode("CBSE", taken));
+        Assert.Equal("NCERT-C112", StudentSync.Application.Academics.DefaultCatalogue.CourseCode("Class 11 · NCERT", "+1", "NCERT", taken));
+        Assert.Contains("NCERT-C112", taken);
+    }
+
+    [Theory]
+    [InlineData("Class 5 · NCERT", "Class 5", "NCERT", "NCERT-C5")]
+    [InlineData("Plus one", "+1", "KERALA", "KERALA-C11")]
+    [InlineData("Spoken English", null, null, "SE")]
+    [InlineData("Abacus", "LKG", null, "ABACUS")]
+    public void Course_codes_use_the_syllabus_and_class(string name, string? grade, string? syllabus, string code) =>
+        Assert.Equal(code, StudentSync.Application.Academics.DefaultCatalogue.CourseCode(name, grade, syllabus, Taken()));
+
+    [Fact]
+    public void Subject_codes_extend_the_course_code() =>
+        Assert.Equal("NCERT-C5-MATH", StudentSync.Application.Academics.DefaultCatalogue.SubjectCode("NCERT-C5", "Mathematics", Taken()));
+}

@@ -49,7 +49,8 @@ public sealed record SubjectOverviewDto(Guid Id, string Name, string Code, strin
     Guid? GradeLevelId, string? GradeName, int GradeOrder, IReadOnlyList<LookupItem> Teachers, int Students, int ClassesDone, decimal HoursDone, decimal? FeeValue);
 
 /// <summary>What "Load default catalogue" added (zeros when everything was already there).</summary>
-public sealed record DefaultCatalogueResult(int Syllabi, int Classes, int Courses, int Subjects, int AcademicYears);
+/// <summary>Tidied: class and syllabus names made consistent ("+1" → "Class 11", "CBSE" → "CBSE / NCERT").</summary>
+public sealed record DefaultCatalogueResult(int Syllabi, int Classes, int Courses, int Subjects, int AcademicYears, int Tidied = 0);
 
 /// <summary>"Add a class" (Academics): the course name it will get, the course if it already exists, the usual subjects of
 /// that class and syllabus (default catalogue) and the subjects the course already has.</summary>

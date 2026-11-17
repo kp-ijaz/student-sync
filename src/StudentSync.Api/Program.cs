@@ -190,7 +190,7 @@ static async Task RunCommandAsync(WebApplication app, string[] args)
                 using (sp.GetRequiredService<ITenantContext>().BeginScope(tenantId))
                 {
                     var r = await sp.GetRequiredService<StudentSync.Application.Academics.DefaultCatalogue>().LoadForCurrentTenantAsync(CancellationToken.None);
-                    Console.WriteLine($"Added {r.Syllabi} syllabi, {r.Classes} classes, {r.Courses} class courses, {r.Subjects} subjects, {r.AcademicYears} academic years.");
+                    Console.WriteLine($"Added {r.Syllabi} syllabi, {r.Classes} classes, {r.Courses} class courses, {r.Subjects} subjects, {r.AcademicYears} academic years; tidied {r.Tidied} name(s)/order(s).");
                 }
                 break;
             }

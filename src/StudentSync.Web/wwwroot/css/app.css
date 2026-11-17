@@ -1859,3 +1859,9 @@ a.metric-cell:hover { text-decoration:none; background:#F7F9FD; }
 @media (prefers-reduced-motion: reduce) {
   .btn:active, .pick:active, .icon-btn:active, .qa-mark:active, .tabbar a:active, .people-list button:active, .quick-links a:active, .seg label:active { transform: none; }
 }
+/* Academics: remove buttons and read-only codes. */
+.danger-text { color: #C42B30; }
+.danger-text:hover { background: var(--ss-red-50); }
+.code-ro { display: inline-block; padding: 10px 14px; border-radius: var(--r-control); background: var(--ss-slate-50); font: 600 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ss-text-2); }
+.grade-add { flex-wrap: nowrap; margin-bottom: var(--sp-2); }
+@media (max-width: 767px) { .grade-add { flex-wrap: wrap; } .grade-add .btn { width: 100%; } }

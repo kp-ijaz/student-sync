@@ -345,6 +345,17 @@ student has their own rate per hour; syllabi are NCERT, State (Kerala SCERT) and
   with hours taught/missed and earned, and a Subjects table. **Admin home** metric strip adds Subjects (being studied)
   and Hours taught (this month).
 
+### Academics: edit, remove and automatic codes (2026-11-17)
+
+- Tabs: Courses & subjects · Syllabi · Academic years · **Classes** (was "Grades"). Every course, subject, syllabus, year
+  and class has **Edit** and **Remove** (`.danger-text`); Remove opens a confirm sheet ("Keep it" / "Remove") and is
+  refused with a plain reason when something still uses the entry ("Still used by 8 students, 4 courses and 1 exam").
+- Codes are never typed: new syllabi, courses and subjects get one automatically (NCERT / KERALA / ICSE, `NCERT-C5`,
+  `NCERT-C5-MATH`, initials otherwise); edit dialogs show the code read-only (`.code-ro`). New classes need only a
+  name; their order follows the class number.
+- "Load default catalogue" also tidies names: classes recognised as 1–12 become "Class N" in order, and NCERT /
+  Kerala / ICSE syllabi get their standard names (records keep their ids, so students stay linked).
+
 ### Phone app feel: full titles, no zoom, press feedback (2026-11-17)
 
 - **App bar title** (< 1024 px) takes the free width and may use two lines; titles over 15 characters step down to 18 px

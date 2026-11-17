@@ -31,7 +31,7 @@ public sealed class DefaultCatalogue(IAppDbContext db, AccessPolicy access, Audi
             (9, 10, ["English", "Hindi", "Mathematics", "Science", "Social Science"]),
             (11, 12, [.. SeniorScience, "Accountancy", "Business Studies", "Economics"]),
         ]),
-        new("KERALA", "Kerala State (SCERT)", ["KERALA", "SCERT", "STATE"],
+        new("KERALA", "Kerala State (SCERT)", ["KERALA", "SCERT"],
         [
             (1, 4, ["Malayalam", "English", "Mathematics", "Environmental Science"]),
             (5, 7, ["Malayalam", "English", "Hindi", "Mathematics", "Basic Science", "Social Science"]),
@@ -141,7 +141,8 @@ public sealed class DefaultCatalogue(IAppDbContext db, AccessPolicy access, Audi
         audit.Record("academics.default_catalogue", "Catalogue", null,
             $"Loaded defaults: {syllabi} syllabi, {classes} classes, {courses} courses, {subjects} subjects, {years} academic year(s)");
         await db.SaveChangesAsync(ct);
-        return new DefaultCatalogueResult(syllabi, classes, courses, subjects, years);
+        var tidied = await TidyForCurrentTenantAsync(ct);
+        return new DefaultCatalogueResult(syllabi, classes, courses, subjects, years, tidied);
     }
 
     private static string ShortName(Syllabus s) => s.Code switch { "NCERT" => "NCERT", "KERALA" => "Kerala", _ => "ICSE" };
@@ -227,6 +228,78 @@ public sealed class DefaultCatalogue(IAppDbContext db, AccessPolicy access, Audi
         if (r >= 0) return r + 1;
         foreach (var suffix in new[] { "st", "nd", "rd", "th" }) if (n.EndsWith(suffix, StringComparison.Ordinal)) n = n[..^suffix.Length];
         return int.TryParse(n, NumberStyles.None, CultureInfo.InvariantCulture, out var v) && v is >= 1 and <= 12 ? v : null;
+    }
+
+    /// <summary>
+    /// Makes names consistent (owner request 2026-11-17): classes recognised as 1–12 ("1", "+1", "XI", "Grade 5") become
+    /// "Class N" in order N, and NCERT / Kerala / ICSE syllabi get their standard code and name — each only when no other
+    /// entry already uses that name or code. Records keep their ids, so students and courses stay linked.
+    /// </summary>
+    public async Task<int> TidyForCurrentTenantAsync(CancellationToken ct)
+    {
+        var changed = 0;
+        var grades = await db.GradeLevels.ToListAsync(ct);
+        foreach (var g in grades)
+        {
+            if (ClassNumber(g.Name) is not { } n) continue;
+            var name = $"Class {n}";
+            if (g.Name != name && !grades.Any(o => o.Id != g.Id && Matches(o.Name, name))) { g.Name = name; changed++; }
+            if (g.SortOrder != n) { g.SortOrder = n; changed++; }
+        }
+        var curricula = await db.Curricula.ToListAsync(ct);
+        foreach (var s in Syllabi)
+        {
+            var c = curricula.FirstOrDefault(c => s.Aliases.Any(a => Matches(c.Code, a) || Contains(c.Name, a)));
+            if (c is null) continue;
+            if (c.Name != s.Name && !curricula.Any(o => o.Id != c.Id && Matches(o.Name, s.Name))) { c.Name = s.Name; changed++; }
+            if (c.Code != s.Code && !curricula.Any(o => o.Id != c.Id && Matches(o.Code, s.Code))) { c.Code = s.Code; changed++; }
+        }
+        if (changed == 0) return 0;
+        audit.Record("catalogue.tidied", "Catalogue", null, $"{changed} name/order change(s)");
+        await db.SaveChangesAsync(ct);
+        return changed;
+    }
+
+    // ---------------- Automatic codes (owner request 2026-11-17: codes are never typed) ----------------
+
+    /// <summary>NCERT / KERALA / ICSE for the known syllabi, otherwise the name's initials (e.g. "Gulf State Board" → GSB).</summary>
+    public static string SyllabusCode(string name, ISet<string> taken)
+    {
+        var known = Syllabi.FirstOrDefault(s => s.Aliases.Any(a => Contains(name, a)));
+        return Unique(known?.Code ?? Initials(name), taken);
+    }
+
+    /// <summary>"NCERT-C5" for a class course with a syllabus; otherwise the name's initials.</summary>
+    public static string CourseCode(string name, string? gradeName, string? curriculumCode, ISet<string> taken)
+    {
+        if (gradeName is not null && curriculumCode is not null)
+        {
+            var cur = new string(curriculumCode.ToUpperInvariant().Where(char.IsLetterOrDigit).Take(8).ToArray());
+            var n = ClassNumber(gradeName)?.ToString(CultureInfo.InvariantCulture) ?? new string(gradeName.Where(char.IsLetterOrDigit).Take(6).ToArray()).ToUpperInvariant();
+            if (cur.Length > 0 && n.Length > 0) return Unique($"{cur}-C{n}", taken);
+        }
+        return Unique(Initials(name), taken);
+    }
+
+    /// <summary>"NCERT-C5-MATH": the course's code and the subject's short name.</summary>
+    public static string SubjectCode(string courseCode, string name, ISet<string> taken) => Unique($"{courseCode}-{Abbreviation(name)}", taken);
+
+    /// <summary>The stem, or stem2, stem3… — the first one not taken (the chosen code is added to <paramref name="taken"/>).</summary>
+    public static string Unique(string stem, ISet<string> taken)
+    {
+        stem = stem.Length > 26 ? stem[..26] : stem;
+        var code = stem;
+        for (var i = 2; !taken.Add(code); i++) code = $"{stem}{i}";
+        return code;
+    }
+
+    private static string Initials(string name)
+    {
+        var words = name.Split([' ', '-', '/', '(', ')', '&', ',', '.', '·'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(w => new string(w.Where(char.IsLetterOrDigit).ToArray())).Where(w => w.Length > 0).ToList();
+        var code = words.Count >= 2 ? string.Concat(words.Take(6).Select(w => char.IsDigit(w[0]) ? w : w[..1]))
+            : words.Count == 1 ? new string(words[0].Take(8).ToArray()) : "X";
+        return code.ToUpperInvariant();
     }
 
     private static string Abbreviation(string subject) => subject switch
