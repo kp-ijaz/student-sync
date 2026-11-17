@@ -1,0 +1,90 @@
+@page "/class-requests"
+@attribute [Authorize(Roles = "InstitutionAdmin,Teacher")]
+@inherits AppPage
+@* Students' requests to postpone or reschedule a class (owner request 2026-11-17). Teachers see requests for their own
+   classes, admins all. Accept moves the class (the normal reschedule rules: clashes, hours, notifications); Decline keeps
+   it and tells the student, with an optional note. *@
+<PageTitle>Class change requests · Student Sync</PageTitle>
+<PageHeader Title="Class change requests" Subtitle="Students ask to postpone or reschedule a class. Accept with the new time, or keep the class as booked." />
+
+<Segmented TValue="string" Options="Filters" Value="_filter" ValueChanged="Filter" Label="Show requests" Class="pr-filter" />
+
+<DataView Loading="_list is null && _error is null" Error="_error" OnRetry="LoadAsync" IsEmpty="Shown.Count == 0"
+          EmptyTitle="@(_filter == "Pending" ? "No requests waiting" : "Nothing here yet")" EmptyText="When a student asks to move a class, it appears here." EmptyIcon="calendar-clock">
+    <div class="pr-list">
+        @foreach (var r in Shown)
+        {
+            var past = r.SessionStartUtc <= DateTime.UtcNow;
+            <article class="card cr-card" aria-labelledby="@($"cr-{r.Id}")">
+                <div class="card-head">
+                    <div><h2 id="@($"cr-{r.Id}")" class="pr-title"><a href="/students/@r.StudentId">@r.StudentName</a></h2>
+                        <span class="caption">@r.SessionTitle@(IsAdmin ? $" · {r.TeacherName}" : "")</span></div>
+                    <span class="badge @StatusTone(r.Status)">@(r.Status == "Pending" ? (r.Kind == "Postpone" ? "Postpone" : "Reschedule") : r.Status)</span>
+                </div>
+                <dl class="cr-facts">
+                    <div><dt>Booked for</dt><dd><a href="/sessions/@r.SessionId">@Time.Range(r.SessionStartUtc, r.SessionEndUtc, Tz)</a></dd></div>
+                    <div><dt>@(r.Kind == "Postpone" ? "Asks" : "Suggests")</dt><dd>@(r.Kind == "Postpone" ? "Postpone — you choose the new time" : $"{r.ProposedDate:ddd d MMM} at {r.ProposedTime:HH\\:mm}")</dd></div>
+                    <div class="full"><dt>Reason</dt><dd>@r.Reason</dd></div>
+                    @if (r.Status == "Accepted" && r.NewStartUtc is { } moved) { <div class="full"><dt>Moved to</dt><dd>@Time.Short(moved, Tz)</dd></div> }
+                    @if (r.ResponseNote is { } note) { <div class="full"><dt>Your note</dt><dd>@note</dd></div> }
+                </dl>
+                @if (r.Status == "Pending" && !past)
+                {
+                    var f = Form(r);
+                    <div class="cr-answer">
+                        <div class="form-grid">
+                            <div class="field"><label for="@($"crd-{r.Id}")">New date</label><input id="@($"crd-{r.Id}")" type="date" class="input" @bind="f.Date" /></div>
+                            <div class="field"><label for="@($"crt-{r.Id}")">New time</label><input id="@($"crt-{r.Id}")" type="time" class="input" @bind="f.Time" /></div>
+                            <div class="field full"><label for="@($"crn-{r.Id}")">Note to the student <span class="caption">(optional)</span></label>
+                                <input id="@($"crn-{r.Id}")" class="input" maxlength="500" @bind="f.Note" /></div>
+                        </div>
+                        <span class="help">Times are in the class's time (@r.TimeZoneId). Clashes and the student's hours are checked when you accept.</span>
+                        <div class="form-actions">
+                            <button class="btn btn-ghost" @onclick="() => Answer(r, false)" disabled="@Busy">Keep as booked</button>
+                            <button class="btn btn-primary" @onclick="() => Answer(r, true)" disabled="@(Busy || f.Date is null || f.Time is null)"><Icon Name="calendar" /> Accept and move</button>
+                        </div>
+                    </div>
+                }
+                else if (r.Status == "Pending") { <p class="caption">This class has already started; the request can no longer be answered.</p> }
+            </article>
+        }
+    </div>
+</DataView>
+
+@code {
+    private sealed class AnswerForm { public DateOnly? Date { get; set; } public TimeOnly? Time { get; set; } public string? Note { get; set; } }
+    private static readonly IReadOnlyList<Segmented<string>.Option> Filters = [new("Pending", "Waiting"), new("All", "All")];
+    private List<ClassChangeRequestDto>? _list;
+    private ApiException? _error;
+    private string _filter = "Pending";
+    private readonly Dictionary<Guid, AnswerForm> _forms = [];
+
+    private List<ClassChangeRequestDto> Shown => (_list ?? []).Where(r => _filter == "All" || r.Status == "Pending").ToList();
+
+    protected override async Task LoadAsync() => (_list, _error) = await Fetch(() => Api.GetAsync<List<ClassChangeRequestDto>>("class-requests"));
+
+    private Task Filter(string f) { _filter = f; return Task.CompletedTask; }
+
+    /// <summary>Pre-filled with the student's suggestion, or (postpone) the same time a week later.</summary>
+    private AnswerForm Form(ClassChangeRequestDto r)
+    {
+        if (_forms.TryGetValue(r.Id, out var f)) return f;
+        var local = Time.ToLocal(r.SessionStartUtc, r.TimeZoneId);
+        return _forms[r.Id] = new AnswerForm
+        {
+            Date = r.ProposedDate ?? DateOnly.FromDateTime(local).AddDays(7),
+            Time = r.ProposedTime ?? TimeOnly.FromDateTime(local),
+        };
+    }
+
+    private async Task Answer(ClassChangeRequestDto r, bool accept)
+    {
+        var f = Form(r);
+        var request = new AnswerClassChangeRequest(accept, accept ? f.Date : null, accept ? f.Time : null, f.Note);
+        var first = r.StudentName.Split(' ')[0];
+        if (await Run(() => Api.PostAsync($"class-requests/{r.Id}/answer", request), accept ? $"Class moved. {first} has been told." : $"{first} has been told the class stays as booked."))
+            await LoadAsync();
+    }
+
+    private static string StatusTone(string s) => s switch { "Accepted" => "green", "Declined" => "slate", "Withdrawn" => "slate", _ => "amber" };
+}

@@ -128,3 +128,19 @@ public sealed record AttendanceEntry(Guid StudentId, AttendanceStatus Status, st
 public sealed record AvailabilityDto(Guid Id, DayOfWeek DayOfWeek, TimeOnly StartLocalTime, TimeOnly EndLocalTime, string TimeZoneId);
 public sealed record SaveAvailabilityRequest(List<AvailabilitySlot> Slots, string TimeZoneId);
 public sealed record AvailabilitySlot(DayOfWeek DayOfWeek, TimeOnly StartLocalTime, TimeOnly EndLocalTime);
+
+// ---------------- Student's teachers and class change requests (owner request 2026-11-17) ----------------
+
+/// <summary>A teacher the student has classes with: subjects, classes done, and the next upcoming classes.</summary>
+public sealed record MyTeacherDto(Guid TeacherId, string Name, string? PhotoUrl, IReadOnlyList<string> Subjects, int ClassesDone, IReadOnlyList<MyTeacherClassDto> Upcoming);
+/// <summary>An upcoming class with this teacher, and the student's open change request on it (if any).</summary>
+public sealed record MyTeacherClassDto(Guid SessionId, string Title, string? Subject, DateTime StartUtc, DateTime EndUtc, string TimeZoneId, ClassChangeRequestDto? Request);
+
+/// <summary>Kind: "Postpone" (teacher picks the new time) or "Reschedule" (ProposedDate + ProposedTime in the class's time zone).</summary>
+public sealed record CreateClassChangeRequest(Guid SessionId, string Kind, DateOnly? ProposedDate, TimeOnly? ProposedTime, string Reason);
+/// <summary>Accept: NewDate + NewTime (defaults to the student's proposal), in the class's time zone. Decline: an optional note.</summary>
+public sealed record AnswerClassChangeRequest(bool Accept, DateOnly? NewDate, TimeOnly? NewTime, string? Note, bool AcknowledgeConflicts = false);
+
+public sealed record ClassChangeRequestDto(Guid Id, Guid SessionId, string SessionTitle, DateTime SessionStartUtc, DateTime SessionEndUtc, string TimeZoneId,
+    Guid StudentId, string StudentName, Guid TeacherId, string TeacherName, string Kind, DateOnly? ProposedDate, TimeOnly? ProposedTime, string Reason,
+    string Status, string? ResponseNote, DateTime CreatedAtUtc, DateTime? RespondedAtUtc, DateTime? NewStartUtc);

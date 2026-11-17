@@ -113,6 +113,7 @@ public interface IAppDbContext
     DbSet<AutomationRun> AutomationRuns { get; }
     DbSet<PaymentLink> PaymentLinks { get; }
     DbSet<ProgressReport> ProgressReports { get; }
+    DbSet<ClassChangeRequest> ClassChangeRequests { get; }
     DbSet<FeatureFlag> FeatureFlags { get; }
 
     DatabaseFacade Database { get; }

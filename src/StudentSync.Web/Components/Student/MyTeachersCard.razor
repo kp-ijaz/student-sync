@@ -1,0 +1,143 @@
+@inherits AppComponent
+@* Student home: "Your teachers" (owner request 2026-11-17). Each teacher the student has classes with, the subjects they
+   teach them and the next class. Opening a teacher lists the upcoming classes; each can be asked to be postponed (the
+   teacher picks a new time) or rescheduled (the student proposes one). The request goes to the teacher; nothing moves
+   until they accept. One open request per class; it can be withdrawn while waiting. *@
+<section class="card my-teachers" aria-labelledby="mt-h">
+    <div class="card-head"><h2 id="mt-h">Your teachers</h2></div>
+    @if (_teachers is null && _error is null) { <div class="sk sk-line w60" aria-hidden="true"></div><div class="sk sk-line w40" aria-hidden="true"></div> }
+    else if (_error is not null) { <p class="caption">Could not load your teachers. <button class="btn btn-ghost btn-sm" @onclick="Load">Retry</button></p> }
+    else if (_teachers!.Count == 0) { <InlineEmpty Icon="users" Text="Your teachers appear here once your classes are booked." /> }
+    else
+    {
+        <ul class="people-list">
+            @foreach (var t in _teachers)
+            {
+                var next = t.Upcoming.FirstOrDefault();
+                <li>
+                    <button type="button" @onclick="() => Open(t)" aria-haspopup="dialog">
+                        <Avatar Name="@t.Name" PhotoUrl="@t.PhotoUrl" Size="md" Decorative="true" />
+                        <span class="people-who"><strong>@People.ShortName(t.Name)</strong>
+                            <span class="caption">@(t.Subjects.Count > 0 ? string.Join(", ", t.Subjects) : "Your teacher")</span>
+                            <span class="caption mt-next">@(next is null ? "No class booked" : $"Next: {Day(next.StartUtc)} · {Clock(next.StartUtc)}")</span></span>
+                        @if (t.Upcoming.Any(c => c.Request is not null)) { <span class="badge amber">Request sent</span> }
+                        <Icon Name="chevron-right" />
+                    </button>
+                </li>
+            }
+        </ul>
+    }
+</section>
+
+<Modal Open="_open is not null" OpenChanged="_ => _open = null" Title="@(People.ShortName(_open?.Name))">
+    @if (_open is { } t)
+    {
+        <div class="row" style="flex-wrap:nowrap;margin-bottom:8px">
+            <Avatar Name="@t.Name" PhotoUrl="@t.PhotoUrl" Size="lg" />
+            <div class="grow"><strong>@t.Name</strong>
+                <div class="caption">@(t.Subjects.Count > 0 ? string.Join(", ", t.Subjects) : "Your teacher") · @t.ClassesDone class@(t.ClassesDone == 1 ? "" : "es") done</div></div>
+        </div>
+        @if (t.Upcoming.Count == 0) { <InlineEmpty Icon="calendar" Text="No upcoming classes with this teacher." /> }
+        else
+        {
+            <SectionHeader Title="Upcoming classes" Count="t.Upcoming.Count" Level="3" />
+            <ul class="mt-classes">
+                @foreach (var (c, i) in t.Upcoming.Select((c, i) => (c, i)))
+                {
+                    <li class="mt-class @(i == 0 ? "next" : "")">
+                        <div class="grow">
+                            @if (i == 0) { <span class="agenda-flag next">Next class</span> }
+                            <a href="/sessions/@c.SessionId"><strong>@Day(c.StartUtc) · @Clock(c.StartUtc)–@Clock(c.EndUtc)</strong></a>
+                            <div class="caption">@(c.Subject ?? c.Title)</div>
+                            @if (c.Request is { } r)
+                            {
+                                <div class="mt-request" role="status">
+                                    <span class="badge amber">@(r.Kind == "Postpone" ? "Asked to postpone" : $"Asked to move to {r.ProposedDate:ddd d MMM} {r.ProposedTime:HH\\:mm}")</span>
+                                    <span class="caption">Waiting for @People.ShortName(t.Name)</span>
+                                    <button type="button" class="btn btn-ghost btn-sm" @onclick="() => Withdraw(r)" disabled="@Busy">Withdraw</button>
+                                </div>
+                            }
+                        </div>
+                        @if (c.Request is null)
+                        {
+                            <div class="mt-actions">
+                                <button type="button" class="btn btn-secondary btn-sm" @onclick='() => Ask(c, "Postpone")'>Postpone</button>
+                                <button type="button" class="btn btn-secondary btn-sm" @onclick='() => Ask(c, "Reschedule")'>Reschedule</button>
+                            </div>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+    }
+</Modal>
+
+<Modal Open="_ask is not null" OpenChanged="_ => _ask = null" Title="@(_kind == "Postpone" ? "Ask to postpone" : "Ask to reschedule")">
+    @if (_ask is { } c)
+    {
+        <p class="small">@(c.Subject ?? c.Title) · @Day(c.StartUtc) · @Clock(c.StartUtc)–@Clock(c.EndUtc)</p>
+        <p class="caption">@(_kind == "Postpone" ? "Your teacher will choose a new time and let you know." : "Suggest a new time. Your teacher will accept it or choose another.")</p>
+        @if (_kind == "Reschedule")
+        {
+            <div class="form-grid">
+                <div class="field"><label for="mt-date">New date</label><input id="mt-date" type="date" class="input" min="@Today.ToString("yyyy-MM-dd")" @bind="_date" /></div>
+                <div class="field"><label for="mt-time">New time</label><input id="mt-time" type="time" class="input" @bind="_time" /></div>
+            </div>
+            <span class="help">In the class's time (@c.TimeZoneId).</span>
+        }
+        <div class="field"><label for="mt-reason">Why? *</label>
+            <textarea id="mt-reason" class="textarea" rows="3" maxlength="500" placeholder="e.g. School exam that day" @bind="_reason" @bind:event="oninput"></textarea></div>
+        <div class="form-actions">
+            <button class="btn btn-secondary" @onclick="() => _ask = null">Cancel</button>
+            <button class="btn btn-primary" @onclick="Send" disabled="@(Busy || string.IsNullOrWhiteSpace(_reason) || (_kind == "Reschedule" && (_date is null || _time is null)))"><Icon Name="send" /> Send request</button>
+        </div>
+    }
+</Modal>
+
+@code {
+    private List<MyTeacherDto>? _teachers;
+    private ApiException? _error;
+    private MyTeacherDto? _open;
+    private MyTeacherClassDto? _ask;
+    private string _kind = "Postpone";
+    private DateOnly? _date;
+    private TimeOnly? _time;
+    private string? _reason;
+
+    private DateOnly Today => DateOnly.FromDateTime(Time.ToLocal(DateTime.UtcNow, Tz));
+    private string Day(DateTime utc) => TeachingRules.DayLabel(utc, DateTime.UtcNow, Tz);
+    private string Clock(DateTime utc) => Time.ToLocal(utc, Tz).ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture);
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load()
+    {
+        (_teachers, _error) = await Fetch(() => Api.GetAsync<List<MyTeacherDto>>("my/teachers"));
+        if (_open is { } o) _open = _teachers?.FirstOrDefault(t => t.TeacherId == o.TeacherId);
+    }
+
+    private void Open(MyTeacherDto t) => _open = t;
+
+    private void Ask(MyTeacherClassDto c, string kind)
+    {
+        var local = Time.ToLocal(c.StartUtc, c.TimeZoneId);
+        (_ask, _kind, _reason) = (c, kind, null);
+        (_date, _time) = (DateOnly.FromDateTime(local).AddDays(1), TimeOnly.FromDateTime(local));
+    }
+
+    private async Task Send()
+    {
+        if (_ask is not { } c) return;
+        var request = new CreateClassChangeRequest(c.SessionId, _kind, _kind == "Reschedule" ? _date : null, _kind == "Reschedule" ? _time : null, _reason ?? "");
+        if (await Run(() => Api.PostAsync<IdResponse>("class-requests", request), "Request sent to your teacher."))
+        {
+            _ask = null;
+            await Load();
+        }
+    }
+
+    private async Task Withdraw(ClassChangeRequestDto r)
+    {
+        if (await Run(() => Api.PostAsync($"class-requests/{r.Id}/withdraw", null), "Request withdrawn.")) await Load();
+    }
+}

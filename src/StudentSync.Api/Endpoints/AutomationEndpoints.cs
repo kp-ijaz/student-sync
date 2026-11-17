@@ -58,6 +58,14 @@ public static class AutomationEndpoints
         api.MapGet("/teachers/{id:guid}/pay/payments/{paymentId:guid}/slip", (Guid id, Guid paymentId, ReceiptService s, CancellationToken ct) => s.SlipAsync(id, paymentId, ct))
             .WithTags("Fees");
 
+        // The student's teachers, and requests to postpone / reschedule a class (students ask; the teacher or an admin answers).
+        api.MapGet("/my/teachers", (ClassChangeService s, CancellationToken ct) => s.MyTeachersAsync(ct)).WithTags("Sessions & scheduling");
+        var cr = api.MapGroup("/class-requests").WithTags("Sessions & scheduling");
+        cr.MapGet("/", (string? status, ClassChangeService s, CancellationToken ct) => s.ListAsync(status, ct));
+        cr.MapPost("/", async (CreateClassChangeRequest r, ClassChangeService s, CancellationToken ct) => new IdResponse(await s.CreateAsync(r, ct)));
+        cr.MapPost("/{id:guid}/withdraw", async (Guid id, ClassChangeService s, CancellationToken ct) => { await s.WithdrawAsync(id, ct); return Results.NoContent(); });
+        cr.MapPost("/{id:guid}/answer", async (Guid id, AnswerClassChangeRequest r, ClassChangeService s, CancellationToken ct) => { await s.AnswerAsync(id, r, ct); return Results.NoContent(); });
+
         // Monthly progress reports (teachers see their own; admins all).
         var pr = api.MapGroup("/progress-reports").WithTags("People");
         pr.MapGet("/", (string? status, ProgressReportService s, CancellationToken ct) => s.ListAsync(status, ct));

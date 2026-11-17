@@ -114,6 +114,8 @@
         }
     }
 
+    private int _classRequests;
+
     private List<NeedsList.Item> Needs
     {
         get
@@ -127,6 +129,8 @@
                 items.Add(new($"{_d.SubmissionsToGrade.Count}", _d.SubmissionsToGrade.Count == 1 ? "submission to grade" : "submissions to grade", "/teacher/tasks", Action: "Grade"));
             if (_openDoubts.Count > 0)
                 items.Add(new($"{_openDoubts.Count}", _openDoubts.Count == 1 ? "doubt to answer" : "doubts to answer", "/teacher/tasks#doubts", Action: "Answer"));
+            if (_classRequests > 0)
+                items.Add(new($"{_classRequests}", _classRequests == 1 ? "student asks to move a class" : "students ask to move a class", "/class-requests", Action: "Answer"));
             if (_d.PendingAiApprovals.Count > 0)
                 items.Add(new($"{_d.PendingAiApprovals.Count}", _d.PendingAiApprovals.Count == 1 ? "AI class draft to review" : "AI class drafts to review",
                     $"/ai/drafts/{_d.PendingAiApprovals[0].DraftId}", Warning: false));
@@ -139,6 +143,7 @@
         _error = null;
         (_d, _error) = await Fetch(() => Api.GetAsync<TeacherDashboardDto>("dashboard/teacher"));
         if (_d is null) return;
+        _classRequests = (await Fetch(() => Api.GetAsync<List<ClassChangeRequestDto>>("class-requests?status=Pending"))).Value?.Count(r => r.SessionStartUtc > DateTime.UtcNow) ?? 0;
 
         // The list only says a link exists; fetch the class for its URL only when Join is offered right now.
         _joinUrl = null;

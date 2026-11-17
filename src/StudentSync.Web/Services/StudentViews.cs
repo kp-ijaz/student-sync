@@ -161,22 +161,9 @@ public static class VideoRules
     public static bool CanPlay(PrerecordedVideoDto v) => v.FileId is not null && (v.IsUnlocked || v.CanManage);
 }
 
-/// <summary>A teacher the student has upcoming classes with (dashboard "Your teachers").</summary>
-public sealed record TeacherClasses(Guid Id, string Name, string? PhotoUrl, string? Subject, IReadOnlyList<SessionListItemDto> Classes);
-
 /// <summary>Student home logic (port of student_home_screen.dart).</summary>
 public static class StudentHome
 {
-    /// <summary>Teachers of the next and upcoming classes, in order of their first class, each with their classes (no duplicates).</summary>
-    public static IReadOnlyList<TeacherClasses> Teachers(SessionListItemDto? next, IEnumerable<SessionListItemDto> upcoming)
-    {
-        var all = (next is null ? upcoming : upcoming.Prepend(next)).DistinctBy(s => s.Id).ToList();
-        return all.GroupBy(s => s.TeacherId)
-            .Select(g => new TeacherClasses(g.Key, g.First().TeacherName, g.Select(x => x.TeacherPhotoUrl).FirstOrDefault(p => p is not null),
-                g.First().SubjectName, g.OrderBy(s => s.StartUtc).ToList()))
-            .ToList();
-    }
-
     /// <summary>
     /// Today's remaining classes (by the viewer's local day, not yet ended) and the classes on later days.
     /// <paramref name="localDay"/> maps a UTC instant to the viewer's calendar day.

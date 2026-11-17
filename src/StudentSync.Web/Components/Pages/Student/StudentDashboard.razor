@@ -13,7 +13,6 @@
 <DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync" LoadingLabel="Loading your day">
     @if (_d is not null)
     {
-        var teachers = StudentHome.Teachers(_d.NextSession, _d.UpcomingSessions);
         var p = _d.Progress;
         <QuickLinks Items="Shortcuts" AriaLabel="Your shortcuts" />
         <MetricStrip AriaLabel="Your progress at a glance" Items="@([
@@ -57,30 +56,11 @@
             </div>
 
             <div class="home-side">
+                @if (Me is not null) { <MyTeachersCard Me="Me" /> }
                 <section class="card home-needs" aria-labelledby="needs-h">
                     <div class="card-head"><h2 id="needs-h">Needs you</h2></div>
                     <NeedsList Items="Needs" AllClearText="All caught up. Nothing is waiting for you." />
                 </section>
-
-                @if (teachers.Count > 0)
-                {
-                    <section class="card" aria-labelledby="teachers-h">
-                        <div class="card-head"><h2 id="teachers-h">Your teachers</h2></div>
-                        <ul class="people-list">
-                            @foreach (var t in teachers.Take(6))
-                            {
-                                <li>
-                                    <button type="button" @onclick="() => _teacher = t" aria-haspopup="dialog">
-                                        <Avatar Name="@t.Name" PhotoUrl="@t.PhotoUrl" Size="md" Decorative="true" />
-                                        <span class="people-who"><strong>@People.ShortName(t.Name)</strong>@if (t.Subject is not null) { <span class="caption">@t.Subject</span> }</span>
-                                        <span class="caption">@t.Classes.Count @(t.Classes.Count == 1 ? "class" : "classes")<span class="sr-only"> coming up — see them</span></span>
-                                        <Icon Name="chevron-right" />
-                                    </button>
-                                </li>
-                            }
-                        </ul>
-                    </section>
-                }
 
                 @if (_d.RecentContent.Count > 0)
                 {
@@ -98,19 +78,6 @@
             </div>
         </div>
 
-        <Modal Open="_teacher is not null" OpenChanged="_ => _teacher = null" Title="@(People.ShortName(_teacher?.Name))">
-            @if (_teacher is { } t)
-            {
-                <div class="row" style="flex-wrap:nowrap;margin-bottom:8px">
-                    <Avatar Name="@t.Name" PhotoUrl="@t.PhotoUrl" Size="lg" />
-                    <div class="grow"><strong>@t.Name</strong>@if (t.Subject is not null) { <div class="caption">@t.Subject</div> }</div>
-                </div>
-                <SectionHeader Title="Upcoming classes" Count="t.Classes.Count" Level="3" />
-                <div class="stack-sm st-modal-list">
-                    @foreach (var s in t.Classes) { <ClassRow Session="s" Tz="@Tz" ShowTeacher="false" /> }
-                </div>
-            }
-        </Modal>
     }
 </DataView>
 
@@ -126,7 +93,6 @@
 
     private StudentDashboardDto? _d;
     private ApiException? _error;
-    private TeacherClasses? _teacher;
 
     private List<SessionListItemDto> Classes => _d is null ? [] :
         _d.UpcomingSessions.Prepend(_d.NextSession).OfType<SessionListItemDto>().DistinctBy(s => s.Id).OrderBy(s => s.StartUtc).ToList();

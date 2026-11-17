@@ -49,7 +49,7 @@
             <button class="icon-btn menu-btn" aria-label="@I18n.T(Lang, "Open navigation")" aria-expanded="@(Aria.Bool(_navOpen))" @onclick="() => _navOpen = !_navOpen"><Icon Name="menu" /></button>
             @* Phones/tablets only (CSS): the page title in the app bar, as in the mobile app. Rendered from data-title by CSS so it is
                never a second text copy of the heading for assistive tech or tests; the page keeps its own h1. *@
-            <div class="appbar-title truncate" aria-hidden="true" data-title="@AppBarTitle"></div>
+            <div class="appbar-title @TitleFit" aria-hidden="true" data-title="@AppBarTitle"></div>
             <div class="grow"></div>
             @* App bar actions as on mobile: white circle bell with the unread count and the profile photo (opens Profile).
                Messages and Sign out are desktop-only here; on phones they live in the drawer and on Profile. *@
@@ -101,6 +101,8 @@
     private Timer? _poll;
     private string Lang => _me?.PreferredLanguage ?? "en";
     // Page title published by PageHeader, else the current tab or menu item (e.g. "Home" on the dashboards).
+    /// <summary>Long page titles step down a size and may use two lines on phones, instead of being cut off with "…".</summary>
+    private string TitleFit => AppBarTitle.Length switch { > 26 => "fit-long", > 15 => "fit-mid", _ => "" };
     private string AppBarTitle => Shell.Title ?? I18n.T(Lang, _activeTab?.Label ?? _active?.Label ?? "Student Sync");
 
     protected override async Task OnInitializedAsync()

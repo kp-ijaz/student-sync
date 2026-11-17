@@ -116,6 +116,7 @@ public sealed class AppDbContext(
     public DbSet<AutomationRun> AutomationRuns => Set<AutomationRun>();
     public DbSet<PaymentLink> PaymentLinks => Set<PaymentLink>();
     public DbSet<ProgressReport> ProgressReports => Set<ProgressReport>();
+    public DbSet<ClassChangeRequest> ClassChangeRequests => Set<ClassChangeRequest>();
     public DbSet<FeatureFlag> FeatureFlags => Set<FeatureFlag>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder b)

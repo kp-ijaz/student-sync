@@ -132,19 +132,6 @@ public class StudentViewsTests
     }
 
     [Fact]
-    public void Teachers_are_collected_once_each_with_their_classes()
-    {
-        var a1 = Session(Now.AddDays(1), TeacherA, photo: "/a.jpg");
-        var b1 = Session(Now.AddDays(2), TeacherB);
-        var a2 = Session(Now.AddDays(3), TeacherA);
-        var teachers = StudentHome.Teachers(a1, [a1, b1, a2]);
-        Assert.Equal([TeacherA, TeacherB], teachers.Select(t => t.Id));
-        Assert.Equal([a1.Id, a2.Id], teachers[0].Classes.Select(s => s.Id));
-        Assert.Equal("/a.jpg", teachers[0].PhotoUrl);
-        Assert.Empty(StudentHome.Teachers(null, []));
-    }
-
-    [Fact]
     public void Notes_and_assignments_open_once_the_class_has_ended()
     {
         Assert.False(JoinRules.HasEnded(SessionStatus.Scheduled, Now.AddMinutes(1), Now));

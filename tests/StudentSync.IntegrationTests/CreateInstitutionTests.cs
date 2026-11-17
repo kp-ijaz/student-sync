@@ -20,7 +20,7 @@ namespace StudentSync.IntegrationTests;
 /// </summary>
 public class CreateInstitutionTests(ApiFixture fx)
 {
-    private const string WeakPassword = "Short123"; // 8 characters; the policy requires 10
+    private const string WeakPassword = "Ab12"; // 4 characters; the policy requires 6
     private static readonly string[] Args =
     [
         "create-institution", "--name", "Bootstrap Test Institute", "--code", "Boot-Test", "--time-zone", "Asia/Dubai",
@@ -107,7 +107,7 @@ public class CreateInstitutionTests(ApiFixture fx)
         Assert.Equal("password_change_required", await Client.Code(blocked));
 
         // The real password must meet the policy; afterwards the account works normally and the old one is gone.
-        var weakAgain = await http.PostAsJsonAsync("/api/v1/me/password", new ChangePasswordRequest(WeakPassword, "Weak1234"), ApiFixture.Json);
+        var weakAgain = await http.PostAsJsonAsync("/api/v1/me/password", new ChangePasswordRequest(WeakPassword, "123456"), ApiFixture.Json);
         Assert.Equal(HttpStatusCode.BadRequest, weakAgain.StatusCode);
         const string strong = "A-Much-Longer-Passw0rd";
         var changed = await http.PostAsJsonAsync("/api/v1/me/password", new ChangePasswordRequest(WeakPassword, strong), ApiFixture.Json);

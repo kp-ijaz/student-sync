@@ -139,7 +139,7 @@ html, body { overflow-x: hidden; }
 .icon-btn.circle { background: #fff; border-color: var(--ss-hairline); box-shadow: var(--shadow-1); }
 .icon-btn.circle:hover { background: #F7F9FD; }
 .icon-btn:focus-visible { border-radius: var(--r-pill); }
-.dot-count { position: absolute; top: -2px; inset-inline-end: -2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--ss-error); color: #fff; font-size: 11px; line-height: 16px; text-align: center; font-weight: 700; border: 2px solid #fff; }
+.dot-count { position: absolute; top: -2px; inset-inline-end: -2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: #C62828; color: #fff; font-size: 11px; line-height: 16px; text-align: center; font-weight: 700; border: 2px solid #fff; } /* darker than --ss-error so white 11px digits meet 4.5:1 */
 .top-avatar { display: inline-flex; border-radius: var(--r-pill); flex: none; text-decoration: none !important; }
 .top-avatar:focus-visible { border-radius: var(--r-pill); }
 .user-chip { display: flex; align-items: center; gap: var(--sp-2); padding: 4px 8px 4px 4px; border-radius: 999px; border: 1px solid var(--ss-border); background: #fff; }
@@ -1809,3 +1809,53 @@ a.metric-cell:hover { text-decoration:none; background:#F7F9FD; }
 /* Add classes: the student's hours do not cover these classes. */
 .hours-fix { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-2); }
 @media (max-width: 767px) { .hours-fix .btn { flex: 1 1 auto; min-height: 44px; } }
+/* Password boxes with an eye button everywhere (PasswordInput). */
+.pw-field { position: relative; }
+.pw-field > .input.no-icon { padding-inline-start: 14px; }
+/* Student home: your teachers, and class change requests. */
+.my-teachers .mt-next { color: var(--ss-blue); font-weight: 600; }
+.mt-classes { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.mt-class { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3); border-radius: var(--r-control); background: var(--ss-fill); }
+.mt-class.next { background: var(--ss-blue-50); }
+.mt-class .agenda-flag { display: inline-block; margin-bottom: 4px; }
+.mt-actions { display: flex; gap: var(--sp-2); flex: none; }
+.mt-request { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); }
+.cr-card { display: flex; flex-direction: column; gap: var(--sp-3); }
+.cr-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2) var(--sp-4); margin: 0; }
+.cr-facts .full { grid-column: 1 / -1; }
+.cr-facts dt { font-size: 11px; color: var(--ss-text-2); }
+.cr-facts dd { margin: 0; font-weight: 500; }
+.cr-answer { border-top: 1px solid var(--ss-border); padding-top: var(--sp-3); }
+@media (max-width: 767px) {
+  .mt-class { flex-direction: column; align-items: stretch; }
+  .mt-actions .btn { flex: 1 1 0; min-height: 44px; }
+  .cr-facts { grid-template-columns: 1fr; }
+}
+
+/* ---------- Phone app feel (2026-11-17) ---------- */
+@media (max-width: 1023px) {
+  /* App bar title takes the free width; long titles step down and wrap to two lines rather than "…". */
+  .topbar .appbar-title { flex: 1 1 auto; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+  .topbar .appbar-title + .grow { flex: 0 0 0; }
+  /* Installed app (full screen): keep the bar clear of the notch / status bar. */
+  .topbar { padding-top: env(safe-area-inset-top, 0px); height: calc(72px + env(safe-area-inset-top, 0px)); }
+}
+@media (max-width: 767px) {
+  .topbar { height: calc(64px + env(safe-area-inset-top, 0px)); }
+  .topbar .appbar-title.fit-mid { font-size: 18px; line-height: 22px; }
+  .topbar .appbar-title.fit-long { font-size: 16px; line-height: 20px; letter-spacing: -.2px; }
+  /* iPhone Safari zooms the page when a field under 16 px gets focus; app-like forms never jump. */
+  .input, .select, .textarea, input[type=text].input, input[type=email].input { font-size: 16px; }
+}
+/* Touch screens: no grey tap flash, and a quick press feedback like native buttons. */
+@media (hover: none) {
+  a, button, [role=button], label, summary { -webkit-tap-highlight-color: transparent; }
+  .btn, .pick, .icon-btn, .qa-mark, .tabbar a, .people-list button, .prow, .quick-links a, .seg label {
+    transition: transform 120ms var(--ease), background 150ms var(--ease), box-shadow 150ms var(--ease);
+  }
+  .btn:active:not(:disabled), .pick:active:not(:disabled), .icon-btn:active, .qa-mark:active:not(:disabled), .quick-links a:active, .seg label:active { transform: scale(.97); }
+  .tabbar a:active, .people-list button:active { transform: scale(.98); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn:active, .pick:active, .icon-btn:active, .qa-mark:active, .tabbar a:active, .people-list button:active, .quick-links a:active, .seg label:active { transform: none; }
+}

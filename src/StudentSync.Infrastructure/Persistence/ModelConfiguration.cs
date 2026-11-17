@@ -158,6 +158,19 @@ internal static class ModelConfiguration
         });
         Fk<ProgressReport, Student>(b, x => x.StudentId);
         Fk<ProgressReport, Teacher>(b, x => x.TeacherId);
+        b.Entity<ClassChangeRequest>(e =>
+        {
+            // One open request per class and student.
+            e.HasIndex(x => new { x.SessionId, x.StudentId }).IsUnique().HasFilter("\"Status\" = 'Pending'").HasDatabaseName("IX_ClassChangeRequests_Session_Student_Pending");
+            e.HasIndex(x => new { x.TeacherId, x.Status });
+            e.HasIndex(x => new { x.StudentId, x.Status });
+            e.Property(x => x.Reason).HasMaxLength(500);
+            e.Property(x => x.ResponseNote).HasMaxLength(500);
+            e.Property(x => x.TimeZoneId).HasMaxLength(64);
+        });
+        Fk<ClassChangeRequest, LearningSession>(b, x => x.SessionId);
+        Fk<ClassChangeRequest, Student>(b, x => x.StudentId);
+        Fk<ClassChangeRequest, Teacher>(b, x => x.TeacherId);
 
         // ---------- People ----------
         foreach (var (type, nav) in new[] { (typeof(Teacher), nameof(Teacher.User)), (typeof(Student), nameof(Student.User)), (typeof(Parent), nameof(Parent.User)) })

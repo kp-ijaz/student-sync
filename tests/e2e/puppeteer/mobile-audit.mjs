@@ -19,8 +19,8 @@ fs.mkdirSync(outDir, { recursive: true });
 const pages = {
   admin: ["/admin", "/admin/students", "/admin/teachers", "/sessions", "/sessions/new", "/admin/fees", "/admin/reports",
     "/admin/academics", "/admin/settings", "/videos", "/assignments", "/exams", "/doubts", "/messages", "/announcements",
-    "/profile", "/admin/students/new", "/admin/subjects", "/admin/salaries", "/progress-reports", "/admin/settings?tab=automations", "#student", "#session", "#teacher"],
-  teacher: ["/teacher", "/sessions", "/teacher/students", "/teacher/tasks", "/teacher/availability", "/teacher/profile", "/progress-reports", "/videos", "/assignments",
+    "/profile", "/admin/students/new", "/admin/subjects", "/admin/salaries", "/progress-reports", "/class-requests", "/admin/settings?tab=automations", "#student", "#session", "#teacher"],
+  teacher: ["/teacher", "/sessions", "/teacher/students", "/teacher/tasks", "/teacher/availability", "/teacher/profile", "/progress-reports", "/class-requests", "/videos", "/assignments",
     "/exams", "/questions", "/doubts", "/messages", "/profile", "#student", "#session"],
   student: ["/student", "/subjects", "/timetable", "/learning", "/learning-plan", "/doubts", "/assistant", "/messages",
     "/announcements", "/profile", "#subject", "#session"],

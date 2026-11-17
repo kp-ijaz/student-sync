@@ -35,10 +35,13 @@ public static class DependencyInjection
 
         services.AddIdentityCore<AppUser>(o =>
             {
-                o.Password.RequiredLength = 10;
-                o.Password.RequireDigit = true;
-                o.Password.RequireLowercase = true;
-                o.Password.RequireUppercase = true;
+                // Owner decision 2026-11-17: at least 6 characters, no character-class rules; CommonPasswordValidator
+                // refuses the most guessable ones. Lockout below and the sign-in rate limit stay.
+                o.Password.RequiredLength = 6;
+                o.Password.RequiredUniqueChars = 1;
+                o.Password.RequireDigit = false;
+                o.Password.RequireLowercase = false;
+                o.Password.RequireUppercase = false;
                 o.Password.RequireNonAlphanumeric = false;
                 o.Lockout.MaxFailedAccessAttempts = 5;
                 o.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
@@ -46,7 +49,8 @@ public static class DependencyInjection
                 o.User.RequireUniqueEmail = false; // uniqueness is tenant-scoped (TenantId, NormalizedEmail)
             })
             .AddRoles<IdentityRole<Guid>>()
-            .AddEntityFrameworkStores<AppDbContext>();
+            .AddEntityFrameworkStores<AppDbContext>()
+            .AddPasswordValidator<CommonPasswordValidator>();
 
         services.AddOptions<JwtOptions>().Bind(config.GetSection("Jwt")).PostConfigure(o =>
         {

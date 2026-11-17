@@ -66,6 +66,7 @@ public static class DependencyInjection
         services.AddScoped<Fees.ReceiptService>();
         services.AddScoped<People.ProgressReportService>();
         services.AddScoped<Scheduling.HolidayClassesService>();
+        services.AddScoped<Scheduling.ClassChangeService>();
         return services;
     }
 }

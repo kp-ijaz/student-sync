@@ -345,6 +345,28 @@ student has their own rate per hour; syllabi are NCERT, State (Kerala SCERT) and
   with hours taught/missed and earned, and a Subjects table. **Admin home** metric strip adds Subjects (being studied)
   and Hours taught (this month).
 
+### Phone app feel: full titles, no zoom, press feedback (2026-11-17)
+
+- **App bar title** (< 1024 px) takes the free width and may use two lines; titles over 15 characters step down to 18 px
+  and over 26 to 16 px on phones (`TitleFit` in `MainLayout`), so "Class change requests" shows in full instead of "…".
+- Fields are 16 px on phones so iPhone Safari never zooms in on focus.
+- Touch screens: no grey tap flash; buttons, chips, tabs and list rows give a quick press feedback (scale .97–.98,
+  off with reduced motion). The bar respects the notch/status bar in the installed app (`safe-area-inset-top`).
+
+### Show/hide passwords, 6-character passwords, student's teachers and class change requests (2026-11-17)
+
+- **Passwords**: every password or secret box uses `PasswordInput` — an eye button (`.pw-toggle`, a real toggle with
+  "Show password" / "Hide password") that keeps focus; sign-in keeps its own (static page). Change password says "At least
+  6 characters"; the server needs 6+ characters and refuses the most common passwords and the person's email name.
+- **Student home ▸ Your teachers** (`MyTeachersCard`, top of the side column): each teacher with the subjects they teach
+  the student and "Next: Tomorrow · 4:00 PM". Opening one lists the upcoming classes (the next one highlighted) with
+  **Postpone** and **Reschedule**; a sent request shows "Asked to postpone" / "Asked to move to …" with Withdraw.
+- **Request dialog**: postpone = reason only (the teacher picks the time); reschedule = new date + time (in the class's
+  time zone) + reason.
+- **Class change requests** (`/class-requests`, Classes menu for admins and teachers; teacher home "Needs you" shows the
+  count): one card per request — booked time, what the student asks, reason — with new date/time pre-filled (the
+  student's suggestion, or the same time a week later), an optional note, **Accept and move** / **Keep as booked**.
+
 ### Classes must fit the hours; "Add hours"; no payment screens this phase (2026-11-17)
 
 - **Hours rule** (owner decision): a student can be booked only for classes their prepaid hours cover. Free = hours added
