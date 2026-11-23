@@ -1,0 +1,212 @@
+@page "/admin/finance"
+@attribute [Authorize(Roles = "InstitutionAdmin")]
+@inherits AppPage
+
+@* Fees ▸ Finance (owner request 2026-11-24): income (fees received), salaries paid, other expenses and profit for a month
+   or a year, the last 12 months, every payment in and out, and money still open with people who left. Cash basis:
+   money counts on the day it was received or paid. Expenses are added, edited and deleted here (audited). *@
+<PageTitle>Finance · Student Sync</PageTitle>
+<PageHeader Title="Finance" Subtitle="Money in and out: fees received, salaries paid and running costs, and what is left as profit.">
+    <Actions><button class="btn btn-primary" @onclick="NewExpense"><Icon Name="plus" /> Add expense</button></Actions>
+</PageHeader>
+
+<div class="card finance-period">
+    <Segmented TValue="string" Options="PeriodOptions" Value="_period" ValueChanged="SetPeriod" Label="Period" />
+    <div class="finance-nav">
+        <button class="icon-btn" aria-label="@(_period == "year" ? "Previous year" : "Previous month")" @onclick="() => Move(-1)"><Icon Name="chevron-left" /></button>
+        <h2>@PeriodLabel</h2>
+        <button class="icon-btn" aria-label="@(_period == "year" ? "Next year" : "Next month")" @onclick="() => Move(1)" disabled="@(_start >= CurrentStart)"><Icon Name="chevron-right" /></button>
+    </div>
+</div>
+
+<DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_d is { } d)
+    {
+        <MetricStrip AriaLabel="Money at a glance" Items="@([
+            new("Income", Money.Format(d.Income, d.CurrencyCode), "fee payments received", "trending-up"),
+            new("Salaries paid", Money.Format(d.Salaries, d.CurrencyCode), "salary payments to teachers", "users", "/admin/salaries"),
+            new("Expenses", Money.Format(d.Expenses, d.CurrencyCode), "rent, bills and other costs", "wallet"),
+            new(d.Profit < 0 ? "Loss" : "Profit", Money.Format(Math.Abs(d.Profit), d.CurrencyCode),
+                "income − salaries − expenses" + (d.MarginPercent is { } mp ? $" · {mp:0.#}% of income" : ""), d.Profit < 0 ? "alert" : "check-circle"),
+        ])" />
+        <p class="caption finance-open">
+            Open today: <a href="/admin/fees">@Money.Format(d.FeesToCollect, d.CurrencyCode) fees to collect</a> ·
+            <a href="/admin/salaries">@Money.Format(d.SalariesOwed, d.CurrencyCode) salaries to pay</a>
+        </p>
+
+        <div class="grid grid-2 finance-grid">
+            <section class="card" aria-labelledby="cat-h">
+                <div class="card-head"><h2 id="cat-h">Where the money went</h2><span class="caption">@PeriodLabel</span></div>
+                @{ var outgoing = d.Salaries + d.Expenses; }
+                @if (outgoing == 0) { <InlineEmpty Icon="wallet" Text="Nothing paid out in this period." /> }
+                else
+                {
+                    <div class="finance-bars">
+                        @if (d.Salaries > 0) { <FinanceBar Label="Salaries" Amount="d.Salaries" Total="outgoing" Currency="@d.CurrencyCode" /> }
+                        @foreach (var c in d.ExpensesByCategory) { <FinanceBar Label="@CategoryLabel(c.Category)" Amount="c.Amount" Total="outgoing" Currency="@d.CurrencyCode" /> }
+                    </div>
+                    <p class="caption">Share of everything paid out (@Money.Format(outgoing, d.CurrencyCode)).</p>
+                }
+            </section>
+
+            <section class="card" aria-labelledby="trend-h">
+                <div class="card-head"><h2 id="trend-h">Last 12 months</h2></div>
+                <div class="table-wrap"><table class="table stack-mobile finance-trend">
+                    <thead><tr><th>Month</th><th class="num">Income</th><th class="num">Salaries</th><th class="num">Expenses</th><th class="num">Profit</th></tr></thead>
+                    <tbody>@foreach (var m in d.Months.Reverse())
+                    {
+                        <tr><td data-label="Month">@m.Month.ToString("MMM yyyy")</td><td data-label="Income" class="num">@Money.Format(m.Income, d.CurrencyCode)</td>
+                            <td data-label="Salaries" class="num">@Money.Format(m.Salaries, d.CurrencyCode)</td><td data-label="Expenses" class="num">@Money.Format(m.Expenses, d.CurrencyCode)</td>
+                            <td data-label="Profit" class="num @(m.Profit < 0 ? "loss" : "")">@(m.Profit < 0 ? "−" : "")@Money.Format(Math.Abs(m.Profit), d.CurrencyCode)</td></tr>
+                    }</tbody>
+                </table></div>
+            </section>
+        </div>
+
+        <section class="card" aria-labelledby="ledger-h">
+            <div class="card-head"><h2 id="ledger-h">Money in &amp; out</h2><span class="caption">@PeriodLabel</span></div>
+            <PillTabs TKey="string" Tabs="Tabs" @bind-Active="_filter" Label="Show">
+                @{ var shown = d.Entries.Where(e => _filter == "all" || e.Kind.ToString() == _filter).ToList(); }
+                @if (shown.Count == 0) { <InlineEmpty Icon="inbox" Text="Nothing recorded in this period." /> }
+                else
+                {
+                    <ul class="finance-ledger">
+                        @foreach (var e in shown)
+                        {
+                            <li>
+                                <span class="finance-date">@e.Date.ToString("d MMM")</span>
+                                <span class="grow">
+                                    @if (e.PersonId is { } pid) { <a href="@(e.Kind == FinanceEntryKind.Income ? $"/students/{pid}#fees" : $"/teachers/{pid}#pay")"><strong>@e.Title</strong></a> }
+                                    else { <strong>@e.Title</strong> }
+                                    <span class="caption">@KindLabel(e.Kind)@(e.Detail is { } det ? $" · {det}" : "")</span>
+                                </span>
+                                <span class="finance-amount @(e.Kind == FinanceEntryKind.Income ? "in" : "out")">@(e.Kind == FinanceEntryKind.Income ? "+" : "−")@Money.Format(e.Amount, d.CurrencyCode)</span>
+                                @if (e.ExpenseId is { } xid)
+                                {
+                                    <span class="finance-act">
+                                        <button type="button" class="icon-btn icon-btn-sm" title="Edit" aria-label="@($"Edit expense {e.Title}")" @onclick="() => EditExpense(xid)"><Icon Name="pencil" /></button>
+                                        <button type="button" class="icon-btn icon-btn-sm" title="Delete" aria-label="@($"Delete expense {e.Title}")" @onclick="() => AskDelete(e)"><Icon Name="trash" /></button>
+                                    </span>
+                                }
+                            </li>
+                        }
+                    </ul>
+                    @if (d.EntriesTotal > d.Entries.Count) { <p class="caption">Showing the newest @d.Entries.Count of @d.EntriesTotal. Choose a month to see the rest.</p> }
+                }
+            </PillTabs>
+        </section>
+
+        @if (Me is not null) { <FormerBalances Me="Me" /> }
+    }
+</DataView>
+
+<Modal @bind-Open="_open" Title="@(_editId is null ? "Add expense" : "Edit expense")">
+    <fieldset class="field fee-method">
+        <legend>Category *</legend>
+        <div class="pick-group">
+            @foreach (var c in Enum.GetValues<ExpenseCategory>()) { <button type="button" class="pick" aria-pressed="@Aria.Bool(_category == c)" @onclick="() => _category = c">@CategoryLabel(c)</button> }
+        </div>
+    </fieldset>
+    <div class="form-grid">
+        <div class="field"><label for="xa">Amount (@Currency) *</label><input id="xa" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_amount" /></div>
+        <div class="field"><label for="xd">Paid on *</label><input id="xd" class="input" type="date" @bind="_spentOn" /></div>
+        <div class="field full"><label for="xn">What was it for? *</label><input id="xn" class="input" maxlength="300" placeholder="e.g. November rent" @bind="_description" /></div>
+        <div class="field full"><label for="xt">Paid to</label><input id="xt" class="input" maxlength="150" placeholder="Optional, e.g. landlord or shop" @bind="_paidTo" /></div>
+    </div>
+    <MethodPicker @bind-Method="_method" @bind-Reference="_reference" />
+    <div class="form-actions">
+        <button class="btn btn-secondary" @onclick="() => _open = false">Cancel</button>
+        <button class="btn btn-primary" @onclick="SaveExpense" disabled="@(Busy || _amount is not > 0 || _spentOn is null || string.IsNullOrWhiteSpace(_description))">@(_editId is null ? "Add expense" : "Save expense")</button>
+    </div>
+</Modal>
+
+<Modal @bind-Open="_deleteOpen" Title="@($"Delete {_deleting?.Title}?")">
+    <p style="margin-top:0">The expense is removed from the totals. The audit log keeps a note of it.</p>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep it</button><button class="btn btn-danger" @onclick="DeleteExpense" disabled="@Busy"><Icon Name="trash" /> Delete expense</button></div>
+</Modal>
+
+@code {
+    private static readonly IReadOnlyList<Segmented<string>.Option> PeriodOptions = [new("month", "Month"), new("year", "Year")];
+    private static readonly List<PillTabs<string>.Tab> Tabs = [new("all", "All"), new("Income", "Income"), new("Salary", "Salaries"), new("Expense", "Expenses")];
+
+    private FinanceSummaryDto? _d;
+    private ApiException? _error;
+    private string _period = "month", _filter = "all";
+    private DateOnly _start = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+
+    private DateOnly CurrentStart => _period == "year" ? new(DateTime.Today.Year, 1, 1) : new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private DateOnly End => _period == "year" ? _start.AddYears(1).AddDays(-1) : _start.AddMonths(1).AddDays(-1);
+    private string PeriodLabel => _period == "year" ? _start.Year.ToString() : _start.ToString("MMMM yyyy");
+    private string Currency => _d?.CurrencyCode ?? "";
+
+    protected override async Task LoadAsync() { _d = null; (_d, _error) = await Fetch(() => Api.GetAsync<FinanceSummaryDto>($"finance/summary?from={_start:yyyy-MM-dd}&to={End:yyyy-MM-dd}")); }
+
+    private async Task SetPeriod(string p)
+    {
+        _period = p;
+        _start = p == "year" ? new(_start.Year, 1, 1) : (_start.Year == DateTime.Today.Year ? new(DateTime.Today.Year, DateTime.Today.Month, 1) : new(_start.Year, 12, 1));
+        await LoadAsync();
+    }
+
+    private async Task Move(int step)
+    {
+        _start = _period == "year" ? _start.AddYears(step) : _start.AddMonths(step);
+        await LoadAsync();
+    }
+
+    private static string CategoryLabel(ExpenseCategory c) => c switch
+    {
+        ExpenseCategory.Utilities => "Electricity & water",
+        ExpenseCategory.InternetPhone => "Internet & phone",
+        ExpenseCategory.Supplies => "Books & supplies",
+        ExpenseCategory.StaffSalaries => "Other staff pay",
+        _ => c.ToString(),
+    };
+
+    private static string KindLabel(FinanceEntryKind k) => k switch { FinanceEntryKind.Income => "Fee received", FinanceEntryKind.Salary => "Salary paid", _ => "Expense" };
+
+    // ---- Expenses ----
+    private bool _open, _deleteOpen;
+    private Guid? _editId;
+    private ExpenseCategory _category = ExpenseCategory.Rent;
+    private decimal? _amount;
+    private DateOnly? _spentOn;
+    private string? _description, _paidTo, _reference;
+    private PaymentMethod _method = PaymentMethod.Cash;
+    private FinanceEntryDto? _deleting;
+    private string _key = "";
+
+    private void NewExpense()
+    {
+        (_editId, _category, _amount, _spentOn, _description, _paidTo, _reference, _method) = (null, ExpenseCategory.Rent, null, DateOnly.FromDateTime(DateTime.Today), null, null, null, PaymentMethod.Cash);
+        _key = Guid.NewGuid().ToString("N");
+        _open = true;
+    }
+
+    private async Task EditExpense(Guid id)
+    {
+        var (x, err) = await Fetch(() => Api.GetAsync<ExpenseDto>($"finance/expenses/{id}"));
+        if (x is null) { if (err is not null) Toasts.Show(err.Describe(), ToastKind.Error); return; }
+        (_editId, _category, _amount, _spentOn, _description, _paidTo, _reference, _method) = (x.Id, x.Category, x.Amount, x.SpentOn, x.Description, x.PaidTo, x.Reference, x.Method);
+        _open = true;
+    }
+
+    private async Task SaveExpense()
+    {
+        var request = new SaveExpenseRequest(_spentOn ?? DateOnly.FromDateTime(DateTime.Today), _category, _amount ?? 0, _description ?? "", _paidTo, _method, _reference);
+        var ok = await Run(async () =>
+        {
+            if (_editId is { } id) await Api.PutAsync<IdResponse>($"finance/expenses/{id}", request);
+            else await Api.PostAsync("finance/expenses", request, _key);
+        }, _editId is null ? "Expense added." : "Expense saved.");
+        if (ok) { _open = false; await LoadAsync(); }
+    }
+
+    private void AskDelete(FinanceEntryDto e) => (_deleting, _deleteOpen) = (e, true);
+
+    private async Task DeleteExpense()
+    {
+        if (_deleting?.ExpenseId is not { } id) return;
+        if (await Run(() => Api.DeleteAsync($"finance/expenses/{id}"), "Expense deleted.")) { _deleteOpen = false; await LoadAsync(); }
+    }
+}

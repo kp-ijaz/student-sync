@@ -242,6 +242,15 @@ internal static class ModelConfiguration
                 t.HasCheckConstraint("CK_FeePlans_Price", "\"Price\" >= 0");
             });
         });
+        b.Entity<Expense>(e =>
+        {
+            e.HasIndex(x => x.SpentOn);
+            e.Property(x => x.CurrencyCode).HasMaxLength(3);
+            e.Property(x => x.Description).HasMaxLength(300);
+            e.Property(x => x.PaidTo).HasMaxLength(150);
+            e.Property(x => x.Reference).HasMaxLength(100);
+            e.ToTable(t => t.HasCheckConstraint("CK_Expenses_Amount", "\"Amount\" > 0"));
+        });
         b.Entity<FeePayment>(e =>
         {
             e.HasIndex(x => new { x.StudentId, x.PaidOn });

@@ -52,6 +52,7 @@ public sealed class AppDbContext(
     public DbSet<StudentSchoolMark> StudentSchoolMarks => Set<StudentSchoolMark>();
     public DbSet<StudentPackage> StudentPackages => Set<StudentPackage>();
     public DbSet<FeePlan> FeePlans => Set<FeePlan>();
+    public DbSet<Expense> Expenses => Set<Expense>();
     public DbSet<FeePayment> FeePayments => Set<FeePayment>();
     public DbSet<TeacherPayRate> TeacherPayRates => Set<TeacherPayRate>();
     public DbSet<TeacherPayment> TeacherPayments => Set<TeacherPayment>();

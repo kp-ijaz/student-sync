@@ -49,6 +49,7 @@ public interface IAppDbContext
     DbSet<StudentSchoolMark> StudentSchoolMarks { get; }
     DbSet<StudentPackage> StudentPackages { get; }
     DbSet<FeePlan> FeePlans { get; }
+    DbSet<Expense> Expenses { get; }
     DbSet<FeePayment> FeePayments { get; }
     DbSet<TeacherPayRate> TeacherPayRates { get; }
     DbSet<TeacherPayment> TeacherPayments { get; }

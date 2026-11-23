@@ -1,0 +1,14 @@
+@* One "where the money went" row: label, a bar for its share of everything paid out, and the amount (text, never colour alone). *@
+<div class="bar-row finance-bar">
+    <span class="small">@Label</span>
+    <div class="progress-bar" role="img" aria-label="@($"{Label}: {Share:0}% of money paid out")"><span style="width:@Share.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)%"></span></div>
+    <span class="small num">@Money.Format(Amount, Currency)</span>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public decimal Amount { get; set; }
+    [Parameter] public decimal Total { get; set; }
+    [Parameter] public string Currency { get; set; } = "";
+    private decimal Share => Total <= 0 ? 0 : Math.Clamp(100m * Amount / Total, 0, 100);
+}

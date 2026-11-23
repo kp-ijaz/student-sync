@@ -461,6 +461,18 @@ classes; it reminds, alerts and prepares, and people decide.
   dialog: title, description, link). Fees due shows former students who still owe money with their status badge
   (e.g. Archived) instead of an hours badge.
 
+### Finance and people who left (2026-11-24)
+
+- **Fees ▸ Finance** (`/admin/finance`; menu Fees: Fees due, Fee plans, Salaries, Finance): `PageHeader` with **Add expense**;
+  a period card (`Segmented` Month | Year with prev/next); `MetricStrip` Income / Salaries paid / Expenses / Profit (or
+  Loss, with "income − salaries − expenses · x% of income"); a caption linking today's fees to collect and salaries to pay;
+  `.grid.grid-2` with "Where the money went" (`FinanceBar` rows, share of all money paid out) and "Last 12 months"
+  (`table.stack-mobile`, loss in `--ss-orange-deep`); "Money in & out" (`PillTabs` All/Income/Salaries/Expenses; date,
+  who/what, +green/−orange amount, edit/delete icons on expenses); then "People who left".
+- **Expense dialog**: category pills, amount, date, what it was for, paid to, `MethodPicker`.
+- **People who left** (`FormerBalances`, on Fees and Finance): totals strip (students owe / owed to teachers / teachers owe),
+  then rows like `FeesDueList` with the person's status badge. Fees' main list and the dashboard card show active students only.
+
 ### Easy adding and one-tap attendance (2026-11-16)
 
 Owner request: adding classes, teachers and students, and marking attendance after a class, must be very easy.

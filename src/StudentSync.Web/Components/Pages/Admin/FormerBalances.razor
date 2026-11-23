@@ -1,0 +1,67 @@
+@inherits AppComponent
+@* Owner request 2026-11-24: money still open with people who were deleted (archived) or made inactive, kept apart from
+   the current fee and salary lists so it is never forgotten. Students: fees they still owe. Teachers: salary still owed
+   to them, or paid in advance (they owe the centre). Each row opens the person's page to settle it. *@
+<section class="card former-balances" aria-labelledby="former-h">
+    <div class="card-head">
+        <div><h2 id="former-h">People who left</h2>
+            <div class="caption">Deleted or inactive students and teachers with money still open. Settle it on their page.</div></div>
+    </div>
+    <DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync" Compact="true">
+        @if (_d is { } d)
+        {
+            @if (d.Students.Count == 0 && d.Teachers.Count == 0)
+            {
+                <InlineEmpty Icon="check-circle" Text="Nothing open: everyone who left is settled." />
+            }
+            else
+            {
+                <dl class="former-totals">
+                    <div><dt>Students owe</dt><dd class="@(d.StudentsOwe > 0 ? "due" : "")">@Money.Format(d.StudentsOwe, d.CurrencyCode)</dd></div>
+                    <div><dt>Owed to teachers</dt><dd class="@(d.OwedToTeachers > 0 ? "due" : "")">@Money.Format(d.OwedToTeachers, d.CurrencyCode)</dd></div>
+                    <div><dt>Teachers owe (paid in advance)</dt><dd>@Money.Format(d.TeachersOwe, d.CurrencyCode)</dd></div>
+                </dl>
+                @if (d.Students.Count > 0)
+                {
+                    <h3 class="former-h3">Students who still owe fees</h3>
+                    <ul class="fee-list">
+                        @foreach (var s in d.Students)
+                        {
+                            <li><a href="@($"/students/{s.StudentId}#fees")">
+                                <Avatar Name="@s.Name" Size="sm" Decorative="true" />
+                                <span class="fee-who"><strong>@s.Name</strong>
+                                    <span class="caption">@(s.DaysOverdue > 0 ? $"Overdue by {s.DaysOverdue} day{(s.DaysOverdue == 1 ? "" : "s")}" : s.DueOn is { } due ? $"Due {due:d MMM}" : "Due")@(s.StudentCode is { } c ? $" · {c}" : "")</span></span>
+                                <span class="fee-amount @(s.DaysOverdue > 0 ? "late" : "")">@Money.Format(s.Due, d.CurrencyCode)</span>
+                                <Badge Style="StatusStyles.For(s.Status)" />
+                            </a></li>
+                        }
+                    </ul>
+                }
+                @if (d.Teachers.Count > 0)
+                {
+                    <h3 class="former-h3">Teachers with salary open</h3>
+                    <ul class="fee-list">
+                        @foreach (var t in d.Teachers)
+                        {
+                            <li><a href="@($"/teachers/{t.TeacherId}#pay")">
+                                <Avatar Name="@t.Name" Size="sm" Decorative="true" />
+                                <span class="fee-who"><strong>@t.Name</strong>
+                                    <span class="caption">Earned @Money.Format(t.Earned, d.CurrencyCode) · paid @Money.Format(t.Paid, d.CurrencyCode)</span></span>
+                                <span class="fee-amount @(t.Balance > 0 ? "late" : "")">@(t.Balance > 0 ? "To pay " : "Owes ")@Money.Format(Math.Abs(t.Balance), d.CurrencyCode)</span>
+                                <Badge Style="StatusStyles.For(t.Status)" />
+                            </a></li>
+                        }
+                    </ul>
+                }
+            }
+        }
+    </DataView>
+</section>
+
+@code {
+    private FormerBalancesDto? _d;
+    private ApiException? _error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync() => (_d, _error) = await Fetch(() => Api.GetAsync<FormerBalancesDto>("finance/former"));
+}

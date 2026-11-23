@@ -149,6 +149,14 @@ public static class CoreEndpoints
         st.MapGet("/{id:guid}/hours", (Guid id, HoursService s, CancellationToken ct) => s.StudentAsync(id, ct));
         api.MapGet("/fees/due", (int? take, FeeService s, CancellationToken ct) => s.DueAsync(take, ct)).WithTags("Fees");
         // The centre's fee plans (packages it offers, optionally per class/syllabus). Admin only (checked in the service).
+        // Finance (income, salaries, expenses, profit) and balances left by people who are no longer active. Admin only (service).
+        var fin = api.MapGroup("/finance").WithTags("Finance");
+        fin.MapGet("/summary", (DateOnly? from, DateOnly? to, FinanceService s, CancellationToken ct) => s.SummaryAsync(from, to, ct));
+        fin.MapGet("/former", (FinanceService s, CancellationToken ct) => s.FormerAsync(ct));
+        fin.MapGet("/expenses/{id:guid}", (Guid id, FinanceService s, CancellationToken ct) => s.ExpenseAsync(id, ct));
+        fin.MapPost("/expenses", async (SaveExpenseRequest r, FinanceService s, CancellationToken ct) => new IdResponse(await s.SaveExpenseAsync(null, r, ct))).AddEndpointFilter<IdempotencyFilter>();
+        fin.MapPut("/expenses/{id:guid}", async (Guid id, SaveExpenseRequest r, FinanceService s, CancellationToken ct) => new IdResponse(await s.SaveExpenseAsync(id, r, ct)));
+        fin.MapDelete("/expenses/{id:guid}", async (Guid id, FinanceService s, CancellationToken ct) => { await s.DeleteExpenseAsync(id, ct); return Results.NoContent(); });
         var fp = api.MapGroup("/fee-plans").WithTags("Fees");
         fp.MapGet("/", (Guid? studentId, FeePlanService s, CancellationToken ct) => s.ListAsync(studentId, ct));
         fp.MapPost("/", async (SaveFeePlanRequest r, FeePlanService s, CancellationToken ct) => new IdResponse(await s.SaveAsync(null, r, ct)));

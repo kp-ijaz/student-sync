@@ -1779,6 +1779,39 @@ a.metric-cell:hover { text-decoration:none; background:#F7F9FD; }
 .plan-picks { margin-bottom: var(--sp-3); }
 .remove-person-facts { margin: 0 0 var(--sp-4); padding-inline-start: 20px; display: grid; gap: var(--sp-2); color: var(--ss-text-2); }
 
+/* Finance (Fees ▸ Finance) and "People who left". */
+.finance-period { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-4); padding-block: var(--sp-2); }
+.finance-period .seg { flex: none; min-width: 200px; }
+.finance-nav { display: flex; align-items: center; gap: var(--sp-2); }
+.finance-nav h2 { min-width: 150px; text-align: center; margin: 0; }
+.finance-open { margin: var(--sp-2) 0 var(--sp-4); }
+.finance-grid { margin-bottom: var(--sp-4); align-items: start; }
+.finance-bar { grid-template-columns: 150px 1fr 110px; }
+.finance-bar .num { text-align: end; }
+.finance-trend .num { text-align: end; font-variant-numeric: tabular-nums; }
+.finance-trend .loss, .finance-amount.out { color: var(--ss-orange-deep); }
+.finance-ledger { list-style: none; margin: 0; padding: 0; }
+.finance-ledger > li { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) 0; border-top: 1px solid var(--ss-border); }
+.finance-ledger > li:first-child { border-top: 0; }
+.finance-ledger .grow { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.finance-date { flex: none; width: 56px; color: var(--ss-text-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.finance-amount { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; }
+.finance-amount.in { color: var(--ss-success); }
+.finance-act { flex: none; display: flex; }
+.former-balances { margin-top: var(--sp-4); }
+.former-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2) var(--sp-4); margin: 0 0 var(--sp-3); padding: var(--sp-3); background: var(--ss-fill); border-radius: var(--r-control); }
+.former-totals dt { font-size: 12px; color: var(--ss-text-2); }
+.former-totals dd { margin: 0; font-weight: 600; color: var(--ss-navy); font-variant-numeric: tabular-nums; }
+.former-totals dd.due { color: var(--ss-orange-deep); }
+.former-h3 { font-size: 15px; margin: var(--sp-3) 0 var(--sp-1); }
+@media (max-width: 767px) {
+  .former-totals { grid-template-columns: 1fr; }
+  .finance-bar { grid-template-columns: 96px 1fr 84px; }
+  .finance-ledger > li { flex-wrap: wrap; }
+  .finance-ledger .grow { flex: 1 1 calc(100% - 80px); }
+  .finance-amount { margin-inline-start: 68px; }
+}
+
 /* Progress reports. */
 .pr-filter { margin-bottom: var(--sp-4); max-width: 420px; }
 .pr-list { display: grid; gap: var(--sp-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); }
