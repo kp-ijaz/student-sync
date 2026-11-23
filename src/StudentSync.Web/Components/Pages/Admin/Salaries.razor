@@ -1,10 +1,17 @@
 @page "/admin/salaries"
 @attribute [Authorize(Roles = "InstitutionAdmin")]
 @inherits AppPage
-@* Fees ▸ Salaries (owner request 2026-11-17): every teacher's hours and earnings for a month, and what is owed today.
-   "Mark paid" records one salary payment of what is owed, for that month (a slip is then ready to print). *@
+@* Fees ▸ Salaries (owner requests 2026-11-17, 2026-11-24): every teacher's hours and earnings for a month and what is owed
+   today. "Mark paid" records what is owed in one tap (a slip opens); "Pay" and "Add salary payment" record any amount
+   (advance, part payment, fixed salary) with the shared salary dialog. Every payment shows on the teacher's page and in
+   Finance. Search and sort work on the loaded month. *@
 <PageTitle>Salaries · Student Sync</PageTitle>
-<PageHeader Title="Salaries" Subtitle="Hours taught × each teacher's rate. Mark a salary paid in one tap; the payment and its slip are kept on the teacher's page." />
+<PageHeader Title="Salaries" Subtitle="Hours taught × each teacher's rate. Pay what is owed in one tap, or record any amount: an advance, a part payment or a fixed salary.">
+    <Actions>
+        <a class="btn btn-secondary" href="@FinanceLink"><Icon Name="trending-up" /> In Finance</a>
+        <button class="btn btn-primary" @onclick="() => OpenPay(null)" disabled="@(_d is null)"><Icon Name="plus" /> Add salary payment</button>
+    </Actions>
+</PageHeader>
 
 <div class="card salary-month">
     <button class="icon-btn" aria-label="Previous month" @onclick="() => Move(-1)"><Icon Name="chevron-left" /></button>
@@ -18,20 +25,31 @@
         <MetricStrip AriaLabel="Salaries at a glance" Items="@([
             new("Hours taught", Money.Hours(d.Hours), "completed classes this month", "clock"),
             new("Earned", Money.Format(d.Earned, d.CurrencyCode), "this month at each day's rate", "trending-up"),
-            new("Paid", Money.Format(d.PaidInMonth, d.CurrencyCode), "salary payments made this month", "check-circle"),
+            new("Paid", Money.Format(d.PaidInMonth, d.CurrencyCode), "salary payments made this month", "check-circle", FinanceLink),
             new("To pay now", Money.Format(d.DueNow, d.CurrencyCode), "owed to teachers today", "wallet"),
         ])" />
         <section class="card" aria-labelledby="sal-h">
-            <div class="card-head"><h2 id="sal-h">Teachers</h2></div>
+            <div class="card-head"><h2 id="sal-h">Teachers</h2><span class="count-pill">@Shown.Count</span></div>
+            <div class="list-tools">
+                <input class="input" type="search" placeholder="Search teachers" aria-label="Search teachers" @bind="_search" @bind:event="oninput" />
+                <select class="select" aria-label="Sort teachers" @bind="_sort">
+                    <option value="due">Most to pay first</option>
+                    <option value="name">Name (A–Z)</option>
+                    <option value="earned">Most earned this month</option>
+                    <option value="hours">Most hours this month</option>
+                </select>
+                <label class="check"><input type="checkbox" @bind="_owedOnly" /> Only with something to pay</label>
+            </div>
             @if (d.Teachers.Count == 0) { <InlineEmpty Icon="users" Text="No teachers yet." /> }
+            else if (Shown.Count == 0) { <InlineEmpty Icon="search" Text="No teacher matches." /> }
             else
             {
-                <ul class="plist salary-list">
-                    @foreach (var t in d.Teachers)
+                <ul class="plist plist-always salary-list">
+                    @foreach (var t in Shown)
                     {
                         <li class="salary-row">
                             <div class="grow">
-                                <a href="/teachers/@t.TeacherId"><strong>@t.TeacherName</strong></a>
+                                <a href="/teachers/@t.TeacherId#pay"><strong>@t.TeacherName</strong></a>
                                 <div class="caption">@Money.Hours(t.Hours) in @t.Classes class@(t.Classes == 1 ? "" : "es") · @(t.Rate is { } r ? $"{Money.Format(r, d.CurrencyCode)}/h" : "no rate set")</div>
                                 @if (t.UnratedClasses > 0) { <div class="caption warn-text">@t.UnratedClasses class@(t.UnratedClasses == 1 ? " was" : "es were") taught before a rate was set and count as 0.</div> }
                             </div>
@@ -41,8 +59,9 @@
                                 <div><dt>To pay</dt><dd class="@(t.DueNow > 0 ? "due" : "")">@Money.Format(t.DueNow, d.CurrencyCode)</dd></div>
                             </dl>
                             <div class="salary-act">
-                                @if (t.DueNow > 0) { <button class="btn btn-primary btn-sm" @onclick="() => Ask(t)" disabled="@Busy">Mark paid</button> }
+                                @if (t.DueNow > 0) { <button class="btn btn-primary btn-sm" @onclick="() => Ask(t)" disabled="@Busy">Mark paid<span class="sr-only"> @t.TeacherName</span></button> }
                                 else { <span class="badge green">Paid up</span> }
+                                <button class="btn btn-ghost btn-sm" @onclick="() => OpenPay(t)" disabled="@Busy">Pay<span class="sr-only"> @t.TeacherName another amount</span></button>
                             </div>
                         </li>
                     }
@@ -52,15 +71,20 @@
     }
 </DataView>
 
-<Modal @bind-Open="_payOpen" Title="@($"Pay {_pay?.TeacherName}")">
-    @if (_pay is { } p && _d is { } d)
+<Modal @bind-Open="_markOpen" Title="@($"Pay {_mark?.TeacherName}")">
+    @if (_mark is { } p && _d is { } d)
     {
         <p>Record <strong>@Money.Format(p.DueNow, d.CurrencyCode)</strong> as @_month.ToString("MMMM yyyy") salary, paid today.</p>
         <MethodPicker @bind-Method="_method" @bind-Reference="_ref" />
-        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _payOpen = false">Cancel</button>
-            <button class="btn btn-primary" @onclick="Pay" disabled="@Busy">Mark paid</button></div>
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _markOpen = false">Cancel</button>
+            <button class="btn btn-primary" @onclick="MarkPaid" disabled="@Busy">Mark paid</button></div>
     }
 </Modal>
+
+@if (Me is not null)
+{
+    <SalaryPaymentDialog Me="Me" @bind-Open="_payOpen" TeacherId="_payFor?.TeacherId" TeacherName="@_payFor?.TeacherName" Teachers="TeacherChoices" Month="_month" OnSaved="Saved" />
+}
 
 @code {
     [SupplyParameterFromQuery(Name = "month")] public string? MonthParam { get; set; }
@@ -68,10 +92,32 @@
     private DateOnly _month = ThisMonth.AddMonths(-1);
     private SalaryMonthDto? _d;
     private ApiException? _error;
-    private SalaryRowDto? _pay;
-    private bool _payOpen;
+    private SalaryRowDto? _mark, _payFor;
+    private bool _markOpen, _payOpen, _owedOnly;
     private PaymentMethod _method = PaymentMethod.BankTransfer;
     private string? _ref;
+    private string _search = "", _sort = "due";
+
+    private string FinanceLink => $"/admin/finance?kind=Salary&from={_month:yyyy-MM-dd}&to={_month.AddMonths(1).AddDays(-1):yyyy-MM-dd}";
+    private List<LookupItem> TeacherChoices => (_d?.Teachers ?? []).Select(t => new LookupItem(t.TeacherId, t.TeacherName, t.DueNow > 0 ? $"to pay {Money.Format(t.DueNow, _d!.CurrencyCode)}" : null)).ToList();
+
+    private List<SalaryRowDto> Shown
+    {
+        get
+        {
+            IEnumerable<SalaryRowDto> rows = _d?.Teachers ?? [];
+            if (!string.IsNullOrWhiteSpace(_search)) rows = rows.Where(t => t.TeacherName.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (_owedOnly) rows = rows.Where(t => t.DueNow > 0);
+            rows = _sort switch
+            {
+                "name" => rows.OrderBy(t => t.TeacherName),
+                "earned" => rows.OrderByDescending(t => t.Earned).ThenBy(t => t.TeacherName),
+                "hours" => rows.OrderByDescending(t => t.Hours).ThenBy(t => t.TeacherName),
+                _ => rows.OrderByDescending(t => t.DueNow).ThenBy(t => t.TeacherName),
+            };
+            return rows.ToList();
+        }
+    }
 
     protected override async Task LoadAsync()
     {
@@ -81,15 +127,22 @@
 
     private async Task Load() { _d = null; (_d, _error) = await Fetch(() => Api.GetAsync<SalaryMonthDto>($"salaries?month={_month:yyyy-MM-dd}")); }
     private async Task Move(int months) { _month = _month.AddMonths(months); await Load(); }
-    private void Ask(SalaryRowDto t) { (_pay, _ref, _method, _payOpen) = (t, null, PaymentMethod.BankTransfer, true); }
+    private void Ask(SalaryRowDto t) { (_mark, _ref, _method, _markOpen) = (t, null, PaymentMethod.BankTransfer, true); }
+    private void OpenPay(SalaryRowDto? t) => (_payFor, _payOpen) = (t, true);
 
-    private async Task Pay()
+    private async Task Saved((Guid TeacherId, Guid PaymentId) p)
     {
-        if (_pay is not { } t) return;
+        await Load();
+        Nav.NavigateTo($"/salary-slips/{p.TeacherId}/{p.PaymentId}");
+    }
+
+    private async Task MarkPaid()
+    {
+        if (_mark is not { } t) return;
         IdResponse? done = null;
         if (await Run(async () => done = await Api.PostAsync<IdResponse>($"salaries/{t.TeacherId}/pay", new PaySalaryRequest(_month, _method, _ref)), $"{t.TeacherName}'s salary recorded."))
         {
-            _payOpen = false;
+            _markOpen = false;
             await Load();
             if (done is not null) Nav.NavigateTo($"/salary-slips/{t.TeacherId}/{done.Id}");
         }

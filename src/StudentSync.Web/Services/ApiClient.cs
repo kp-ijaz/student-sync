@@ -201,6 +201,13 @@ public sealed class ApiClient(HttpClient http, SessionStore store, Authenticatio
         using var _ = await SendAsync(HttpMethod.Post, path, Body(body ?? new { }), ct, idempotencyKey);
     }
 
+    /// <summary>As above, returning the response body (e.g. the new id) — a replay returns the first response.</summary>
+    public async Task<T> PostAsync<T>(string path, object? body, string idempotencyKey, CancellationToken ct = default)
+    {
+        using var r = await SendAsync(HttpMethod.Post, path, Body(body ?? new { }), ct, idempotencyKey);
+        return (await r.Content.ReadFromJsonAsync<T>(Json, ct))!;
+    }
+
     public async Task<T> PutAsync<T>(string path, object? body, CancellationToken ct = default)
     {
         using var r = await SendAsync(HttpMethod.Put, path, Body(body), ct);

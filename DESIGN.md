@@ -473,6 +473,21 @@ classes; it reminds, alerts and prepares, and people decide.
 - **People who left** (`FormerBalances`, on Fees and Finance): totals strip (students owe / owed to teachers / teachers owe),
   then rows like `FeesDueList` with the person's status badge. Fees' main list and the dashboard card show active students only.
 
+### Salaries and Finance, connected (2026-11-24, second pass)
+
+- **One salary dialog** (`SalaryPaymentDialog`) everywhere: Fees ▸ Salaries ("Add salary payment" and each row's **Pay**),
+  the teacher's Salary card ("Record payment") and Finance ("Record salary"). Shows what is still owed / paid in advance
+  and fills it in; any amount is allowed (advance, part, fixed salary).
+- **Salaries**: header actions "In Finance" + "Add salary payment"; list tools (search, sort, "Only with something to pay");
+  rows link to the teacher's `#pay`. The list uses `.plist.plist-always` (it was hidden at ≥ 1024 px before).
+- **Teacher page**: the Salary card sits directly under "About"; a "Salary" header button jumps to it.
+- **Finance** layout, top to bottom: period (`Segmented` Month / Year / Dates) → four totals as toggle buttons
+  (`.finance-kpis`, pressed = filtering the transactions) with the change from the period before → "Where the money went"
+  (each bar filters) and "Last 12 months" (each month opens) → **Transactions** (search, category, sort, `PillTabs` with
+  counts, filtered In/Out/Net line, `Pager`, receipt/slip/edit/delete per line, Export CSV) → "People who left".
+  Links can preset it: `/admin/finance?kind=Salary&from=…&to=…` (used by Salaries and Reports).
+- Labels for payment methods, expense categories and line kinds come from `FinanceLabels` (Contracts) only.
+
 ### Easy adding and one-tap attendance (2026-11-16)
 
 Owner request: adding classes, teachers and students, and marking attendance after a class, must be very easy.

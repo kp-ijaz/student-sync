@@ -1762,7 +1762,7 @@ a.metric-cell:hover { text-decoration:none; background:#F7F9FD; }
 .salary-figures dt { font-size: 11px; color: var(--ss-text-2); }
 .salary-figures dd { margin: 0; font-weight: 600; color: var(--ss-navy); font-variant-numeric: tabular-nums; }
 .salary-figures dd.due { color: var(--ss-orange-deep); }
-.salary-act { flex: none; min-width: 96px; text-align: end; }
+.salary-act { flex: none; min-width: 96px; display: flex; flex-wrap: wrap; gap: var(--sp-1); justify-content: flex-end; align-items: center; }
 
 /* Fee plans (Fees ▸ Fee plans) and the delete-person dialog. */
 .fee-plan-list { list-style: none; margin: 0; padding: 0; }
@@ -1781,7 +1781,30 @@ a.metric-cell:hover { text-decoration:none; background:#F7F9FD; }
 
 /* Finance (Fees ▸ Finance) and "People who left". */
 .finance-period { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-4); padding-block: var(--sp-2); }
-.finance-period .seg { flex: none; min-width: 200px; }
+.finance-period .seg { flex: none; min-width: 260px; }
+.finance-custom { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.finance-custom .input { width: auto; }
+.finance-kpis .metric-cell { border: 0; background: transparent; font: inherit; text-align: start; cursor: pointer; }
+.finance-kpis .metric-cell + .metric-cell { border-inline-start: 1px solid var(--ss-border); }
+.finance-kpis .metric-cell:hover { background: var(--ss-bg); }
+.finance-kpis .metric-cell.on { background: var(--ss-blue-50); box-shadow: inset 0 -3px 0 var(--ss-blue); }
+.finance-kpis .metric-cell strong.loss { color: var(--ss-orange-deep); }
+.finance-bar-btn { display: block; width: 100%; border: 0; background: transparent; padding: 2px 4px; margin: 0 -4px; border-radius: var(--r-control); font: inherit; color: inherit; text-align: start; cursor: pointer; }
+.finance-bar-btn:hover { background: var(--ss-bg); }
+.finance-trend tr.current td { background: var(--ss-blue-50); font-weight: 600; }
+.link-btn { border: 0; background: none; padding: 0; font: inherit; color: var(--ss-blue); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.finance-tools { flex-wrap: wrap; }
+.finance-tools .input[type=search] { flex: 1 1 240px; }
+.finance-filtered { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-4); margin: var(--sp-3) 0; font-size: 14px; font-variant-numeric: tabular-nums; color: var(--ss-text-2); }
+.finance-filtered .in { color: var(--ss-success); font-weight: 600; }
+.finance-filtered .out { color: var(--ss-orange-deep); font-weight: 600; }
+.finance-kind { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--r-pill); background: var(--ss-fill); }
+.finance-kind svg { width: 16px; height: 16px; }
+.finance-kind.income { color: var(--ss-success); }
+.finance-kind.salary { color: var(--ss-blue); }
+.finance-kind.expense { color: var(--ss-orange-deep); }
+.finance-date .caption { display: block; }
+.finance-tx { margin-top: var(--sp-4); }
 .finance-nav { display: flex; align-items: center; gap: var(--sp-2); }
 .finance-nav h2 { min-width: 150px; text-align: center; margin: 0; }
 .finance-open { margin: var(--sp-2) 0 var(--sp-4); }
@@ -1809,7 +1832,11 @@ a.metric-cell:hover { text-decoration:none; background:#F7F9FD; }
   .finance-bar { grid-template-columns: 96px 1fr 84px; }
   .finance-ledger > li { flex-wrap: wrap; }
   .finance-ledger .grow { flex: 1 1 calc(100% - 80px); }
-  .finance-amount { margin-inline-start: 68px; }
+  .finance-amount { margin-inline-start: 108px; }
+  .finance-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .finance-kpis .metric-cell:nth-child(3) { border-inline-start: 0; }
+  .finance-kpis .metric-cell:nth-child(n+3) { border-top: 1px solid var(--ss-border); }
+  .finance-period .seg { min-width: 0; flex: 1 1 100%; }
 }
 
 /* Progress reports. */

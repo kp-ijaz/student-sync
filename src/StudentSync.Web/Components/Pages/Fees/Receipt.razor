@@ -35,5 +35,5 @@
     private ReceiptDto? _r;
     private ApiException? _error;
     protected override async Task LoadAsync() => (_r, _error) = await Fetch(() => Api.GetAsync<ReceiptDto>($"receipts/{Id}"));
-    private static string MethodName(string m) => m switch { "BankTransfer" => "Bank transfer", "Upi" => "UPI", "Online" => "Online payment", _ => m };
+    private static string MethodName(string m) => Enum.TryParse<PaymentMethod>(m, out var method) ? FinanceLabels.Method(method) : m;
 }

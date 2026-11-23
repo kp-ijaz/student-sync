@@ -28,10 +28,10 @@
             @* Money and hours for the period (admins). Fees collected / salary paid are dated in the period; pending fees and salary owed are today's totals. *@
             <MetricStrip AriaLabel="Money and hours" Items="@([
                 new("Hours taught", Money.Hours(m.HoursTaught), $"{m.ClassesHeld} completed classes", "clock"),
-                new("Fees collected", Money.Format(m.FeesCollected, m.CurrencyCode), "payments in this period", "wallet", "/admin/fees"),
-                new("Salary paid", Money.Format(m.SalaryPaid, m.CurrencyCode), "to teachers in this period", "user-check", "/admin/teachers"),
+                new("Fees collected", Money.Format(m.FeesCollected, m.CurrencyCode), "payments in this period", "wallet", FinanceLink("Income")),
+                new("Salary paid", Money.Format(m.SalaryPaid, m.CurrencyCode), "to teachers in this period", "user-check", FinanceLink("Salary")),
                 new("Pending fees", Money.Format(m.PendingFees, m.CurrencyCode), "still owed today", "alert", "/admin/fees"),
-                new("Salary owed", Money.Format(m.SalaryDue, m.CurrencyCode), "earned, not yet paid", "trending-up", "/admin/teachers"),
+                new("Salary owed", Money.Format(m.SalaryDue, m.CurrencyCode), "earned, not yet paid", "trending-up", "/admin/salaries"),
             ])" />
         }
         <div class="grid grid-2" style="margin-bottom:16px">
@@ -70,6 +70,8 @@
     private ApiException? _error;
     private DateOnly _from = DateOnly.FromDateTime(DateTime.Today.AddDays(-30)), _to = DateOnly.FromDateTime(DateTime.Today);
     private string _type = "";
+    // The money figures open the same lines in Finance, for the same dates.
+    private string FinanceLink(string kind) => $"/admin/finance?kind={kind}&from={_from:yyyy-MM-dd}&to={_to:yyyy-MM-dd}";
     private string Query => $"from={_from:yyyy-MM-dd}&to={_to:yyyy-MM-dd}" + (_type == "" ? "" : $"&sessionType={_type}");
     protected override async Task LoadAsync() { _r = null; (_r, _error) = await Fetch(() => Api.GetAsync<InstitutionReportDto>($"reports/institution?{Query}")); }
     private Task ExportCsv() => Run(async () => await JS.InvokeVoidAsync("ss.download", "attendance.csv", await Api.GetStringAsync($"reports/attendance.csv?{Query}"), "text/csv"), "Attendance exported.");

@@ -1,110 +1,182 @@
 @page "/admin/finance"
 @attribute [Authorize(Roles = "InstitutionAdmin")]
 @inherits AppPage
+@inject IJSRuntime JS
 
-@* Fees ▸ Finance (owner request 2026-11-24): income (fees received), salaries paid, other expenses and profit for a month
-   or a year, the last 12 months, every payment in and out, and money still open with people who left. Cash basis:
-   money counts on the day it was received or paid. Expenses are added, edited and deleted here (audited). *@
+@* Fees ▸ Finance (owner requests 2026-11-24): the centre's money in one place, cash basis (money counts on the day it was
+   received or paid). Top to bottom: the period → totals with the change from the period before → where the money went
+   and the last 12 months → every transaction (search, type, category, sort, pages, CSV) → money still open with people
+   who left. Expenses are added/edited/deleted here; salaries use the same dialog as Fees ▸ Salaries and the teacher's
+   page; fee receipts and salary slips open from each line. Links can preset the view: ?kind=Salary&from=…&to=… *@
 <PageTitle>Finance · Student Sync</PageTitle>
 <PageHeader Title="Finance" Subtitle="Money in and out: fees received, salaries paid and running costs, and what is left as profit.">
-    <Actions><button class="btn btn-primary" @onclick="NewExpense"><Icon Name="plus" /> Add expense</button></Actions>
+    <Actions>
+        <button class="btn btn-secondary" @onclick="ExportCsv" disabled="@Busy"><Icon Name="download" /> Export</button>
+        <button class="btn btn-secondary" @onclick="OpenSalary"><Icon Name="users" /> Record salary</button>
+        <button class="btn btn-primary" @onclick="NewExpense"><Icon Name="plus" /> Add expense</button>
+    </Actions>
 </PageHeader>
 
+@* 1. Period *@
 <div class="card finance-period">
     <Segmented TValue="string" Options="PeriodOptions" Value="_period" ValueChanged="SetPeriod" Label="Period" />
-    <div class="finance-nav">
-        <button class="icon-btn" aria-label="@(_period == "year" ? "Previous year" : "Previous month")" @onclick="() => Move(-1)"><Icon Name="chevron-left" /></button>
-        <h2>@PeriodLabel</h2>
-        <button class="icon-btn" aria-label="@(_period == "year" ? "Next year" : "Next month")" @onclick="() => Move(1)" disabled="@(_start >= CurrentStart)"><Icon Name="chevron-right" /></button>
-    </div>
+    @if (_period == "custom")
+    {
+        <div class="finance-custom">
+            <label class="sr-only" for="ff">From</label><input id="ff" class="input" type="date" @bind="_from" />
+            <span aria-hidden="true">–</span>
+            <label class="sr-only" for="ft">To</label><input id="ft" class="input" type="date" @bind="_to" />
+            <button class="btn btn-secondary btn-sm" @onclick="ApplyCustom" disabled="@(_to < _from)">Show</button>
+        </div>
+    }
+    else
+    {
+        <div class="finance-nav">
+            <button class="icon-btn" aria-label="@(_period == "year" ? "Previous year" : "Previous month")" @onclick="() => Move(-1)"><Icon Name="chevron-left" /></button>
+            <h2>@PeriodLabel</h2>
+            <button class="icon-btn" aria-label="@(_period == "year" ? "Next year" : "Next month")" @onclick="() => Move(1)" disabled="@(_from >= CurrentStart)"><Icon Name="chevron-right" /></button>
+        </div>
+    }
 </div>
 
-<DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync">
-    @if (_d is { } d)
+<DataView Loading="_s is null && _error is null" Error="_error" OnRetry="LoadAll">
+    @if (_s is { } s)
     {
-        <MetricStrip AriaLabel="Money at a glance" Items="@([
-            new("Income", Money.Format(d.Income, d.CurrencyCode), "fee payments received", "trending-up"),
-            new("Salaries paid", Money.Format(d.Salaries, d.CurrencyCode), "salary payments to teachers", "users", "/admin/salaries"),
-            new("Expenses", Money.Format(d.Expenses, d.CurrencyCode), "rent, bills and other costs", "wallet"),
-            new(d.Profit < 0 ? "Loss" : "Profit", Money.Format(Math.Abs(d.Profit), d.CurrencyCode),
-                "income − salaries − expenses" + (d.MarginPercent is { } mp ? $" · {mp:0.#}% of income" : ""), d.Profit < 0 ? "alert" : "check-circle"),
-        ])" />
+        @* 2. Totals; each opens the matching transactions below. *@
+        <div class="metric-strip finance-kpis" role="group" aria-label="Money at a glance" style="--n:4">
+            <button type="button" class="metric-cell @(_kind == "Income" ? "on" : "")" aria-pressed="@Aria.Bool(_kind == "Income")" @onclick='() => SetKind("Income")'>
+                <span class="metric-strip-label"><Icon Name="trending-up" /> Income</span><strong class="metric-value">@Money.Format(s.Income, s.CurrencyCode)</strong>
+                <span class="metric-strip-note">fees received · @Change(s.Income, s.Previous.Income)</span></button>
+            <button type="button" class="metric-cell @(_kind == "Salary" ? "on" : "")" aria-pressed="@Aria.Bool(_kind == "Salary")" @onclick='() => SetKind("Salary")'>
+                <span class="metric-strip-label"><Icon Name="users" /> Salaries paid</span><strong class="metric-value">@Money.Format(s.Salaries, s.CurrencyCode)</strong>
+                <span class="metric-strip-note">to teachers · @Change(s.Salaries, s.Previous.Salaries)</span></button>
+            <button type="button" class="metric-cell @(_kind == "Expense" ? "on" : "")" aria-pressed="@Aria.Bool(_kind == "Expense")" @onclick='() => SetKind("Expense")'>
+                <span class="metric-strip-label"><Icon Name="wallet" /> Expenses</span><strong class="metric-value">@Money.Format(s.Expenses, s.CurrencyCode)</strong>
+                <span class="metric-strip-note">rent, bills, other · @Change(s.Expenses, s.Previous.Expenses)</span></button>
+            <button type="button" class="metric-cell @(_kind == "all" ? "on" : "")" aria-pressed="@Aria.Bool(_kind == "all")" @onclick='() => SetKind("all")'>
+                <span class="metric-strip-label"><Icon Name="@(s.Profit < 0 ? "alert" : "check-circle")" /> @(s.Profit < 0 ? "Loss" : "Profit")</span>
+                <strong class="metric-value @(s.Profit < 0 ? "loss" : "")">@Money.Format(Math.Abs(s.Profit), s.CurrencyCode)</strong>
+                <span class="metric-strip-note">income − salaries − expenses@(s.MarginPercent is { } mp ? $" · {mp:0.#}% of income" : "")</span></button>
+        </div>
         <p class="caption finance-open">
-            Open today: <a href="/admin/fees">@Money.Format(d.FeesToCollect, d.CurrencyCode) fees to collect</a> ·
-            <a href="/admin/salaries">@Money.Format(d.SalariesOwed, d.CurrencyCode) salaries to pay</a>
+            Before (@PeriodName(s.Previous.From, s.Previous.To)): @(s.Previous.Profit < 0 ? "loss" : "profit") @Money.Format(Math.Abs(s.Previous.Profit), s.CurrencyCode).
+            Open today: <a href="/admin/fees">@Money.Format(s.FeesToCollect, s.CurrencyCode) fees to collect</a> ·
+            <a href="/admin/salaries">@Money.Format(s.SalariesOwed, s.CurrencyCode) salaries to pay</a>
         </p>
 
+        @* 3. Where it went and the trend *@
         <div class="grid grid-2 finance-grid">
             <section class="card" aria-labelledby="cat-h">
                 <div class="card-head"><h2 id="cat-h">Where the money went</h2><span class="caption">@PeriodLabel</span></div>
-                @{ var outgoing = d.Salaries + d.Expenses; }
+                @{ var outgoing = s.Salaries + s.Expenses; }
                 @if (outgoing == 0) { <InlineEmpty Icon="wallet" Text="Nothing paid out in this period." /> }
                 else
                 {
                     <div class="finance-bars">
-                        @if (d.Salaries > 0) { <FinanceBar Label="Salaries" Amount="d.Salaries" Total="outgoing" Currency="@d.CurrencyCode" /> }
-                        @foreach (var c in d.ExpensesByCategory) { <FinanceBar Label="@CategoryLabel(c.Category)" Amount="c.Amount" Total="outgoing" Currency="@d.CurrencyCode" /> }
+                        @if (s.Salaries > 0) { <button type="button" class="finance-bar-btn" @onclick='() => SetKind("Salary")'><FinanceBar Label="Salaries" Amount="s.Salaries" Total="outgoing" Currency="@s.CurrencyCode" /></button> }
+                        @foreach (var c in s.ExpensesByCategory)
+                        {
+                            <button type="button" class="finance-bar-btn" @onclick="() => SetCategory(c.Category)"><FinanceBar Label="@FinanceLabels.Category(c.Category)" Amount="c.Amount" Total="outgoing" Currency="@s.CurrencyCode" /></button>
+                        }
                     </div>
-                    <p class="caption">Share of everything paid out (@Money.Format(outgoing, d.CurrencyCode)).</p>
+                    <p class="caption">Share of everything paid out (@Money.Format(outgoing, s.CurrencyCode)). Choose a line to see its transactions.</p>
                 }
             </section>
 
             <section class="card" aria-labelledby="trend-h">
-                <div class="card-head"><h2 id="trend-h">Last 12 months</h2></div>
+                <div class="card-head"><h2 id="trend-h">Last 12 months</h2><span class="caption">choose a month to open it</span></div>
                 <div class="table-wrap"><table class="table stack-mobile finance-trend">
                     <thead><tr><th>Month</th><th class="num">Income</th><th class="num">Salaries</th><th class="num">Expenses</th><th class="num">Profit</th></tr></thead>
-                    <tbody>@foreach (var m in d.Months.Reverse())
+                    <tbody>@foreach (var m in s.Months.Reverse())
                     {
-                        <tr><td data-label="Month">@m.Month.ToString("MMM yyyy")</td><td data-label="Income" class="num">@Money.Format(m.Income, d.CurrencyCode)</td>
-                            <td data-label="Salaries" class="num">@Money.Format(m.Salaries, d.CurrencyCode)</td><td data-label="Expenses" class="num">@Money.Format(m.Expenses, d.CurrencyCode)</td>
-                            <td data-label="Profit" class="num @(m.Profit < 0 ? "loss" : "")">@(m.Profit < 0 ? "−" : "")@Money.Format(Math.Abs(m.Profit), d.CurrencyCode)</td></tr>
+                        <tr class="@(m.Month == _from && _period == "month" ? "current" : "")">
+                            <td data-label="Month"><button type="button" class="link-btn" @onclick="() => OpenMonth(m.Month)">@m.Month.ToString("MMM yyyy")</button></td>
+                            <td data-label="Income" class="num">@Money.Format(m.Income, s.CurrencyCode)</td>
+                            <td data-label="Salaries" class="num">@Money.Format(m.Salaries, s.CurrencyCode)</td>
+                            <td data-label="Expenses" class="num">@Money.Format(m.Expenses, s.CurrencyCode)</td>
+                            <td data-label="Profit" class="num @(m.Profit < 0 ? "loss" : "")">@(m.Profit < 0 ? "−" : "")@Money.Format(Math.Abs(m.Profit), s.CurrencyCode)</td></tr>
                     }</tbody>
                 </table></div>
             </section>
         </div>
+    }
+</DataView>
 
-        <section class="card" aria-labelledby="ledger-h">
-            <div class="card-head"><h2 id="ledger-h">Money in &amp; out</h2><span class="caption">@PeriodLabel</span></div>
-            <PillTabs TKey="string" Tabs="Tabs" @bind-Active="_filter" Label="Show">
-                @{ var shown = d.Entries.Where(e => _filter == "all" || e.Kind.ToString() == _filter).ToList(); }
-                @if (shown.Count == 0) { <InlineEmpty Icon="inbox" Text="Nothing recorded in this period." /> }
+@* 4. Transactions *@
+<section class="card finance-tx" id="transactions" aria-labelledby="tx-h">
+    <div class="card-head"><h2 id="tx-h">Transactions</h2><span class="caption">@PeriodLabel</span></div>
+    <div class="list-tools finance-tools">
+        <input class="input" type="search" placeholder="Search name, note, reference…" aria-label="Search transactions" @bind="_search" @bind:after="() => LoadEntries(1)" />
+        <select class="select" aria-label="Expense category" @bind="_categoryText" @bind:after="CategoryChanged" disabled="@(_kind is "Income" or "Salary")">
+            <option value="">All categories</option>
+            @foreach (var c in Enum.GetValues<ExpenseCategory>()) { <option value="@c">@FinanceLabels.Category(c)</option> }
+        </select>
+        <select class="select" aria-label="Sort transactions" @bind="_sort" @bind:after="() => LoadEntries(1)">
+            <option value="@FinanceSort.Newest">Newest first</option>
+            <option value="@FinanceSort.Oldest">Oldest first</option>
+            <option value="@FinanceSort.Largest">Largest amount</option>
+            <option value="@FinanceSort.Smallest">Smallest amount</option>
+        </select>
+    </div>
+    <PillTabs TKey="string" Tabs="Tabs" Active="_kind" ActiveChanged="SetKind" Label="Show">
+        <DataView Loading="_e is null && _entriesError is null" Error="_entriesError" OnRetry="() => LoadEntries(_e?.Page.Page ?? 1)">
+            @if (_e is { } e)
+            {
+                <p class="finance-filtered" role="status">
+                    <span>@e.Page.TotalCount line@(e.Page.TotalCount == 1 ? "" : "s")</span>
+                    <span class="in">In +@Money.Format(e.MoneyIn, Currency)</span>
+                    <span class="out">Out −@Money.Format(e.MoneyOut, Currency)</span>
+                    <span>Net @(e.Net < 0 ? "−" : "")@Money.Format(Math.Abs(e.Net), Currency)</span>
+                    @if (Filtered) { <button type="button" class="link-btn" @onclick="ClearFilters">Clear filters</button> }
+                </p>
+                @if (e.Page.Items.Count == 0) { <InlineEmpty Icon="inbox" Text="@(Filtered ? "Nothing matches these filters." : "Nothing recorded in this period.")" /> }
                 else
                 {
                     <ul class="finance-ledger">
-                        @foreach (var e in shown)
+                        @foreach (var x in e.Page.Items)
                         {
                             <li>
-                                <span class="finance-date">@e.Date.ToString("d MMM")</span>
+                                <span class="finance-date">@x.Date.ToString("d MMM")@if (_period != "month") { <span class="caption">@x.Date.Year</span> }</span>
+                                <span class="finance-kind @x.Kind.ToString().ToLowerInvariant()" title="@FinanceLabels.Kind(x.Kind)"><Icon Name="@KindIcon(x.Kind)" /></span>
                                 <span class="grow">
-                                    @if (e.PersonId is { } pid) { <a href="@(e.Kind == FinanceEntryKind.Income ? $"/students/{pid}#fees" : $"/teachers/{pid}#pay")"><strong>@e.Title</strong></a> }
-                                    else { <strong>@e.Title</strong> }
-                                    <span class="caption">@KindLabel(e.Kind)@(e.Detail is { } det ? $" · {det}" : "")</span>
+                                    @if (x.PersonId is { } pid) { <a href="@(x.Kind == FinanceEntryKind.Income ? $"/students/{pid}#fees" : $"/teachers/{pid}#pay")"><strong>@x.Title</strong></a> }
+                                    else { <strong>@x.Title</strong> }
+                                    <span class="caption">@FinanceLabels.Kind(x.Kind)@(x.Detail is { } det ? $" · {det}" : "")@(x.Method is { } mt ? $" · {FinanceLabels.Method(mt)}" : "")@(x.Reference is { } rf ? $" · {rf}" : "")</span>
                                 </span>
-                                <span class="finance-amount @(e.Kind == FinanceEntryKind.Income ? "in" : "out")">@(e.Kind == FinanceEntryKind.Income ? "+" : "−")@Money.Format(e.Amount, d.CurrencyCode)</span>
-                                @if (e.ExpenseId is { } xid)
-                                {
-                                    <span class="finance-act">
-                                        <button type="button" class="icon-btn icon-btn-sm" title="Edit" aria-label="@($"Edit expense {e.Title}")" @onclick="() => EditExpense(xid)"><Icon Name="pencil" /></button>
-                                        <button type="button" class="icon-btn icon-btn-sm" title="Delete" aria-label="@($"Delete expense {e.Title}")" @onclick="() => AskDelete(e)"><Icon Name="trash" /></button>
-                                    </span>
-                                }
+                                <span class="finance-amount @(x.Kind == FinanceEntryKind.Income ? "in" : "out")">@(x.Kind == FinanceEntryKind.Income ? "+" : "−")@Money.Format(x.Amount, Currency)</span>
+                                <span class="finance-act">
+                                    @switch (x.Kind)
+                                    {
+                                        case FinanceEntryKind.Income:
+                                            <a class="icon-btn icon-btn-sm" href="/receipts/@x.RecordId" title="Receipt" aria-label="@($"Receipt for {x.Title}, {x.Date:d MMM}")"><Icon Name="file" /></a>
+                                            break;
+                                        case FinanceEntryKind.Salary:
+                                            <a class="icon-btn icon-btn-sm" href="/salary-slips/@x.PersonId/@x.RecordId" title="Salary slip" aria-label="@($"Salary slip for {x.Title}, {x.Date:d MMM}")"><Icon Name="file" /></a>
+                                            break;
+                                        default:
+                                            <button type="button" class="icon-btn icon-btn-sm" title="Edit" aria-label="@($"Edit expense {x.Title}")" @onclick="() => EditExpense(x.RecordId)"><Icon Name="pencil" /></button>
+                                            <button type="button" class="icon-btn icon-btn-sm" title="Delete" aria-label="@($"Delete expense {x.Title}")" @onclick="() => AskDelete(x)"><Icon Name="trash" /></button>
+                                            break;
+                                    }
+                                </span>
                             </li>
                         }
                     </ul>
-                    @if (d.EntriesTotal > d.Entries.Count) { <p class="caption">Showing the newest @d.Entries.Count of @d.EntriesTotal. Choose a month to see the rest.</p> }
+                    <Pager Page="e.Page.Page" TotalPages="e.Page.TotalPages" Total="e.Page.TotalCount" OnPage="LoadEntries" />
                 }
-            </PillTabs>
-        </section>
+            }
+        </DataView>
+    </PillTabs>
+</section>
 
-        @if (Me is not null) { <FormerBalances Me="Me" /> }
-    }
-</DataView>
+@* 5. Money still open with people who left *@
+@if (Me is not null) { <FormerBalances Me="Me" /> }
 
 <Modal @bind-Open="_open" Title="@(_editId is null ? "Add expense" : "Edit expense")">
     <fieldset class="field fee-method">
         <legend>Category *</legend>
         <div class="pick-group">
-            @foreach (var c in Enum.GetValues<ExpenseCategory>()) { <button type="button" class="pick" aria-pressed="@Aria.Bool(_category == c)" @onclick="() => _category = c">@CategoryLabel(c)</button> }
+            @foreach (var c in Enum.GetValues<ExpenseCategory>()) { <button type="button" class="pick" aria-pressed="@Aria.Bool(_category == c)" @onclick="() => _category = c">@FinanceLabels.Category(c)</button> }
         </div>
     </fieldset>
     <div class="form-grid">
@@ -125,45 +197,137 @@
     <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep it</button><button class="btn btn-danger" @onclick="DeleteExpense" disabled="@Busy"><Icon Name="trash" /> Delete expense</button></div>
 </Modal>
 
-@code {
-    private static readonly IReadOnlyList<Segmented<string>.Option> PeriodOptions = [new("month", "Month"), new("year", "Year")];
-    private static readonly List<PillTabs<string>.Tab> Tabs = [new("all", "All"), new("Income", "Income"), new("Salary", "Salaries"), new("Expense", "Expenses")];
+@if (Me is not null)
+{
+    <SalaryPaymentDialog Me="Me" @bind-Open="_salaryOpen" Teachers="_teachers" Month="@(_period == "month" ? _from : null)" OnSaved="_ => LoadAll()" />
+}
 
-    private FinanceSummaryDto? _d;
-    private ApiException? _error;
-    private string _period = "month", _filter = "all";
-    private DateOnly _start = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+@code {
+    private static readonly IReadOnlyList<Segmented<string>.Option> PeriodOptions = [new("month", "Month"), new("year", "Year"), new("custom", "Dates")];
+
+    [SupplyParameterFromQuery(Name = "kind")] public string? KindParam { get; set; }
+    [SupplyParameterFromQuery(Name = "from")] public string? FromParam { get; set; }
+    [SupplyParameterFromQuery(Name = "to")] public string? ToParam { get; set; }
+
+    private FinanceSummaryDto? _s;
+    private FinanceEntriesDto? _e;
+    private ApiException? _error, _entriesError;
+    private string _period = "month", _kind = "all", _search = "", _categoryText = "";
+    private FinanceSort _sort = FinanceSort.Newest;
+    private DateOnly _from = new(DateTime.Today.Year, DateTime.Today.Month, 1), _to;
+    private string? _appliedQuery;
 
     private DateOnly CurrentStart => _period == "year" ? new(DateTime.Today.Year, 1, 1) : new(DateTime.Today.Year, DateTime.Today.Month, 1);
-    private DateOnly End => _period == "year" ? _start.AddYears(1).AddDays(-1) : _start.AddMonths(1).AddDays(-1);
-    private string PeriodLabel => _period == "year" ? _start.Year.ToString() : _start.ToString("MMMM yyyy");
-    private string Currency => _d?.CurrencyCode ?? "";
+    private string PeriodLabel => PeriodName(_from, _to);
+    private string Currency => _s?.CurrencyCode ?? "";
+    private ExpenseCategory? CategoryFilter => Enum.TryParse<ExpenseCategory>(_categoryText, out var c) ? c : null;
+    private bool Filtered => _kind != "all" || CategoryFilter is not null || !string.IsNullOrWhiteSpace(_search);
 
-    protected override async Task LoadAsync() { _d = null; (_d, _error) = await Fetch(() => Api.GetAsync<FinanceSummaryDto>($"finance/summary?from={_start:yyyy-MM-dd}&to={End:yyyy-MM-dd}")); }
+    private List<PillTabs<string>.Tab> Tabs => [
+        new("all", "All", _e is { } e ? e.IncomeCount + e.SalaryCount + e.ExpenseCount : null),
+        new("Income", "Income", _e?.IncomeCount), new("Salary", "Salaries", _e?.SalaryCount), new("Expense", "Expenses", _e?.ExpenseCount)];
+
+    // The page reads its starting view from the link (Salaries, Fees and Reports link here with a period and a type).
+    protected override async Task OnParametersSetAsync()
+    {
+        var query = $"{KindParam}|{FromParam}|{ToParam}";
+        if (Me is null || query == _appliedQuery) return;
+        _appliedQuery = query;
+        ApplyQuery();
+        await LoadAll();
+    }
+
+    protected override async Task LoadAsync()
+    {
+        _appliedQuery = $"{KindParam}|{FromParam}|{ToParam}";
+        ApplyQuery();
+        await LoadAll();
+    }
+
+    private void ApplyQuery()
+    {
+        _kind = KindParam is "Income" or "Salary" or "Expense" ? KindParam : "all";
+        _to = _from.AddMonths(1).AddDays(-1);
+        if (DateOnly.TryParse(FromParam, out var f) && DateOnly.TryParse(ToParam, out var t) && t >= f)
+        {
+            (_from, _to) = (f, t);
+            _period = f.Day == 1 && t == f.AddMonths(1).AddDays(-1) ? "month" : f.Day == 1 && f.Month == 1 && t == f.AddYears(1).AddDays(-1) ? "year" : "custom";
+        }
+    }
+
+    private async Task LoadAll()
+    {
+        _s = null;
+        (_s, _error) = await Fetch(() => Api.GetAsync<FinanceSummaryDto>($"finance/summary?from={_from:yyyy-MM-dd}&to={_to:yyyy-MM-dd}"));
+        await LoadEntries(1);
+    }
+
+    private string EntriesQuery(int page) =>
+        $"from={_from:yyyy-MM-dd}&to={_to:yyyy-MM-dd}&sort={_sort}&page={page}&pageSize=25"
+        + (_kind == "all" ? "" : $"&kind={_kind}") + (CategoryFilter is { } c ? $"&category={c}" : "")
+        + (string.IsNullOrWhiteSpace(_search) ? "" : $"&search={Uri.EscapeDataString(_search.Trim())}");
+
+    private async Task LoadEntries(int page) => (_e, _entriesError) = await Fetch(() => Api.GetAsync<FinanceEntriesDto>($"finance/entries?{EntriesQuery(page)}"));
 
     private async Task SetPeriod(string p)
     {
         _period = p;
-        _start = p == "year" ? new(_start.Year, 1, 1) : (_start.Year == DateTime.Today.Year ? new(DateTime.Today.Year, DateTime.Today.Month, 1) : new(_start.Year, 12, 1));
-        await LoadAsync();
+        if (p == "custom") return; // the dates are applied with "Show"
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        _from = p == "year" ? new(_from.Year, 1, 1) : (_from.Year == today.Year ? new(today.Year, today.Month, 1) : new(_from.Year, 12, 1));
+        _to = p == "year" ? _from.AddYears(1).AddDays(-1) : _from.AddMonths(1).AddDays(-1);
+        await LoadAll();
     }
+
+    private async Task ApplyCustom() { if (_to >= _from) await LoadAll(); }
 
     private async Task Move(int step)
     {
-        _start = _period == "year" ? _start.AddYears(step) : _start.AddMonths(step);
-        await LoadAsync();
+        _from = _period == "year" ? _from.AddYears(step) : _from.AddMonths(step);
+        _to = _period == "year" ? _from.AddYears(1).AddDays(-1) : _from.AddMonths(1).AddDays(-1);
+        await LoadAll();
     }
 
-    private static string CategoryLabel(ExpenseCategory c) => c switch
+    private async Task OpenMonth(DateOnly month) { (_period, _from, _to) = ("month", month, month.AddMonths(1).AddDays(-1)); await LoadAll(); }
+
+    private async Task SetKind(string kind)
     {
-        ExpenseCategory.Utilities => "Electricity & water",
-        ExpenseCategory.InternetPhone => "Internet & phone",
-        ExpenseCategory.Supplies => "Books & supplies",
-        ExpenseCategory.StaffSalaries => "Other staff pay",
-        _ => c.ToString(),
+        _kind = kind;
+        if (kind is "Income" or "Salary") _categoryText = "";
+        await LoadEntries(1);
+    }
+
+    private async Task SetCategory(ExpenseCategory c) { (_kind, _categoryText) = ("Expense", c.ToString()); await LoadEntries(1); }
+    private async Task CategoryChanged() { if (CategoryFilter is not null) _kind = "Expense"; await LoadEntries(1); }
+    private async Task ClearFilters() { (_kind, _categoryText, _search) = ("all", "", ""); await LoadEntries(1); }
+
+    private Task ExportCsv() => Run(async () => await JS.InvokeVoidAsync("ss.download", $"finance-{_from:yyyy-MM-dd}-to-{_to:yyyy-MM-dd}.csv",
+        await Api.GetStringAsync($"finance/entries.csv?{EntriesQuery(1)}"), "text/csv"), "Export ready.");
+
+    private static string PeriodName(DateOnly from, DateOnly to) =>
+        from.Day == 1 && to == from.AddMonths(1).AddDays(-1) ? from.ToString("MMMM yyyy")
+        : from.Day == 1 && from.Month == 1 && to == from.AddYears(1).AddDays(-1) ? from.Year.ToString()
+        : $"{from:d MMM yyyy} – {to:d MMM yyyy}";
+
+    /// <summary>Change from the previous period, in words (no invented percentage when there was nothing before).</summary>
+    private static string Change(decimal now, decimal before) => (now, before) switch
+    {
+        _ when now == before => "same as before",
+        (_, 0) => "none the period before",
+        _ => $"{(now > before ? "▲" : "▼")} {Math.Abs((now - before) / before * 100m):0}% vs before",
     };
 
-    private static string KindLabel(FinanceEntryKind k) => k switch { FinanceEntryKind.Income => "Fee received", FinanceEntryKind.Salary => "Salary paid", _ => "Expense" };
+    private static string KindIcon(FinanceEntryKind k) => k switch { FinanceEntryKind.Income => "trending-up", FinanceEntryKind.Salary => "users", _ => "wallet" };
+
+    // ---- Salaries (shared dialog) ----
+    private bool _salaryOpen;
+    private List<LookupItem> _teachers = [];
+    private async Task OpenSalary()
+    {
+        if (_teachers.Count == 0)
+            _teachers = ((await Fetch(() => Api.GetAsync<PagedResult<TeacherDto>>("teachers?pageSize=100"))).Value?.Items ?? []).Select(t => new LookupItem(t.Id, t.FullName, null)).ToList();
+        _salaryOpen = true;
+    }
 
     // ---- Expenses ----
     private bool _open, _deleteOpen;
@@ -178,7 +342,9 @@
 
     private void NewExpense()
     {
-        (_editId, _category, _amount, _spentOn, _description, _paidTo, _reference, _method) = (null, ExpenseCategory.Rent, null, DateOnly.FromDateTime(DateTime.Today), null, null, null, PaymentMethod.Cash);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        (_editId, _category, _amount, _description, _paidTo, _reference, _method) = (null, ExpenseCategory.Rent, null, null, null, null, PaymentMethod.Cash);
+        _spentOn = today >= _from && today <= _to ? today : _to < today ? _to : today; // inside the period being viewed when possible
         _key = Guid.NewGuid().ToString("N");
         _open = true;
     }
@@ -199,14 +365,14 @@
             if (_editId is { } id) await Api.PutAsync<IdResponse>($"finance/expenses/{id}", request);
             else await Api.PostAsync("finance/expenses", request, _key);
         }, _editId is null ? "Expense added." : "Expense saved.");
-        if (ok) { _open = false; await LoadAsync(); }
+        if (ok) { _open = false; await LoadAll(); }
     }
 
     private void AskDelete(FinanceEntryDto e) => (_deleting, _deleteOpen) = (e, true);
 
     private async Task DeleteExpense()
     {
-        if (_deleting?.ExpenseId is not { } id) return;
-        if (await Run(() => Api.DeleteAsync($"finance/expenses/{id}"), "Expense deleted.")) { _deleteOpen = false; await LoadAsync(); }
+        if (_deleting is not { RecordId: var id }) return;
+        if (await Run(() => Api.DeleteAsync($"finance/expenses/{id}"), "Expense deleted.")) { _deleteOpen = false; await LoadAll(); }
     }
 }

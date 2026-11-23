@@ -154,10 +154,6 @@ public sealed class ReportService(IAppDbContext db, ICurrentUser user, AccessPol
         return sb.ToString();
     }
 
-    /// <summary>Escapes CSV and neutralises spreadsheet formula injection.</summary>
-    private static string Csv(string v)
-    {
-        if (v.Length > 0 && "=+-@".Contains(v[0])) v = "'" + v;
-        return v.Contains(',') || v.Contains('"') || v.Contains('\n') ? $"\"{v.Replace("\"", "\"\"")}\"" : v;
-    }
+    /// <summary>Escapes CSV and neutralises spreadsheet formula injection (shared with the finance export).</summary>
+    private static string Csv(string v) => CsvText.Cell(v);
 }

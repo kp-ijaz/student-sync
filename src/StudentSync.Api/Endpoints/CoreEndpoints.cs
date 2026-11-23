@@ -153,6 +153,9 @@ public static class CoreEndpoints
         var fin = api.MapGroup("/finance").WithTags("Finance");
         fin.MapGet("/summary", (DateOnly? from, DateOnly? to, FinanceService s, CancellationToken ct) => s.SummaryAsync(from, to, ct));
         fin.MapGet("/former", (FinanceService s, CancellationToken ct) => s.FormerAsync(ct));
+        fin.MapGet("/entries", ([AsParameters] FinanceEntryQuery q, FinanceService s, CancellationToken ct) => s.EntriesAsync(q, ct));
+        fin.MapGet("/entries.csv", async ([AsParameters] FinanceEntryQuery q, FinanceService s, CancellationToken ct) =>
+            Results.File(System.Text.Encoding.UTF8.GetBytes(await s.EntriesCsvAsync(q, ct)), "text/csv", "finance.csv"));
         fin.MapGet("/expenses/{id:guid}", (Guid id, FinanceService s, CancellationToken ct) => s.ExpenseAsync(id, ct));
         fin.MapPost("/expenses", async (SaveExpenseRequest r, FinanceService s, CancellationToken ct) => new IdResponse(await s.SaveExpenseAsync(null, r, ct))).AddEndpointFilter<IdempotencyFilter>();
         fin.MapPut("/expenses/{id:guid}", async (Guid id, SaveExpenseRequest r, FinanceService s, CancellationToken ct) => new IdResponse(await s.SaveExpenseAsync(id, r, ct)));

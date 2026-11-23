@@ -65,7 +65,7 @@ try {
 
   // 1. Finance page: add an expense, see it in the ledger and the totals, edit it, delete it.
   await page.goto(`${BASE_URL}/admin/finance`, { waitUntil: "networkidle0" });
-  await page.waitForSelector(".metric-strip");
+  await page.waitForSelector(".finance-kpis");
   await clickText(page, "main", "Add expense");
   await clickText(page, ".modal", "Electricity");
   await fill(page, "#xa", 1234);
@@ -73,6 +73,11 @@ try {
   await shots(page, "expense-dialog");
   await clickText(page, ".modal .form-actions", "Add expense");
   await hasText(page, ".finance-ledger", `Power bill ${tag}`);
+  // Search narrows the transactions; the Expenses total opens only expenses.
+  await fill(page, 'input[aria-label="Search transactions"]', `Power bill ${tag}`);
+  await page.waitForFunction(() => document.querySelectorAll(".finance-ledger li").length === 1, { timeout: 10000 });
+  await clickText(page, ".finance-kpis", "Expenses");
+  await hasText(page, ".finance-filtered", "1 line");
   await hasText(page, "main", "Electricity & water");
   await shots(page, "month");
 
@@ -83,6 +88,11 @@ try {
   await clickText(page, ".modal .form-actions", "Save expense");
   await page.waitForFunction((t) => [...document.querySelectorAll(".finance-ledger li")].some((li) => li.textContent.includes(t) && li.textContent.includes("1,500")), { timeout: 10000 }, `Power bill ${tag}`);
 
+  // Sorting by amount and clearing the filters.
+  await page.select('select[aria-label="Sort transactions"]', "Largest");
+  await wait(600);
+  await clickText(page, ".finance-filtered", "Clear filters");
+  await page.waitForFunction(() => document.querySelectorAll(".finance-ledger li").length >= 1, { timeout: 10000 });
   // People who left, on the Finance page.
   await hasText(page, ".former-balances", `Leaver ${tag}`);
 
@@ -91,6 +101,7 @@ try {
   await page.waitForFunction((y) => document.querySelector(".finance-nav h2")?.textContent.trim() === y, { timeout: 10000 }, String(new Date().getFullYear()));
   await shots(page, "year");
   await page.$$eval(".finance-period label", (ls) => ls.find((l) => l.textContent.trim() === "Month")?.click());
+  await wait(800);
   await hasText(page, ".finance-nav h2", new Date().toLocaleString("en-GB", { month: "long" }));
 
   await page.waitForSelector(`button[aria-label="Delete expense Power bill ${tag}"]`, { timeout: 10000 });

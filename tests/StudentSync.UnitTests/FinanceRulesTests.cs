@@ -36,4 +36,14 @@ public sealed class FinanceRulesTests
     [InlineData(100_000_001)]
     public void Expense_amount_must_be_positive_and_sane(decimal amount) =>
         Assert.Throws<DomainException>(() => Expense.Validate(amount));
+
+    [Theory]
+    [InlineData("2026-11-01", "2026-11-30", "2026-10-01", "2026-10-31")] // a month → the month before
+    [InlineData("2026-03-01", "2026-03-31", "2026-02-01", "2026-02-28")] // shorter month before
+    [InlineData("2026-01-01", "2026-12-31", "2025-01-01", "2025-12-31")] // a year → the year before
+    [InlineData("2026-10-01", "2026-12-31", "2026-07-01", "2026-09-30")] // a quarter → the quarter before
+    [InlineData("2026-11-10", "2026-11-16", "2026-11-03", "2026-11-09")] // any dates → the same number of days before
+    public void The_previous_period_has_the_same_length(string from, string to, string prevFrom, string prevTo) =>
+        Assert.Equal((DateOnly.Parse(prevFrom), DateOnly.Parse(prevTo)), StudentSync.Application.Fees.FinanceService.PreviousPeriod(DateOnly.Parse(from), DateOnly.Parse(to)));
 }
+

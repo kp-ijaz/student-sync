@@ -16,7 +16,6 @@ namespace StudentSync.Application.Fees;
 /// </summary>
 public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, AuditService audit, FeeService fees, SalaryService salaries)
 {
-    public const int MaxEntries = 300;
     private const int MaxRangeDays = 366 * 3;
 
     // ---------------- Summary ----------------
@@ -26,15 +25,13 @@ public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPo
         access.Require(Permissions.UsersManage);
         var (currency, tz) = await CentreAsync(ct);
         var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
-        var from = fromDay ?? new DateOnly(today.Year, today.Month, 1);
-        var to = toDay ?? from.AddMonths(1).AddDays(-1);
-        if (to < from) throw RequestValidationException.For("to", "The end day is before the start day.");
-        if (to.DayNumber - from.DayNumber > MaxRangeDays) throw RequestValidationException.For("to", "Choose a period of at most three years.");
+        var (from, to) = Range(fromDay, toDay, today);
+        var (prevFrom, prevTo) = PreviousPeriod(from, to);
 
-        // Trend: the 12 months ending with the month of "to". The period itself is read from the same rows when it fits.
+        // Trend: the 12 months ending with the month of "to". The period and the previous one are read from the same rows.
         var trendStart = new DateOnly(to.Year, to.Month, 1).AddMonths(-11);
         var trendEnd = new DateOnly(to.Year, to.Month, 1).AddMonths(1).AddDays(-1);
-        var lo = from < trendStart ? from : trendStart;
+        var lo = new[] { prevFrom, trendStart }.Min();
         var hi = to > trendEnd ? to : trendEnd;
 
         var income = await db.FeePayments.Where(p => p.VoidedAtUtc == null && p.PaidOn >= lo && p.PaidOn <= hi)
@@ -44,65 +41,143 @@ public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPo
         var spent = await db.Expenses.Where(e => e.SpentOn >= lo && e.SpentOn <= hi)
             .Select(e => new { e.SpentOn, e.Amount, e.Category }).ToListAsync(ct);
 
-        bool In(DateOnly d) => d >= from && d <= to;
-        var incomeTotal = income.Where(x => In(x.PaidOn)).Sum(x => x.Amount);
-        var salaryTotal = paid.Where(x => In(x.PaidOn)).Sum(x => x.Amount);
-        var expenseTotal = spent.Where(x => In(x.SpentOn)).Sum(x => x.Amount);
-        var profit = FinanceRules.Profit(incomeTotal, salaryTotal, expenseTotal);
+        FinanceTotalsDto Totals(DateOnly a, DateOnly b)
+        {
+            var inc = income.Where(x => x.PaidOn >= a && x.PaidOn <= b).Sum(x => x.Amount);
+            var sal = paid.Where(x => x.PaidOn >= a && x.PaidOn <= b).Sum(x => x.Amount);
+            var exp = spent.Where(x => x.SpentOn >= a && x.SpentOn <= b).Sum(x => x.Amount);
+            return new FinanceTotalsDto(a, b, inc, sal, exp, FinanceRules.Profit(inc, sal, exp));
+        }
 
-        var byCategory = spent.Where(x => In(x.SpentOn)).GroupBy(x => x.Category)
+        var now = Totals(from, to);
+        var byCategory = spent.Where(x => x.SpentOn >= from && x.SpentOn <= to).GroupBy(x => x.Category)
             .Select(g => new CategoryTotalDto(g.Key, g.Sum(x => x.Amount))).OrderByDescending(x => x.Amount).ToList();
         var months = Enumerable.Range(0, 12).Select(i =>
         {
             var m = trendStart.AddMonths(i);
-            var end = m.AddMonths(1);
-            bool InMonth(DateOnly d) => d >= m && d < end;
-            var inc = income.Where(x => InMonth(x.PaidOn)).Sum(x => x.Amount);
-            var sal = paid.Where(x => InMonth(x.PaidOn)).Sum(x => x.Amount);
-            var exp = spent.Where(x => InMonth(x.SpentOn)).Sum(x => x.Amount);
-            return new FinanceMonthDto(m, inc, sal, exp, FinanceRules.Profit(inc, sal, exp));
+            var t = Totals(m, m.AddMonths(1).AddDays(-1));
+            return new FinanceMonthDto(m, t.Income, t.Salaries, t.Expenses, t.Profit);
         }).ToList();
 
-        var (total, entries) = await EntriesAsync(from, to, ct);
         var toCollect = (await fees.DueAsync(1, ct)).TotalDue;
         var owed = (await salaries.MonthAsync(today, ct)).Sum(r => r.DueNow);
 
-        return new FinanceSummaryDto(from, to, currency, incomeTotal, salaryTotal, expenseTotal, profit, FinanceRules.MarginPercent(incomeTotal, profit),
-            toCollect, owed, byCategory, months, total, entries);
+        return new FinanceSummaryDto(from, to, currency, now.Income, now.Salaries, now.Expenses, now.Profit, FinanceRules.MarginPercent(now.Income, now.Profit),
+            toCollect, owed, byCategory, months, Totals(prevFrom, prevTo));
     }
 
-    /// <summary>Every payment received, salary paid and expense in the period, newest first (the newest <see cref="MaxEntries"/>).</summary>
-    private async Task<(int Total, List<FinanceEntryDto> Items)> EntriesAsync(DateOnly from, DateOnly to, CancellationToken ct)
+    /// <summary>Default: this month. Validated: end not before start, at most three years.</summary>
+    private static (DateOnly From, DateOnly To) Range(DateOnly? fromDay, DateOnly? toDay, DateOnly today)
     {
-        var income = db.FeePayments.Where(p => p.VoidedAtUtc == null && p.PaidOn >= from && p.PaidOn <= to);
-        var salary = db.TeacherPayments.Where(p => p.VoidedAtUtc == null && p.PaidOn >= from && p.PaidOn <= to);
-        var spent = db.Expenses.Where(e => e.SpentOn >= from && e.SpentOn <= to);
-        var total = await income.CountAsync(ct) + await salary.CountAsync(ct) + await spent.CountAsync(ct);
-
-        var inc = await income.OrderByDescending(p => p.PaidOn).ThenByDescending(p => p.CreatedAtUtc).Take(MaxEntries)
-            .Select(p => new FinanceEntryDto(p.PaidOn, FinanceEntryKind.Income,
-                db.Students.Where(s => s.Id == p.StudentId).Select(s => s.User!.FullName).FirstOrDefault() ?? "Student",
-                db.StudentPackages.Where(k => k.Id == p.PackageId).Select(k => k.Name).FirstOrDefault(), p.Amount, p.StudentId, null)).ToListAsync(ct);
-        var sal = await salary.OrderByDescending(p => p.PaidOn).ThenByDescending(p => p.CreatedAtUtc).Take(MaxEntries)
-            .Select(p => new FinanceEntryDto(p.PaidOn, FinanceEntryKind.Salary,
-                db.Teachers.Where(t => t.Id == p.TeacherId).Select(t => t.User!.FullName).FirstOrDefault() ?? "Teacher",
-                p.Note, p.Amount, p.TeacherId, null)).ToListAsync(ct);
-        var exp = await spent.OrderByDescending(e => e.SpentOn).ThenByDescending(e => e.CreatedAtUtc).Take(MaxEntries)
-            .Select(e => new { e.Id, e.SpentOn, e.Category, e.Description, e.PaidTo, e.Amount }).ToListAsync(ct);
-        var items = inc.Concat(sal)
-            .Concat(exp.Select(e => new FinanceEntryDto(e.SpentOn, FinanceEntryKind.Expense, e.Description, CategoryLabel(e.Category) + (e.PaidTo is { } to2 ? $" · {to2}" : ""), e.Amount, null, e.Id)))
-            .OrderByDescending(x => x.Date).ThenBy(x => x.Kind).Take(MaxEntries).ToList();
-        return (total, items);
+        var from = fromDay ?? new DateOnly(today.Year, today.Month, 1);
+        var to = toDay ?? from.AddMonths(1).AddDays(-1);
+        if (to < from) throw RequestValidationException.For("to", "The end day is before the start day.");
+        if (to.DayNumber - from.DayNumber > MaxRangeDays) throw RequestValidationException.For("to", "Choose a period of at most three years.");
+        return (from, to);
     }
 
-    public static string CategoryLabel(ExpenseCategory c) => c switch
+    /// <summary>
+    /// The period of the same length just before: whole months map to the same number of months before (November → October,
+    /// a year → the year before); any other range moves back by its number of days.
+    /// </summary>
+    public static (DateOnly From, DateOnly To) PreviousPeriod(DateOnly from, DateOnly to)
     {
-        ExpenseCategory.Utilities => "Electricity & water",
-        ExpenseCategory.InternetPhone => "Internet & phone",
-        ExpenseCategory.Supplies => "Books & supplies",
-        ExpenseCategory.StaffSalaries => "Other staff pay",
-        _ => c.ToString(),
-    };
+        if (from.Day == 1 && to.AddDays(1).Day == 1)
+        {
+            var months = (to.Year - from.Year) * 12 + to.Month - from.Month + 1;
+            return (from.AddMonths(-months), from.AddDays(-1));
+        }
+        var days = to.DayNumber - from.DayNumber + 1;
+        return (from.AddDays(-days), from.AddDays(-1));
+    }
+
+    // ---------------- Transactions ----------------
+
+    /// <summary>Upper bound of lines read per kind for one query (a single centre stays far below it).</summary>
+    public const int MaxRowsPerKind = 5000;
+
+    /// <summary>Fees received, salaries paid and expenses in one list: filtered, searched, sorted and paged on the server.</summary>
+    public async Task<FinanceEntriesDto> EntriesAsync(FinanceEntryQuery q, CancellationToken ct)
+    {
+        access.Require(Permissions.UsersManage);
+        var (all, kinds) = await MatchingAsync(q, ct);
+        var page = all.Skip((q.SafePage - 1) * q.SafePageSize).Take(q.SafePageSize).ToList();
+        var moneyIn = all.Where(e => e.Kind == FinanceEntryKind.Income).Sum(e => e.Amount);
+        var moneyOut = all.Where(e => e.Kind != FinanceEntryKind.Income).Sum(e => e.Amount);
+        return new FinanceEntriesDto(new PagedResult<FinanceEntryDto>(page, q.SafePage, q.SafePageSize, all.Count), moneyIn, moneyOut, moneyIn - moneyOut,
+            kinds.GetValueOrDefault(FinanceEntryKind.Income), kinds.GetValueOrDefault(FinanceEntryKind.Salary), kinds.GetValueOrDefault(FinanceEntryKind.Expense));
+    }
+
+    /// <summary>The same filtered, sorted lines as a CSV file (amount signed: money in positive, money out negative).</summary>
+    public async Task<string> EntriesCsvAsync(FinanceEntryQuery q, CancellationToken ct)
+    {
+        access.Require(Permissions.UsersManage);
+        var (all, _) = await MatchingAsync(q, ct);
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine(CsvText.Row("Date", "Type", "Who / what", "Detail", "Category", "Method", "Reference", "Amount"));
+        foreach (var e in all)
+            sb.AppendLine(CsvText.Row(e.Date.ToString("yyyy-MM-dd"), FinanceLabels.Kind(e.Kind), e.Title, e.Detail, e.Category is { } c ? FinanceLabels.Category(c) : null,
+                e.Method is { } m ? FinanceLabels.Method(m) : null, e.Reference,
+                (e.Kind == FinanceEntryKind.Income ? e.Amount : -e.Amount).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)));
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Every line in the period matching search and category, sorted; the kind filter is applied after counting so the tabs
+    /// can show how many lines of each kind match. A category narrows the list to expenses.
+    /// </summary>
+    private async Task<(List<FinanceEntryDto> Items, Dictionary<FinanceEntryKind, int> Kinds)> MatchingAsync(FinanceEntryQuery q, CancellationToken ct)
+    {
+        var (_, tz) = await CentreAsync(ct);
+        var (from, to) = Range(q.From, q.To, DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz)));
+        var term = string.IsNullOrWhiteSpace(q.Search) ? null : q.Search.Trim().ToLowerInvariant();
+        if (term is { Length: > 100 }) throw RequestValidationException.For("search", "Search for at most 100 characters.");
+        var rows = new List<FinanceEntryDto>();
+
+        if (q.Category is null)
+        {
+            var inc = db.FeePayments.Where(p => p.VoidedAtUtc == null && p.PaidOn >= from && p.PaidOn <= to);
+            if (term is not null)
+                inc = inc.Where(p => db.Students.Any(s => s.Id == p.StudentId && (s.User!.FullName.ToLower().Contains(term) || s.StudentCode.ToLower().Contains(term)))
+                    || (p.Reference != null && p.Reference.ToLower().Contains(term))
+                    || db.StudentPackages.Any(k => k.Id == p.PackageId && k.Name.ToLower().Contains(term)));
+            rows.AddRange(await inc.OrderByDescending(p => p.PaidOn).Take(MaxRowsPerKind)
+                .Select(p => new FinanceEntryDto(p.PaidOn, FinanceEntryKind.Income,
+                    db.Students.Where(s => s.Id == p.StudentId).Select(s => s.User!.FullName).FirstOrDefault() ?? "Student",
+                    db.StudentPackages.Where(k => k.Id == p.PackageId).Select(k => k.Name).FirstOrDefault(), p.Amount, p.StudentId, null,
+                    p.Id, p.Method, p.Reference, null)).ToListAsync(ct));
+
+            var sal = db.TeacherPayments.Where(p => p.VoidedAtUtc == null && p.PaidOn >= from && p.PaidOn <= to);
+            if (term is not null)
+                sal = sal.Where(p => db.Teachers.Any(t => t.Id == p.TeacherId && t.User!.FullName.ToLower().Contains(term))
+                    || (p.Note != null && p.Note.ToLower().Contains(term)) || (p.Reference != null && p.Reference.ToLower().Contains(term)));
+            rows.AddRange(await sal.OrderByDescending(p => p.PaidOn).Take(MaxRowsPerKind)
+                .Select(p => new FinanceEntryDto(p.PaidOn, FinanceEntryKind.Salary,
+                    db.Teachers.Where(t => t.Id == p.TeacherId).Select(t => t.User!.FullName).FirstOrDefault() ?? "Teacher",
+                    p.Note, p.Amount, p.TeacherId, null, p.Id, p.Method, p.Reference, null)).ToListAsync(ct));
+        }
+
+        var exp = db.Expenses.Where(e => e.SpentOn >= from && e.SpentOn <= to);
+        if (q.Category is { } cat) exp = exp.Where(e => e.Category == cat);
+        if (term is not null)
+            exp = exp.Where(e => e.Description.ToLower().Contains(term) || (e.PaidTo != null && e.PaidTo.ToLower().Contains(term))
+                || (e.Reference != null && e.Reference.ToLower().Contains(term)));
+        var expenses = await exp.OrderByDescending(e => e.SpentOn).Take(MaxRowsPerKind)
+            .Select(e => new { e.Id, e.SpentOn, e.Category, e.Description, e.PaidTo, e.Amount, e.Method, e.Reference }).ToListAsync(ct);
+        rows.AddRange(expenses.Select(e => new FinanceEntryDto(e.SpentOn, FinanceEntryKind.Expense, e.Description,
+            FinanceLabels.Category(e.Category) + (e.PaidTo is { } paidTo ? $" · {paidTo}" : ""), e.Amount, null, e.Id, e.Id, e.Method, e.Reference, e.Category)));
+
+        var kinds = rows.GroupBy(r => r.Kind).ToDictionary(g => g.Key, g => g.Count());
+        IEnumerable<FinanceEntryDto> shown = q.Kind is { } kind ? rows.Where(r => r.Kind == kind) : rows;
+        shown = (q.Sort ?? FinanceSort.Newest) switch
+        {
+            FinanceSort.Oldest => shown.OrderBy(r => r.Date).ThenBy(r => r.Kind),
+            FinanceSort.Largest => shown.OrderByDescending(r => r.Amount).ThenByDescending(r => r.Date),
+            FinanceSort.Smallest => shown.OrderBy(r => r.Amount).ThenByDescending(r => r.Date),
+            _ => shown.OrderByDescending(r => r.Date).ThenBy(r => r.Kind),
+        };
+        return (shown.ToList(), kinds);
+    }
 
     // ---------------- Balances of people who left ----------------
 

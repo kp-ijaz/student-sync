@@ -1,0 +1,99 @@
+@inherits AppComponent
+@* One "record a salary payment" dialog for every screen (owner request 2026-11-24): Fees ▸ Salaries ("Add salary
+   payment" and each teacher's "Pay"), the teacher's page (Salary ▸ Record payment) and Finance ("Record salary").
+   Any amount: the full amount owed, a part, or an advance. Shows what is still owed and fills it in; the API records it
+   (retries are safe through the idempotency key) and it appears on the teacher's page, Salaries and Finance. *@
+<Modal Open="Open" OpenChanged="OpenChanged" Title="@(TeacherName is { } n ? $"Pay {n}" : "Add salary payment")">
+    <div class="form-grid">
+        @if (TeacherId is null)
+        {
+            <div class="field full"><label for="spt">Teacher *</label>
+                <select id="spt" class="select" value="@_teacher" @onchange="PickTeacher">
+                    <option value="">Choose a teacher…</option>
+                    @foreach (var t in Teachers) { <option value="@t.Id">@t.Name@(t.Detail is { } d ? $" ({d})" : "")</option> }
+                </select></div>
+        }
+        <div class="field"><label for="spa">Amount (@_currency) *</label>
+            <input id="spa" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_amount" />
+            @if (_pay is { } p)
+            {
+                <span class="help">@(p.Due > 0 ? $"Still to pay: {Money.Format(p.Due, p.CurrencyCode)}" : p.Due < 0 ? $"Paid {Money.Format(-p.Due, p.CurrencyCode)} in advance" : "Nothing owed right now (an advance is fine).")
+                    @if (p.CurrentRate is null) { <text> · no rate per hour set</text> }</span>
+            }
+        </div>
+        <div class="field"><label for="spd">Paid on *</label><input id="spd" class="input" type="date" @bind="_paidOn" /></div>
+        <div class="field"><label for="spf">For period from</label><input id="spf" class="input" type="date" @bind="_from" /></div>
+        <div class="field"><label for="spto">to</label><input id="spto" class="input" type="date" @bind="_to" /></div>
+        <div class="field full"><label for="spn">Note</label><input id="spn" class="input" maxlength="300" placeholder="e.g. November salary, or Advance" @bind="_note" /></div>
+    </div>
+    <MethodPicker @bind-Method="_method" @bind-Reference="_reference" />
+    <div class="form-actions">
+        <button class="btn btn-secondary" @onclick="() => OpenChanged.InvokeAsync(false)">Cancel</button>
+        <button class="btn btn-primary" @onclick="Save" disabled="@(Busy || _amount is not > 0 || Chosen is null)">Record payment</button>
+    </div>
+</Modal>
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+    /// <summary>A fixed teacher (teacher page, a Salaries row). Empty: the dialog shows a teacher picker from <see cref="Teachers"/>.</summary>
+    [Parameter] public Guid? TeacherId { get; set; }
+    [Parameter] public string? TeacherName { get; set; }
+    [Parameter] public IReadOnlyList<LookupItem> Teachers { get; set; } = [];
+    /// <summary>The month the payment is for (fills the period and the note). Empty: no period.</summary>
+    [Parameter] public DateOnly? Month { get; set; }
+    /// <summary>Called with the new payment's id after it is saved.</summary>
+    [Parameter] public EventCallback<(Guid TeacherId, Guid PaymentId)> OnSaved { get; set; }
+
+    private bool _wasOpen;
+    private Guid? _teacher;
+    private TeacherPayDto? _pay;
+    private decimal? _amount;
+    private DateOnly _paidOn;
+    private DateOnly? _from, _to;
+    private string? _note, _reference;
+    private PaymentMethod _method = PaymentMethod.BankTransfer;
+    private string _key = "", _currency = "";
+    private Guid? Chosen => TeacherId ?? _teacher;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Open && !_wasOpen) await ResetAsync();
+        _wasOpen = Open;
+    }
+
+    // Each opening starts clean with a fresh idempotency key, so a double click or retry records one payment only.
+    private async Task ResetAsync()
+    {
+        _paidOn = DateOnly.FromDateTime(Time.ToLocal(DateTime.UtcNow, Tz));
+        (_teacher, _pay, _amount, _reference, _method, _key) = (null, null, null, null, PaymentMethod.BankTransfer, Guid.NewGuid().ToString("N"));
+        (_from, _to, _note) = Month is { } m ? (m, m.AddMonths(1).AddDays(-1), $"Salary for {m:MMMM yyyy}") : ((DateOnly?)null, (DateOnly?)null, (string?)null);
+        if (TeacherId is { } id) await LoadPayAsync(id);
+    }
+
+    private async Task PickTeacher(ChangeEventArgs e)
+    {
+        _teacher = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
+        (_pay, _amount) = (null, null);
+        if (_teacher is { } t) await LoadPayAsync(t);
+    }
+
+    private async Task LoadPayAsync(Guid id)
+    {
+        var (pay, error) = await Fetch(() => Api.GetAsync<TeacherPayDto>($"teachers/{id}/pay"));
+        if (error is not null) { Toasts.Show(error.Describe(), ToastKind.Error); return; }
+        _pay = pay;
+        _currency = pay!.CurrencyCode;
+        if (pay.Due > 0) _amount = pay.Due;
+    }
+
+    private async Task Save()
+    {
+        if (Chosen is not { } id) return;
+        IdResponse? done = null;
+        var request = new AddTeacherPaymentRequest(_amount ?? 0, _paidOn, _method, _reference, _note, _from, _to);
+        if (!await Run(async () => done = await Api.PostAsync<IdResponse>($"teachers/{id}/pay/payments", request, _key), "Salary payment recorded.")) return;
+        await OpenChanged.InvokeAsync(false);
+        await OnSaved.InvokeAsync((id, done!.Id));
+    }
+}

@@ -232,13 +232,8 @@
         _plans = (await Fetch(() => Api.GetAsync<List<FeePlanDto>>($"fee-plans?studentId={StudentId}"))).Value ?? [];
     }
 
-    public static string MethodName(PaymentMethod m) => m switch
-    {
-        PaymentMethod.BankTransfer => "Bank transfer",
-        PaymentMethod.Upi => "UPI",
-        PaymentMethod.Online => "Online (gateway)",
-        _ => m.ToString(),
-    };
+    /// <summary>One source of payment method names (receipts, salaries, finance): <see cref="FinanceLabels.Method"/>.</summary>
+    public static string MethodName(PaymentMethod m) => FinanceLabels.Method(m);
 
     private static string HoursTone(decimal left) => left switch { <= 0 => "bad", <= 2 => "warn", _ => "good" };
 

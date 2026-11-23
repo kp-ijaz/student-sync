@@ -20,6 +20,7 @@
             </div>
             <div class="btn-group home-head-actions">
                 @if (IsAdmin) { <a class="btn btn-secondary btn-pill" href="/admin/teachers?edit=@TeacherId"><Icon Name="pencil" /> Edit</a> }
+                <a class="btn btn-secondary btn-pill" href="@($"{Nav.ToAbsoluteUri(Nav.Uri).AbsolutePath}#pay")"><Icon Name="wallet" /> Salary</a>
                 <a class="btn btn-primary btn-pill" href="/teacher/availability@(IsAdmin ? $"?teacherId={TeacherId}" : "")"><Icon Name="clock" /> Availability</a>
             </div>
         </header>
@@ -35,6 +36,10 @@
                 <div><dt>Email</dt><dd>@t.Email</dd></div>
             </dl>
         </section>
+
+        @* Salary sits right under "About" (owner request 2026-11-24): every payment recorded for the teacher — from here,
+           Fees ▸ Salaries or Finance — is listed in it with its slip. *@
+        @if (Me is not null) { <div style="margin-bottom:16px"><TeacherPayPanel Me="Me" TeacherId="TeacherId" CanManage="IsAdmin" /></div> }
 
         <div class="profile-hours">
             <HoursPanel Periods="o.Periods" Teacher="true" />
@@ -56,7 +61,6 @@
         </div>
         @if (Me is not null)
         {
-            <div style="margin-bottom:16px"><TeacherPayPanel Me="Me" TeacherId="TeacherId" CanManage="IsAdmin" /></div>
             <PersonCalendar Me="Me" Filter="@($"teacherId={TeacherId}")" />
         }
     }

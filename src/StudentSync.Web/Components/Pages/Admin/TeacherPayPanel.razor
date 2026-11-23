@@ -66,18 +66,7 @@
     <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _rateOpen = false">Cancel</button><button class="btn btn-primary" @onclick="SaveRate" disabled="@(Busy || _rate is null)">Save rate</button></div>
 </Modal>
 
-<Modal @bind-Open="_payOpen" Title="Record salary payment">
-    <div class="form-grid">
-        <div class="field"><label for="pa">Amount (@Currency) *</label><input id="pa" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_amount" />
-            @if (_p is { Due: > 0 } d) { <span class="help">Still to pay: @Money.Format(d.Due, d.CurrencyCode)</span> }</div>
-        <div class="field"><label for="pd">Paid on *</label><input id="pd" class="input" type="date" @bind="_paidOn" /></div>
-        <div class="field"><label for="ppf">For period from</label><input id="ppf" class="input" type="date" @bind="_from" /></div>
-        <div class="field"><label for="ppt">to</label><input id="ppt" class="input" type="date" @bind="_to" /></div>
-        <div class="field full"><label for="pn">Note</label><input id="pn" class="input" placeholder="e.g. October salary" @bind="_note" /></div>
-    </div>
-    <MethodPicker @bind-Method="_method" @bind-Reference="_reference" />
-    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _payOpen = false">Cancel</button><button class="btn btn-primary" @onclick="Pay" disabled="@(Busy || _amount is not > 0)">Record payment</button></div>
-</Modal>
+<SalaryPaymentDialog Me="Me" @bind-Open="_payOpen" TeacherId="TeacherId" OnSaved="_ => Load()" />
 
 <Modal @bind-Open="_voidOpen" Title="Remove payment">
     <p>The payment stays on record, crossed out, with your reason. It no longer counts as paid.</p>
@@ -91,13 +80,10 @@
     private TeacherPayDto? _p;
     private ApiException? _error;
     private bool _rateOpen, _payOpen, _voidOpen;
-    private decimal? _rate, _amount;
-    private DateOnly? _rateFrom, _from, _to;
-    private DateOnly _paidOn;
-    private PaymentMethod _method = PaymentMethod.BankTransfer;
-    private string? _reference, _note, _voidReason;
+    private decimal? _rate;
+    private DateOnly? _rateFrom;
+    private string? _voidReason;
     private TeacherPaymentDto? _voiding;
-    private string _key = Guid.NewGuid().ToString("N");
     private string Currency => _p?.CurrencyCode ?? "";
 
     protected override Task OnInitializedAsync() => Load();
@@ -105,12 +91,8 @@
 
     private void OpenRate() => (_rate, _rateFrom, _rateOpen) = (_p?.CurrentRate, DateOnly.FromDateTime(Time.ToLocal(DateTime.UtcNow, Tz)), true);
 
-    private void NewPayment()
-    {
-        var today = DateOnly.FromDateTime(Time.ToLocal(DateTime.UtcNow, Tz));
-        (_amount, _paidOn, _from, _to, _method, _reference, _note, _key) = (_p is { Due: > 0 } p ? p.Due : null, today, null, null, PaymentMethod.BankTransfer, null, null, Guid.NewGuid().ToString("N"));
-        _payOpen = true;
-    }
+    // The shared salary dialog (also on Fees ▸ Salaries and Finance) fills in what is still owed.
+    private void NewPayment() => _payOpen = true;
 
     private void AskVoid(TeacherPaymentDto x) => (_voiding, _voidReason, _voidOpen) = (x, null, true);
 
@@ -122,12 +104,6 @@
     private async Task RemoveRate(TeacherPayRateDto r)
     {
         if (await Run(() => Api.DeleteAsync($"teachers/{TeacherId}/pay/rates/{r.Id}"), $"Rate from {r.EffectiveFrom:d MMM yyyy} removed.")) await Load();
-    }
-
-    private async Task Pay()
-    {
-        var request = new AddTeacherPaymentRequest(_amount ?? 0, _paidOn, _method, _reference, _note, _from, _to);
-        if (await Run(() => Api.PostAsync($"teachers/{TeacherId}/pay/payments", request, _key), "Payment recorded.")) { _payOpen = false; await Load(); }
     }
 
     private async Task Void()
