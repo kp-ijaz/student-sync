@@ -203,6 +203,19 @@ public sealed class ExamService(IAppDbContext db, ICurrentUser user, AccessPolic
         return e.Id;
     }
 
+    /// <summary>Deletes an exam nobody has attempted yet (draft or published). Attempts are students' results: those exams are kept.</summary>
+    public async Task DeleteAsync(Guid id, CancellationToken ct)
+    {
+        var e = await GetManageableExamAsync(id, ct);
+        if (await db.ExamAttempts.AnyAsync(x => x.ExamId == id, ct))
+            throw new DomainException("Students have already taken this exam, so their results are kept. It cannot be deleted.", "exam_has_attempts");
+        db.ExamQuestions.RemoveRange(await db.ExamQuestions.Where(x => x.ExamId == id).ToListAsync(ct));
+        db.ExamRecipients.RemoveRange(await db.ExamRecipients.Where(x => x.ExamId == id).ToListAsync(ct));
+        db.Exams.Remove(e);
+        audit.Record("exam.deleted", "Exam", e.Id, e.Title);
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task PublishAsync(Guid id, CancellationToken ct)
     {
         var e = await GetManageableExamAsync(id, ct);

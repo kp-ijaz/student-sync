@@ -21,10 +21,17 @@
                 new(p.Due < 0 ? "Paid in advance" : "Still to pay", Money.Format(Math.Abs(p.Due), p.CurrencyCode), "earned to date − paid", "wallet"),
             ])" />
             @if (p.UnratedClasses > 0) { <p class="fee-warn" role="status"><Icon Name="alert" /> @p.UnratedClasses completed @(p.UnratedClasses == 1 ? "class is" : "classes are") before the first rate and not counted. Set a rate from an earlier date to include them.</p> }
-            @if (p.Rates.Count > 1)
+            @if (p.Rates.Count > 1 || (CanManage && p.Rates.Count > 0))
             {
+                @* Admins can remove a rate entered by mistake; pay is recalculated with the rate before it. *@
                 <details class="pay-rates"><summary class="small">Rate history</summary>
-                    <ul class="list small">@foreach (var hr in p.Rates) { <li class="row-between"><span>From @hr.EffectiveFrom.ToString("d MMM yyyy")</span><strong>@Money.Format(hr.HourlyRate, p.CurrencyCode) / h</strong></li> }</ul>
+                    <ul class="list small">@foreach (var hr in p.Rates)
+                    {
+                        <li class="row-between"><span>From @hr.EffectiveFrom.ToString("d MMM yyyy")</span>
+                            <span class="row"><strong>@Money.Format(hr.HourlyRate, p.CurrencyCode) / h</strong>
+                                @if (CanManage && hr.Id != Guid.Empty) { <button type="button" class="icon-btn" title="Remove this rate" aria-label="@($"Remove the rate from {hr.EffectiveFrom:d MMM yyyy}")" @onclick="() => RemoveRate(hr)" disabled="@Busy"><Icon Name="trash" /></button> }</span></li>
+                    }</ul>
+                    @if (CanManage) { <p class="caption">Removing a rate recalculates pay with the rate before it. Salary already paid is not changed.</p> }
                 </details>
             }
             <h3 class="pay-h3">Payments</h3>
@@ -110,6 +117,11 @@
     private async Task SaveRate()
     {
         if (await Run(() => Api.PutAsync($"teachers/{TeacherId}/pay/rate", new SetTeacherRateRequest(_rate ?? 0, _rateFrom)), "Rate saved.")) { _rateOpen = false; await Load(); }
+    }
+
+    private async Task RemoveRate(TeacherPayRateDto r)
+    {
+        if (await Run(() => Api.DeleteAsync($"teachers/{TeacherId}/pay/rates/{r.Id}"), $"Rate from {r.EffectiveFrom:d MMM yyyy} removed.")) await Load();
     }
 
     private async Task Pay()

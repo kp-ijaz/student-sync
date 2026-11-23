@@ -10,6 +10,9 @@ public sealed record SavePackageRequest(
     decimal Hours, decimal Price, DateOnly? StartsOn = null, DateOnly? PaymentDueOn = null, string? Name = null, string? Notes = null,
     decimal? PaidNow = null, PaymentMethod Method = PaymentMethod.Cash, string? Reference = null);
 
+/// <summary>Corrects a package added by mistake (name, hours, price, start or pay-by day). The price cannot go below what was already paid.</summary>
+public sealed record UpdatePackageRequest(decimal Hours, decimal Price, DateOnly StartsOn, DateOnly? PaymentDueOn = null, string? Name = null, string? Notes = null);
+
 public sealed record RecordPaymentRequest(decimal Amount, DateOnly? PaidOn = null, PaymentMethod Method = PaymentMethod.Cash, string? Reference = null);
 public sealed record VoidPaymentRequest(string Reason);
 
@@ -41,3 +44,13 @@ public sealed record FeeDueItemDto(
 public sealed record FeesDueDto(
     string CurrencyCode, decimal TotalDue, int StudentsOwing, int OverdueCount, int LowHoursCount, decimal LowHoursAt, decimal CollectedThisMonth,
     int TotalItems, IReadOnlyList<FeeDueItemDto> Items);
+
+// ---------- Fee plans: the centre's packages / fee structure ----------
+
+/// <summary>A package the centre offers. <paramref name="PricePerHour"/> = price ÷ hours. Class/syllabus empty = offered to every student.</summary>
+public sealed record FeePlanDto(
+    Guid Id, string Name, decimal Hours, decimal Price, decimal PricePerHour, string CurrencyCode,
+    Guid? GradeLevelId, string? GradeLevelName, Guid? CurriculumId, string? CurriculumName, string? Notes, bool IsActive);
+
+public sealed record SaveFeePlanRequest(
+    decimal Hours, decimal Price, string? Name = null, Guid? GradeLevelId = null, Guid? CurriculumId = null, string? Notes = null, bool IsActive = true);

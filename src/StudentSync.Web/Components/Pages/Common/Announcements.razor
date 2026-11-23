@@ -9,7 +9,13 @@
     <div class="stack">
         @foreach (var a in _items ?? [])
         {
-            <article class="card"><div class="row-between"><h2>@a.Title</h2><span class="badge slate">@(a.Audience == AnnouncementAudience.Batch ? a.BatchName : a.Audience.ToString())</span></div>
+            <article class="card"><div class="row-between"><h2>@a.Title</h2>
+                    <span class="row"><span class="badge slate">@(a.Audience == AnnouncementAudience.Batch ? a.BatchName : a.Audience.ToString())</span>
+                        @if (CanManage(a))
+                        {
+                            <button type="button" class="icon-btn" title="Edit" aria-label="@($"Edit {a.Title}")" @onclick="() => Edit(a)"><Icon Name="pencil" /></button>
+                            <button type="button" class="icon-btn" title="Delete" aria-label="@($"Delete {a.Title}")" @onclick="() => (_deleting, _deleteOpen) = (a, true)"><Icon Name="trash" /></button>
+                        }</span></div>
                 <div class="caption" style="margin-bottom:8px">@a.AuthorName · <LocalTime Utc="a.PublishedAtUtc" Tz="@Tz" /></div>
                 <p style="white-space:pre-wrap;margin:0">@a.Body</p></article>
         }
@@ -30,7 +36,38 @@
     </div>
 </Modal>
 
+<Modal @bind-Open="_editOpen" Title="Edit announcement">
+    <div class="stack">
+        <p class="small" style="margin:0">Fixes the text on this page. Notifications already sent keep the old text; the audience stays the same.</p>
+        <div class="field"><label for="et">Title</label><input id="et" class="input" maxlength="200" @bind="_title" /></div>
+        <div class="field"><label for="eb">Message</label><textarea id="eb" class="textarea" @bind="_body"></textarea></div>
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _editOpen = false">Cancel</button><button class="btn btn-primary" @onclick="SaveEdit" disabled="@(Busy || string.IsNullOrWhiteSpace(_title) || string.IsNullOrWhiteSpace(_body))">Save</button></div>
+    </div>
+</Modal>
+
+<Modal @bind-Open="_deleteOpen" Title="@($"Delete {_deleting?.Title}?")">
+    <p style="margin-top:0">It disappears from everyone's announcements. Notifications already sent are not recalled.</p>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep it</button><button class="btn btn-danger" @onclick="Delete" disabled="@Busy"><Icon Name="trash" /> Delete</button></div>
+</Modal>
+
 @code {
+    private bool _editOpen, _deleteOpen;
+    private Guid? _editId;
+    private AnnouncementDto? _deleting;
+    // The API decides (admin: any, teacher: own); this only hides buttons that would be refused.
+    private bool CanManage(AnnouncementDto a) => IsAdmin || (IsStaff && a.AuthorUserId == Me?.Id);
+    private void Edit(AnnouncementDto a) => (_editId, _title, _body, _editOpen) = (a.Id, a.Title, a.Body, true);
+    private async Task SaveEdit()
+    {
+        if (_editId is not { } id) return;
+        if (await Run(() => Api.PutAsync($"announcements/{id}", new UpdateAnnouncementRequest(_title, _body)), "Announcement saved.")) { _editOpen = false; _title = _body = ""; await LoadAsync(); }
+    }
+    private async Task Delete()
+    {
+        if (_deleting is not { } a) return;
+        if (await Run(() => Api.DeleteAsync($"announcements/{a.Id}"), "Announcement deleted.")) { _deleteOpen = false; await LoadAsync(); }
+    }
+
     private List<AnnouncementDto>? _items;
     private ApiException? _error;
     private bool _open;

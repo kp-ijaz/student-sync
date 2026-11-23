@@ -1764,6 +1764,21 @@ a.metric-cell:hover { text-decoration:none; background:#F7F9FD; }
 .salary-figures dd.due { color: var(--ss-orange-deep); }
 .salary-act { flex: none; min-width: 96px; text-align: end; }
 
+/* Fee plans (Fees ▸ Fee plans) and the delete-person dialog. */
+.fee-plan-list { list-style: none; margin: 0; padding: 0; }
+.fee-plan-row { display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-3) 0; border-top: 1px solid var(--ss-border); }
+.fee-plan-row:first-child { border-top: 0; }
+.fee-plan-row.hidden-plan { opacity: .7; }
+.fee-plan-row .badge { margin-inline-start: var(--sp-2); }
+.fee-plan-act { flex: none; display: flex; gap: var(--sp-1); }
+@media (max-width: 767px) {
+  .fee-plan-row { flex-wrap: wrap; }
+  .fee-plan-row .grow { flex: 1 1 0; min-width: 0; }
+  .fee-plan-row .salary-figures { order: 3; flex-basis: 100%; text-align: start; }
+}
+.plan-picks { margin-bottom: var(--sp-3); }
+.remove-person-facts { margin: 0 0 var(--sp-4); padding-inline-start: 20px; display: grid; gap: var(--sp-2); color: var(--ss-text-2); }
+
 /* Progress reports. */
 .pr-filter { margin-bottom: var(--sp-4); max-width: 420px; }
 .pr-list { display: grid; gap: var(--sp-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); }
@@ -1909,6 +1924,14 @@ a.metric-cell:hover { text-decoration:none; background:#F7F9FD; }
 .acad-subjects > li:first-child { border-top: 0; }
 .acad-subject-actions { flex: none; }
 .acad-chapters { margin: var(--sp-2) 0 0; padding-inline-start: var(--sp-4); }
+.acad-chapters > li { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); padding-block: 2px; }
+.acad-topics { gap: var(--sp-1); }
+.acad-terms { margin: var(--sp-2) 0 0; padding-inline-start: var(--sp-4); }
+.acad-terms > li { display: flex; align-items: center; gap: var(--sp-1); }
+.icon-btn.icon-btn-sm { width: 36px; height: 36px; }
+.icon-btn.icon-btn-sm svg { width: 16px; height: 16px; }
+.chip-text { border: 0; background: transparent; color: inherit; font: inherit; padding: 0; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+@media (max-width: 767px) { .icon-btn.icon-btn-sm { width: 44px; height: 44px; } }
 .catalogue-defaults > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
 @media (max-width: 767px) {
   .acad-classes { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }

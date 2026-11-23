@@ -60,6 +60,18 @@ public sealed class InstitutionService(IAppDbContext db, ICurrentUser user, Acce
         return h.Id;
     }
 
+    /// <summary>Renames or moves a holiday. Classes already moved or cancelled for the old day are not changed again.</summary>
+    public async Task UpdateHolidayAsync(Guid id, SaveHolidayRequest r, CancellationToken ct)
+    {
+        access.Require(Permissions.InstitutionSettingsManage);
+        var h = await db.Holidays.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Holiday");
+        if (await db.Holidays.AnyAsync(x => x.Date == r.Date && x.Id != id, ct)) throw RequestValidationException.For("date", "A holiday already exists on this date.");
+        var before = $"{h.Date:yyyy-MM-dd} {h.Name}";
+        (h.Date, h.Name) = (r.Date, Text.Required(r.Name, "name", 100));
+        audit.Record("holiday.updated", "InstitutionHoliday", h.Id, $"{before} -> {h.Date:yyyy-MM-dd} {h.Name}");
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task DeleteHolidayAsync(Guid id, CancellationToken ct)
     {
         access.Require(Permissions.InstitutionSettingsManage);

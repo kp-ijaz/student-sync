@@ -159,6 +159,7 @@ public static class LearningEndpoints
             await using (stream) await s.AttachAsync(id, stream, name, type, length, ct);
             return Results.NoContent();
         }).DisableAntiforgery();
+        a.MapDelete("/{id:guid}", async (Guid id, AssignmentService s, CancellationToken ct) => { await s.DeleteAsync(id, ct); return Results.NoContent(); });
         a.MapPost("/{id:guid}/publish", async (Guid id, AssignmentService s, CancellationToken ct) => { await s.PublishAsync(id, ct); return Results.NoContent(); });
         a.MapPost("/{id:guid}/close", async (Guid id, AssignmentService s, CancellationToken ct) => { await s.CloseAsync(id, ct); return Results.NoContent(); });
         a.MapGet("/{id:guid}/submissions", (Guid id, AssignmentService s, CancellationToken ct) => s.SubmissionsAsync(id, ct));
@@ -177,6 +178,7 @@ public static class LearningEndpoints
         e.MapPost("/", async (SaveExamRequest r, ExamService s, CancellationToken ct) => new IdResponse(await s.SaveAsync(null, r, ct)));
         e.MapGet("/{id:guid}", (Guid id, ExamService s, CancellationToken ct) => s.GetAsync(id, ct));
         e.MapPut("/{id:guid}", async (Guid id, SaveExamRequest r, ExamService s, CancellationToken ct) => new IdResponse(await s.SaveAsync(id, r, ct)));
+        e.MapDelete("/{id:guid}", async (Guid id, ExamService s, CancellationToken ct) => { await s.DeleteAsync(id, ct); return Results.NoContent(); });
         e.MapPost("/{id:guid}/publish", async (Guid id, ExamService s, CancellationToken ct) => { await s.PublishAsync(id, ct); return Results.NoContent(); });
         e.MapPost("/{id:guid}/release-results", async (Guid id, ExamService s, CancellationToken ct) => { await s.ReleaseResultsAsync(id, ct); return Results.NoContent(); });
         e.MapGet("/{id:guid}/results", (Guid id, ExamService s, CancellationToken ct) => s.ResultsAsync(id, ct));
@@ -202,6 +204,7 @@ public static class LearningEndpoints
         d.MapGet("/{id:guid}", (Guid id, DoubtService s, CancellationToken ct) => s.GetAsync(id, ct));
         d.MapPost("/{id:guid}/replies", async (Guid id, ReplyDoubtRequest r, DoubtService s, CancellationToken ct) => { await s.ReplyAsync(id, r, ct); return Results.NoContent(); });
         d.MapPut("/{id:guid}", async (Guid id, UpdateDoubtRequest r, DoubtService s, CancellationToken ct) => { await s.UpdateAsync(id, r, ct); return Results.NoContent(); });
+        d.MapDelete("/{id:guid}", async (Guid id, DoubtService s, CancellationToken ct) => { await s.DeleteAsync(id, ct); return Results.NoContent(); });
         d.MapPost("/{id:guid}/confirm", async (Guid id, ConfirmDoubtRequest r, DoubtService s, CancellationToken ct) => { await s.ConfirmAsync(id, r, ct); return Results.NoContent(); });
     }
 
@@ -216,6 +219,8 @@ public static class LearningEndpoints
         m.MapGet("/announcements", (MessagingService s, CancellationToken ct) => s.AnnouncementsAsync(ct));
         m.MapPost("/announcements", async (CreateAnnouncementRequest r, MessagingService s, CancellationToken ct) => new IdResponse(await s.PublishAnnouncementAsync(r, ct)));
 
+        m.MapPut("/announcements/{id:guid}", async (Guid id, UpdateAnnouncementRequest r, MessagingService s, CancellationToken ct) => { await s.UpdateAnnouncementAsync(id, r, ct); return Results.NoContent(); });
+        m.MapDelete("/announcements/{id:guid}", async (Guid id, MessagingService s, CancellationToken ct) => { await s.DeleteAnnouncementAsync(id, ct); return Results.NoContent(); });
         m.MapGet("/notifications", ([AsParameters] PageQuery q, bool? unreadOnly, NotificationQueryService s, CancellationToken ct) => s.ListAsync(q, unreadOnly ?? false, ct));
         m.MapGet("/notifications/unread", (NotificationQueryService s, CancellationToken ct) => s.UnreadAsync(ct));
         m.MapPost("/notifications/read", async (NotificationQueryService s, CancellationToken ct) => { await s.MarkReadAsync(null, ct); return Results.NoContent(); });

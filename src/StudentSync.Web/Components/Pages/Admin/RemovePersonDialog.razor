@@ -1,0 +1,35 @@
+@inherits AppComponent
+@* Delete a student or teacher (owner request 2026-11-23). The API deletes for good only when nothing was recorded for
+   the person; otherwise it archives them (sign-in blocked, hidden from lists, history kept) and says so. *@
+<Modal Open="Open" OpenChanged="OpenChanged" Title="@($"Delete {Name}?")">
+    <p style="margin-top:0">@Name will no longer be able to sign in and will disappear from the @(Kind)s list.</p>
+    <ul class="small remove-person-facts">
+        <li>If nothing was recorded for them yet, they are deleted for good.</li>
+        <li>If they have classes, attendance, @(Kind == "student" ? "fees or results" : "salary or students' work"), they are archived instead, so those records and reports stay correct. Find them again with the status filter <strong>Archived</strong> and set them Active to restore.</li>
+        <li>Cancel @(Kind == "student" ? "their" : "or hand over their") upcoming classes first.</li>
+    </ul>
+    <div class="form-actions">
+        <button class="btn btn-secondary" @onclick="() => OpenChanged.InvokeAsync(false)">Keep @(Kind)</button>
+        <button class="btn btn-danger" @onclick="Remove" disabled="@Busy"><Icon Name="trash" /> Delete @(Kind)</button>
+    </div>
+</Modal>
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+    /// <summary>"student" or "teacher".</summary>
+    [Parameter, EditorRequired] public string Kind { get; set; } = "student";
+    [Parameter, EditorRequired] public Guid PersonId { get; set; }
+    [Parameter] public string Name { get; set; } = "";
+    /// <summary>Called after a successful delete or archive.</summary>
+    [Parameter] public EventCallback OnRemoved { get; set; }
+
+    private async Task Remove()
+    {
+        RemovePersonResponse? result = null;
+        if (!await Run(async () => result = await Api.DeleteAsync<RemovePersonResponse>($"{Kind}s/{PersonId}"))) return;
+        Toasts.Show(result!.Message);
+        await OpenChanged.InvokeAsync(false);
+        await OnRemoved.InvokeAsync();
+    }
+}

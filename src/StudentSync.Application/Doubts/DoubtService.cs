@@ -232,6 +232,25 @@ public sealed class DoubtService(
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// Admin only: removes a doubt posted by mistake (or inappropriate), with its replies and history. A class agenda item
+    /// that came from it stays on the class, unlinked. Audited with the title.
+    /// </summary>
+    public async Task DeleteAsync(Guid id, CancellationToken ct)
+    {
+        if (!access.IsAdmin) throw new ForbiddenException("Only the centre's admin can delete a doubt.");
+        var d = await db.Doubts.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Doubt");
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.AgendaItems.Where(x => x.DoubtId == id).ExecuteUpdateAsync(u => u.SetProperty(x => x.DoubtId, (Guid?)null), ct);
+        await db.DoubtAttachments.Where(x => x.DoubtId == id).ExecuteDeleteAsync(ct);
+        await db.DoubtMessages.Where(x => x.DoubtId == id).ExecuteDeleteAsync(ct);
+        await db.DoubtStatusChanges.Where(x => x.DoubtId == id).ExecuteDeleteAsync(ct);
+        await db.Doubts.Where(x => x.Id == id).ExecuteDeleteAsync(ct);
+        audit.Record("doubt.deleted", "Doubt", id, d.Title);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+    }
+
     public async Task ConfirmAsync(Guid id, ConfirmDoubtRequest r, CancellationToken ct)
     {
         var d = await db.Doubts.FirstOrDefaultAsync(x => x.Id == id && x.StudentId == user.UserId, ct) ?? throw new NotFoundException("Doubt");

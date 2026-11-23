@@ -23,7 +23,8 @@ public sealed record TeacherStudentDto(Guid StudentId, string Name, string? Phot
     int ClassesDone, decimal HoursDone, DateTime? NextClassUtc, Guid? NextSessionId);
 public sealed record TeacherOverviewDto(TeacherDto Teacher, IReadOnlyList<PeriodHoursDto> Periods, IReadOnlyList<TeacherStudentDto> Students);
 
-public sealed record TeacherPayRateDto(decimal HourlyRate, DateOnly EffectiveFrom);
+/// <summary><paramref name="Id"/> lets an admin remove a rate entered by mistake.</summary>
+public sealed record TeacherPayRateDto(decimal HourlyRate, DateOnly EffectiveFrom, Guid Id = default);
 public sealed record TeacherPaymentDto(Guid Id, decimal Amount, DateOnly PaidOn, DateOnly? PeriodFrom, DateOnly? PeriodTo, PaymentMethod Method,
     string? Reference, string? Note, string? RecordedBy, bool Voided, string? VoidReason);
 /// <summary>

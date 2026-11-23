@@ -437,6 +437,26 @@ classes; it reminds, alerts and prepares, and people decide.
   (reason Holiday); classes that cannot move are listed. Every holiday row also has "Classes that day".
 - Menu: Fees became a group (Fees due, Salaries); Reports a group (Reports, Progress reports).
 
+### Admin delete and fee plans (2026-11-23)
+
+- **Delete a student / teacher**: "Delete" (ghost button, `.danger-text`, `trash` icon) in the Edit dialog of
+  `/admin/students` and `/admin/teachers` opens `RemovePersonDialog` (`Pages/Admin`), which explains the outcome before
+  the red **Delete student/teacher** button. The toast says whether they were deleted for good or archived. Both lists
+  default to "Current (not archived)"; the status filter's **Archived** option finds deleted people (set Active to restore).
+- **Fees ▸ Fee plans** (`/admin/fee-plans`; menu Fees: Fees due, Fee plans, Salaries): one row per plan with name, for
+  whom (class · syllabus or "Any student"), Hours / Price / Per hour (`.salary-figures`), edit and delete icons; rows wrap
+  to name + icons over the figures below 768 px. Add/edit dialog: hour pills, price with live "per hour", optional name,
+  class, syllabus, notes, "Offer this plan" check.
+- **Add hours** (student ▸ Fees & hours) shows "Fee plan" pills (only plans that fit the student) above the hour pills;
+  a pick fills hours and price. Each active package has **Edit** (hours, price, start, pay-by, name, notes).
+- **Teacher salary**: Rate history lists every rate with a remove (`trash`) button for admins.
+- New icon: `trash`.
+- **Edit / delete everywhere else**: Academics ▸ chapters get rename (pencil) and remove (trash) `icon-btn-sm` buttons (36 px,
+  44 px on phones); topics are removable chips whose text renames them; terms have edit/remove beside each term.
+  Settings ▸ Holidays rows have Edit (loads into the add row, "Save holiday") and Remove. Announcements show edit/delete
+  icons to the admin and to their author. Assignment and exam pages have a ghost **Delete** (refused once students took
+  part, with the reason); doubts have an admin-only **Delete**. Every delete asks first in a `Modal` with a red button.
+
 ### Easy adding and one-tap attendance (2026-11-16)
 
 Owner request: adding classes, teachers and students, and marking attendance after a class, must be very easy.

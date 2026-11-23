@@ -5,7 +5,8 @@
 <DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync">
     @if (_d is not null)
     {
-        <PageHeader Title="@_d.Title" Subtitle="@($"{_d.StudentName} · {_d.SubjectName ?? "No subject"}")"><Breadcrumb><a href="/doubts">Doubt Centre</a> /</Breadcrumb></PageHeader>
+        <PageHeader Title="@_d.Title" Subtitle="@($"{_d.StudentName} · {_d.SubjectName ?? "No subject"}")"><Breadcrumb><a href="/doubts">Doubt Centre</a> /</Breadcrumb>
+            <Actions>@if (IsAdmin) { <button class="btn btn-ghost danger-text" @onclick="() => _deleteOpen = true" disabled="@Busy"><Icon Name="trash" /> Delete</button> }</Actions></PageHeader>
         <div class="row" style="margin:-12px 0 16px"><Badge Style="StatusStyles.For(_d.Status)" /><Badge Style="StatusStyles.For(_d.Priority)" />@if (_d.IsPrivate) { <span class="badge slate">Private</span> }
             @if (_d.SessionId is { } sid) { <a class="small" href="/sessions/@sid">From: @_d.SessionTitle</a> }
             @if (_d.RecordingTimestampSeconds is { } ts) { <span class="small muted">at @TimeSpan.FromSeconds(ts).ToString(@"mm\:ss") in the recording</span> }</div>
@@ -68,7 +69,18 @@
     }
 </DataView>
 
+<Modal @bind-Open="_deleteOpen" Title="Delete this doubt?">
+    <p style="margin-top:0">The question, its replies and history are removed for everyone. Use this for doubts posted by mistake.</p>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep it</button><button class="btn btn-danger" @onclick="Delete" disabled="@Busy"><Icon Name="trash" /> Delete doubt</button></div>
+</Modal>
+
 @code {
+    private bool _deleteOpen;
+    private async Task Delete()
+    {
+        if (await Run(() => Api.DeleteAsync($"doubts/{Id}"), "Doubt deleted.")) { _deleteOpen = false; Nav.NavigateTo("/doubts"); }
+    }
+
     [Parameter] public Guid Id { get; set; }
     private DoubtDetailDto? _d;
     private ApiException? _error;

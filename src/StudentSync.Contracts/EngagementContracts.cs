@@ -11,7 +11,8 @@ public sealed record StartConversationRequest(Guid RecipientUserId, string Body)
 public sealed record SendMessageRequest(string Body, Guid? AttachmentFileId);
 public sealed record ContactDto(Guid UserId, string FullName, string Role, string? Context);
 
-public sealed record AnnouncementDto(Guid Id, string Title, string Body, AnnouncementAudience Audience, Guid? BatchId, string? BatchName, string AuthorName, DateTime PublishedAtUtc);
+public sealed record AnnouncementDto(Guid Id, string Title, string Body, AnnouncementAudience Audience, Guid? BatchId, string? BatchName, string AuthorName, DateTime PublishedAtUtc, Guid? AuthorUserId = null);
+public sealed record UpdateAnnouncementRequest(string Title, string Body);
 public sealed record CreateAnnouncementRequest(string Title, string Body, AnnouncementAudience Audience, Guid? BatchId);
 
 // ---------- Notifications ----------

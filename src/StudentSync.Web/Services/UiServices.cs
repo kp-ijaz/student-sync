@@ -381,7 +381,7 @@ public static class Navigation
             NavItem.Group("Communication", "message",
                 new("Messages", "/messages", "message"), new("Announcements", "/announcements", "megaphone")),
             NavItem.Group("Fees", "wallet",
-                new("Fees due", "/admin/fees", "wallet"), new("Salaries", "/admin/salaries", "clipboard-check")),
+                new("Fees due", "/admin/fees", "wallet"), new("Fee plans", "/admin/fee-plans", "layers"), new("Salaries", "/admin/salaries", "clipboard-check")),
             NavItem.Group("Reports", "bar-chart",
                 new("Reports", "/admin/reports", "bar-chart"), new("Students by class", "/admin/student-numbers", "users"),
                 new("Progress reports", "/progress-reports", "chart-line")),

@@ -205,6 +205,39 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
         return package.Id;
     }
 
+    /// <summary>
+    /// Corrects an active package (wrong hours, price, days or name). Payments stay as they are, so the price cannot go
+    /// below what was already paid; hours used are recounted from the (new) start day. Audited with before → after.
+    /// </summary>
+    public async Task UpdatePackageAsync(Guid studentId, Guid packageId, UpdatePackageRequest r, CancellationToken ct)
+    {
+        access.Require(Permissions.UsersManage);
+        var package = await db.StudentPackages.Include(p => p.Payments).FirstOrDefaultAsync(p => p.Id == packageId && p.StudentId == studentId, ct)
+                      ?? throw new NotFoundException("Package");
+        if (package.Status != PackageStatus.Active) throw new DomainException("This package was cancelled.", "package_cancelled");
+        Guard(() => StudentPackage.Validate(r.Hours, r.Price), "hours");
+        var (_, tz) = await CentreAsync(ct);
+        var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
+        if (Math.Abs(r.StartsOn.DayNumber - today.DayNumber) > 366) throw RequestValidationException.For("startsOn", "The start day must be within a year of today.");
+        if (r.PaymentDueOn is { } due && (due < r.StartsOn.AddDays(-366) || due > r.StartsOn.AddDays(366)))
+            throw RequestValidationException.For("paymentDueOn", "The payment day must be within a year of the start day.");
+        var paid = package.Payments.Where(x => x.VoidedAtUtc == null).Sum(x => x.Amount);
+        if (r.Price < paid) throw RequestValidationException.For("price", $"{paid:0.##} is already paid on this package. Remove a payment first to lower the price below that.");
+
+        var before = $"{package.Name} · {package.Hours:0.##} h · {package.Price:0.##} · from {package.StartsOn:yyyy-MM-dd}";
+        package.Name = Text.Optional(r.Name, "name", 100) ?? $"{r.Hours:0.#} hours";
+        package.Hours = r.Hours;
+        package.Price = decimal.Round(r.Price, 2);
+        package.StartsOn = r.StartsOn;
+        package.CountsFromUtc = ZonedTime.ToUtc(r.StartsOn, TimeOnly.MinValue, tz).Utc;
+        package.PaymentDueOn = r.PaymentDueOn;
+        package.Notes = Text.Optional(r.Notes, "notes", 500);
+        audit.Record("fees.package_updated", "Student", studentId, $"{before} -> {package.Name} · {package.Hours:0.##} h · {package.Price:0.##} · from {package.StartsOn:yyyy-MM-dd}");
+        await db.SaveChangesAsync(ct);
+        // A changed price makes older online payment links wrong; they are closed and a fresh one is made when needed.
+        await CloseLinksAsync(packageId, ct);
+    }
+
     public async Task<Guid> RecordPaymentAsync(Guid studentId, Guid packageId, RecordPaymentRequest r, CancellationToken ct)
     {
         access.Require(Permissions.UsersManage);

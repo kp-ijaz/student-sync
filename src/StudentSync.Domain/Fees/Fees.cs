@@ -39,6 +39,28 @@ public class StudentPackage : TenantEntity
     }
 }
 
+/// <summary>
+/// A package the centre offers (its fee structure), e.g. "30 hours" for 15,000, optionally only for one class and/or
+/// syllabus. Picking a plan fills in the hours and price when hours are added for a student; the sale copies them, so
+/// editing or deleting a plan never changes what a student already bought.
+/// </summary>
+public class FeePlan : TenantEntity
+{
+    public string Name { get; set; } = "";
+    public decimal Hours { get; set; }
+    public decimal Price { get; set; }
+    /// <summary>Only offered for students in this class; empty = any class.</summary>
+    public Guid? GradeLevelId { get; set; }
+    /// <summary>Only offered for students on this syllabus; empty = any syllabus.</summary>
+    public Guid? CurriculumId { get; set; }
+    public string? Notes { get; set; }
+    /// <summary>Hidden plans stay listed for the admin but are not offered when adding hours.</summary>
+    public bool IsActive { get; set; } = true;
+
+    /// <summary>Price per hour, rounded to the cent (shown next to every plan so plans can be compared).</summary>
+    public static decimal PerHour(decimal hours, decimal price) => hours <= 0 ? 0 : decimal.Round(price / hours, 2, MidpointRounding.AwayFromZero);
+}
+
 /// <summary>Money received for a package. Never edited: a mistake is voided (kept, with who and why) and recorded again.</summary>
 public class FeePayment : TenantEntity
 {

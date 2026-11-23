@@ -48,6 +48,11 @@ public sealed record CreateParentRequest(string FullName, string Email, string? 
 public sealed record LinkChildRequest(Guid StudentId, GuardianRelationship Relationship, bool Verified);
 
 public sealed record CreatedPersonResponse(Guid Id, string TemporaryPassword);
+/// <summary>
+/// Result of deleting a student or teacher. <paramref name="Deleted"/> = removed permanently (nothing was recorded for
+/// them); otherwise they were archived: sign-in blocked and hidden from lists, with classes, fees and pay kept for reports.
+/// </summary>
+public sealed record RemovePersonResponse(bool Deleted, string Message);
 /// <summary>Returned once by an admin password reset; the plaintext is never stored.</summary>
 public sealed record TemporaryPasswordResponse(string TemporaryPassword);
 

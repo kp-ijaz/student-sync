@@ -179,6 +179,22 @@ public sealed class AssignmentService(
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// Deletes an assignment nobody has handed in yet (e.g. made by mistake). Once a student submitted, it is part of their
+    /// record: close it instead. Uploaded attachment files stay in storage (cleaned by the file maintenance job).
+    /// </summary>
+    public async Task DeleteAsync(Guid id, CancellationToken ct)
+    {
+        var a = await GetManageableAsync(id, ct);
+        if (await db.Submissions.AnyAsync(x => x.AssignmentId == id, ct))
+            throw new DomainException("Students have already handed this in, so it is kept with their work. Close it instead.", "assignment_has_submissions");
+        db.AssignmentAttachments.RemoveRange(await db.AssignmentAttachments.Where(x => x.AssignmentId == id).ToListAsync(ct));
+        db.AssignmentRecipients.RemoveRange(a.Recipients);
+        db.Assignments.Remove(a);
+        audit.Record("assignment.deleted", "Assignment", a.Id, a.Title);
+        await db.SaveChangesAsync(ct);
+    }
+
     // ---------------- Submissions ----------------
 
     private IQueryable<SubmissionDto> ProjectSubmissions(IQueryable<AssignmentSubmission> q) => q.Select(s => new SubmissionDto(

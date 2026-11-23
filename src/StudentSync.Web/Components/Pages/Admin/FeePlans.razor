@@ -1,0 +1,140 @@
+@page "/admin/fee-plans"
+@attribute [Authorize(Roles = "InstitutionAdmin")]
+@inherits AppPage
+
+@* Fees ▸ Fee plans (owner request 2026-11-23): the packages the centre offers — its fee structure — optionally for one
+   class and/or syllabus. "Add hours" on a student offers the plans that fit them and fills in hours and price; each sale
+   keeps its own copy, so editing or deleting a plan never changes what a student already bought. *@
+<PageTitle>Fee plans · Student Sync</PageTitle>
+<PageHeader Title="Fee plans" Subtitle="The hour packages you offer and their prices. Pick one when adding hours for a student.">
+    <Actions><button class="btn btn-primary" @onclick="New"><Icon Name="plus" /> Add plan</button></Actions>
+</PageHeader>
+
+<DataView Loading="_plans is null && _error is null" Error="_error" OnRetry="LoadAsync" IsEmpty="_plans?.Count == 0"
+          EmptyTitle="No fee plans yet" EmptyText="Add the packages you sell, for example 30 hours for Class 10. They then appear as one-tap choices when you add hours for a student." EmptyIcon="wallet">
+    <section class="card" aria-labelledby="plans-h">
+        <div class="card-head"><h2 id="plans-h">Plans</h2><span class="caption">Price per hour = price ÷ hours</span></div>
+        <ul class="fee-plan-list">
+            @foreach (var p in _plans ?? [])
+            {
+                <li class="fee-plan-row @(p.IsActive ? "" : "hidden-plan")">
+                    <div class="grow">
+                        <strong>@p.Name</strong>
+                        @if (!p.IsActive) { <span class="badge slate">Not offered</span> }
+                        <div class="caption">@ForWhom(p)@(p.Notes is { } n ? $" · {n}" : "")</div>
+                    </div>
+                    <dl class="salary-figures">
+                        <div><dt>Hours</dt><dd>@Money.Hours(p.Hours)</dd></div>
+                        <div><dt>Price</dt><dd>@Money.Format(p.Price, p.CurrencyCode)</dd></div>
+                        <div><dt>Per hour</dt><dd>@Money.Format(p.PricePerHour, p.CurrencyCode)</dd></div>
+                    </dl>
+                    <div class="fee-plan-act">
+                        <button type="button" class="icon-btn" title="Edit" aria-label="@($"Edit {p.Name}")" @onclick="() => Edit(p)"><Icon Name="pencil" /></button>
+                        <button type="button" class="icon-btn" title="Delete" aria-label="@($"Delete {p.Name}")" @onclick="() => AskDelete(p)"><Icon Name="trash" /></button>
+                    </div>
+                </li>
+            }
+        </ul>
+    </section>
+</DataView>
+
+<Modal @bind-Open="_open" Title="@(_editId is null ? "Add fee plan" : "Edit fee plan")">
+    <fieldset class="field fee-method">
+        <legend>Hours *</legend>
+        <div class="pick-group">
+            @foreach (var h in HourChoices) { <button type="button" class="pick" aria-pressed="@Aria.Bool(_hours == h)" @onclick="() => _hours = h">@h hours</button> }
+        </div>
+        <label for="fph" class="sr-only">Other number of hours</label>
+        <input id="fph" class="input" type="number" min="0.5" max="1000" step="0.5" placeholder="Other" @bind="_hours" style="margin-top:8px;max-width:160px" />
+    </fieldset>
+    <div class="form-grid">
+        <div class="field"><label for="fpp">Price (@Currency) *</label><input id="fpp" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_price" @bind:event="oninput" />
+            @if (_hours is > 0 && _price is >= 0) { <span class="help">@Money.Format(decimal.Round(_price.Value / _hours.Value, 2), Currency) per hour</span> }</div>
+        <div class="field"><label for="fpn">Name</label><input id="fpn" class="input" maxlength="100" placeholder="@(_hours is > 0 ? $"{_hours:0.#} hours" : "e.g. 30 hours")" @bind="_name" />
+            <span class="help">Leave empty to call it by its hours.</span></div>
+        <div class="field"><label for="fpg">For class</label><select id="fpg" class="select" @bind="_grade"><option value="">Any class</option>@foreach (var g in _grades) { <option value="@g.Id">@g.Name</option> }</select></div>
+        <div class="field"><label for="fpc">For syllabus</label><select id="fpc" class="select" @bind="_curriculum"><option value="">Any syllabus</option>@foreach (var c in _curricula.Where(c => c.Status == CatalogStatus.Active || c.Id == _curriculum)) { <option value="@c.Id">@c.Name</option> }</select></div>
+        <div class="field full"><label for="fpno">Notes</label><input id="fpno" class="input" maxlength="500" placeholder="Optional, e.g. valid for 3 months" @bind="_notes" /></div>
+        <div class="field full"><label class="check"><input type="checkbox" @bind="_active" /> Offer this plan when adding hours</label></div>
+    </div>
+    <div class="form-actions">
+        <button class="btn btn-secondary" @onclick="() => _open = false">Cancel</button>
+        <button class="btn btn-primary" @onclick="Save" disabled="@(Busy || _hours is not > 0 || _price is null)">@(_editId is null ? "Add plan" : "Save plan")</button>
+    </div>
+</Modal>
+
+<Modal @bind-Open="_deleteOpen" Title="@($"Delete {_deleting?.Name}?")">
+    <p style="margin-top:0">The plan will no longer be offered. Students who already bought it keep their hours and price.</p>
+    <div class="form-actions">
+        <button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep plan</button>
+        <button class="btn btn-danger" @onclick="Delete" disabled="@Busy"><Icon Name="trash" /> Delete plan</button>
+    </div>
+</Modal>
+
+@code {
+    private static readonly decimal[] HourChoices = [10, 20, 30, 50];
+
+    private List<FeePlanDto>? _plans;
+    private ApiException? _error;
+    private List<GradeLevelDto> _grades = [];
+    private List<CurriculumDto> _curricula = [];
+    private string _currency = "";
+    private string Currency => _plans?.FirstOrDefault()?.CurrencyCode ?? _currency;
+
+    private bool _open, _deleteOpen, _active = true;
+    private Guid? _editId, _grade, _curriculum;
+    private decimal? _hours, _price;
+    private string? _name, _notes;
+    private FeePlanDto? _deleting;
+
+    protected override async Task LoadAsync()
+    {
+        _grades = (await Fetch(() => Api.GetAsync<List<GradeLevelDto>>("academics/grades"))).Value ?? [];
+        _curricula = (await Fetch(() => Api.GetAsync<List<CurriculumDto>>("academics/curricula"))).Value ?? [];
+        _currency = (await Fetch(() => Api.GetAsync<FeesDueDto>("fees/due?take=1"))).Value?.CurrencyCode ?? "";
+        await Load();
+    }
+
+    private async Task Load() => (_plans, _error) = await Fetch(() => Api.GetAsync<List<FeePlanDto>>("fee-plans"));
+
+    private static string ForWhom(FeePlanDto p) => (p.GradeLevelName, p.CurriculumName) switch
+    {
+        (null, null) => "Any student",
+        ({ } g, null) => $"{g} · any syllabus",
+        (null, { } c) => $"Any class · {c}",
+        ({ } g, { } c) => $"{g} · {c}",
+    };
+
+    private void New()
+    {
+        (_editId, _hours, _price, _name, _grade, _curriculum, _notes, _active) = (null, 30, null, null, null, null, null, true);
+        _open = true;
+    }
+
+    private void Edit(FeePlanDto p)
+    {
+        // A name equal to the default ("30 hours") is shown empty so changing the hours renames it too.
+        var defaultName = $"{p.Hours:0.#} hours";
+        (_editId, _hours, _price, _name, _grade, _curriculum, _notes, _active) = (p.Id, p.Hours, p.Price, p.Name == defaultName ? null : p.Name, p.GradeLevelId, p.CurriculumId, p.Notes, p.IsActive);
+        _open = true;
+    }
+
+    private void AskDelete(FeePlanDto p) => (_deleting, _deleteOpen) = (p, true);
+
+    private async Task Save()
+    {
+        var request = new SaveFeePlanRequest(_hours ?? 0, _price ?? 0, _name, _grade, _curriculum, _notes, _active);
+        var ok = await Run(async () =>
+        {
+            if (_editId is { } id) await Api.PutAsync<IdResponse>($"fee-plans/{id}", request);
+            else await Api.PostAsync<IdResponse>("fee-plans", request);
+        }, _editId is null ? "Fee plan added." : "Fee plan saved.");
+        if (ok) { _open = false; await Load(); }
+    }
+
+    private async Task Delete()
+    {
+        if (_deleting is not { } p) return;
+        if (await Run(() => Api.DeleteAsync($"fee-plans/{p.Id}"), $"{p.Name} deleted.")) { _deleteOpen = false; await Load(); }
+    }
+}

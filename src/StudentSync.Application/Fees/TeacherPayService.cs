@@ -24,7 +24,7 @@ public sealed class TeacherPayService(IAppDbContext db, ICurrentUser user, Acces
         var (currency, tz) = await CentreAsync(ct);
 
         var rates = await db.TeacherPayRates.Where(r => r.TeacherId == teacherId).OrderByDescending(r => r.EffectiveFrom)
-            .Select(r => new TeacherPayRateDto(r.HourlyRate, r.EffectiveFrom)).ToListAsync(ct);
+            .Select(r => new TeacherPayRateDto(r.HourlyRate, r.EffectiveFrom, r.Id)).ToListAsync(ct);
         var ruleRates = rates.Select(r => new TeacherPayRules.Rate(r.EffectiveFrom, r.HourlyRate)).ToList();
 
         var taught = (await db.Sessions.Where(s => s.TeacherId == teacherId && s.Status == SessionStatus.Completed)
@@ -62,6 +62,19 @@ public sealed class TeacherPayService(IAppDbContext db, ICurrentUser user, Acces
         if (row is null) db.TeacherPayRates.Add(row = new TeacherPayRate { TeacherId = teacherId, EffectiveFrom = from });
         (row.HourlyRate, row.CurrencyCode) = (decimal.Round(r.HourlyRate, 2), currency);
         audit.Record("teacher.pay_rate_set", "Teacher", teacherId, $"{currency} {row.HourlyRate}/h from {from:yyyy-MM-dd}");
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Removes a rate entered by mistake. Classes on its days fall back to the previous rate (or count as unrated), so pay
+    /// figures are recalculated; salary payments already made are not touched. Audited with the removed value.
+    /// </summary>
+    public async Task RemoveRateAsync(Guid teacherId, Guid rateId, CancellationToken ct)
+    {
+        access.Require(Permissions.UsersManage);
+        var row = await db.TeacherPayRates.FirstOrDefaultAsync(x => x.Id == rateId && x.TeacherId == teacherId, ct) ?? throw new NotFoundException("Rate");
+        db.TeacherPayRates.Remove(row);
+        audit.Record("teacher.pay_rate_removed", "Teacher", teacherId, $"{row.CurrencyCode} {row.HourlyRate}/h from {row.EffectiveFrom:yyyy-MM-dd}");
         await db.SaveChangesAsync(ct);
     }
 

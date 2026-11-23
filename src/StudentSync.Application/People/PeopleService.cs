@@ -40,7 +40,8 @@ public sealed class PeopleService(
     {
         access.Require(Permissions.UsersView);
         var items = db.Teachers.AsQueryable();
-        if (q.Status is { } st) items = items.Where(t => t.Status == st);
+        // Deleted (archived) teachers are hidden unless the admin filters for them.
+        items = q.Status is { } st ? items.Where(t => t.Status == st) : items.Where(t => t.Status != PersonStatus.Archived);
         if (!string.IsNullOrWhiteSpace(q.Search)) items = items.Where(t => t.User!.FullName.ToLower().Contains(q.Search.ToLowerInvariant()) || t.User.Email!.ToLower().Contains(q.Search.ToLowerInvariant()));
         var total = await items.CountAsync(ct);
         var page = await ProjectTeachersAsync(items.OrderBy(t => t.User!.FullName).Skip((q.SafePage - 1) * q.SafePageSize).Take(q.SafePageSize), ct);
@@ -182,7 +183,8 @@ public sealed class PeopleService(
         access.Require(Permissions.UsersView);
         var visible = await access.VisibleStudentIdsAsync(ct);
         var items = db.Students.Where(s => visible.Contains(s.Id));
-        if (q.Status is { } st) items = items.Where(s => s.Status == st);
+        // Deleted (archived) students are hidden unless the admin filters for them.
+        items = q.Status is { } st ? items.Where(s => s.Status == st) : items.Where(s => s.Status != PersonStatus.Archived);
         if (!string.IsNullOrWhiteSpace(q.Search)) items = items.Where(s => s.User!.FullName.ToLower().Contains(q.Search.ToLowerInvariant()) || s.StudentCode.ToLower().Contains(q.Search.ToLowerInvariant()) || s.User.Email!.ToLower().Contains(q.Search.ToLowerInvariant()));
         var total = await items.CountAsync(ct);
         var rows = await items.OrderBy(s => s.User!.FullName).Skip((q.SafePage - 1) * q.SafePageSize).Take(q.SafePageSize)
@@ -296,6 +298,116 @@ public sealed class PeopleService(
             audit.Record("student.status", "Student", s.Id, r.Status.ToString());
         }
         await db.SaveChangesAsync(ct);
+    }
+
+    // ---------------- Deleting students and teachers ----------------
+    //
+    // "Delete" removes a person for good only when nothing was ever recorded for them (e.g. admitted by mistake): their
+    // set-up rows (subjects, notes, availability, rates…) and the account go in one transaction. Anything that is history
+    // — classes, attendance, fees, salary, exams, messages — is protected by restrict foreign keys; if the database refuses,
+    // the transaction is rolled back and the person is archived instead: sign-in blocked, hidden from lists and pickers,
+    // and every record kept for fees, salary and reports. An archived person can be restored by setting them Active again.
+
+    public async Task<RemovePersonResponse> DeleteStudentAsync(Guid id, CancellationToken ct)
+    {
+        access.Require(Permissions.UsersManage);
+        var s = await db.Students.Include(x => x.User).FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Student");
+        var now = clock.UtcNow;
+        var upcoming = await db.SessionParticipants.CountAsync(p => p.StudentId == id && p.Status == ParticipantStatus.Active && p.Session!.EndUtc > now
+            && (p.Session.Status == SessionStatus.Scheduled || p.Session.Status == SessionStatus.Live), ct);
+        if (upcoming > 0)
+            throw new DomainException($"{s.User!.FullName} has {upcoming} upcoming class{(upcoming == 1 ? "" : "es")}. Cancel {(upcoming == 1 ? "it" : "them")} in the calendar first, then delete.", "has_upcoming_classes");
+        var name = s.User!.FullName;
+
+        var deleted = await TryDeleteForeverAsync(async () =>
+        {
+            await db.StudentSchoolMarks.Where(m => db.StudentSchoolReports.Any(r => r.Id == m.ReportId && r.StudentId == id)).ExecuteDeleteAsync(ct);
+            await db.StudentSchoolReports.Where(x => x.StudentId == id).ExecuteDeleteAsync(ct);
+            await db.StudentSubjects.Where(x => x.StudentId == id).ExecuteDeleteAsync(ct);
+            await db.StudentNotes.Where(x => x.StudentId == id).ExecuteDeleteAsync(ct);
+            await db.LearningNeeds.Where(x => x.StudentId == id).ExecuteDeleteAsync(ct);
+            await db.ParentLinks.Where(x => x.StudentId == id).ExecuteDeleteAsync(ct);
+            await db.CourseEnrolments.Where(x => x.StudentId == id).ExecuteDeleteAsync(ct);
+            await db.BatchEnrolments.Where(x => x.StudentId == id).ExecuteDeleteAsync(ct);
+            await db.ArrangementStudents.Where(x => x.StudentId == id).ExecuteDeleteAsync(ct);
+            await db.Students.Where(x => x.Id == id).ExecuteDeleteAsync(ct);
+            await db.Users.Where(x => x.Id == id).ExecuteDeleteAsync(ct);
+        }, "student.deleted", "Student", id, $"{name} ({s.StudentCode})", ct);
+        if (deleted) return new RemovePersonResponse(true, $"{name} was deleted.");
+
+        if (s.Status != PersonStatus.Archived)
+        {
+            s.Status = PersonStatus.Archived;
+            await ArchiveAccountAsync(id, "student.archived", "Student", ct);
+        }
+        return new RemovePersonResponse(false, $"{name} has classes, fees or other records, so they were archived instead: they can no longer sign in and are hidden from lists. Their history is kept.");
+    }
+
+    public async Task<RemovePersonResponse> DeleteTeacherAsync(Guid id, CancellationToken ct)
+    {
+        access.Require(Permissions.UsersManage);
+        var t = await db.Teachers.Include(x => x.User).FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Teacher");
+        var now = clock.UtcNow;
+        var upcoming = await db.Sessions.CountAsync(x => x.TeacherId == id && x.EndUtc > now && (x.Status == SessionStatus.Scheduled || x.Status == SessionStatus.Live), ct);
+        if (upcoming > 0)
+            throw new DomainException($"{t.User!.FullName} has {upcoming} upcoming class{(upcoming == 1 ? "" : "es")}. Give {(upcoming == 1 ? "it" : "them")} to another teacher or cancel {(upcoming == 1 ? "it" : "them")} in the calendar first, then delete.", "has_upcoming_classes");
+        var name = t.User!.FullName;
+
+        var deleted = await TryDeleteForeverAsync(async () =>
+        {
+            await db.TeacherSubjects.Where(x => x.TeacherId == id).ExecuteDeleteAsync(ct);
+            await db.TeacherQualifications.Where(x => x.TeacherId == id).ExecuteDeleteAsync(ct);
+            await db.TeacherAvailability.Where(x => x.TeacherId == id).ExecuteDeleteAsync(ct);
+            await db.TeacherPayRates.Where(x => x.TeacherId == id).ExecuteDeleteAsync(ct);
+            await db.Teachers.Where(x => x.Id == id).ExecuteDeleteAsync(ct);
+            await db.Users.Where(x => x.Id == id).ExecuteDeleteAsync(ct);
+        }, "teacher.deleted", "Teacher", id, name, ct);
+        if (deleted) return new RemovePersonResponse(true, $"{name} was deleted.");
+
+        if (t.Status != PersonStatus.Archived)
+        {
+            t.Status = PersonStatus.Archived;
+            await ArchiveAccountAsync(id, "teacher.archived", "Teacher", ct);
+        }
+        return new RemovePersonResponse(false, $"{name} has taught classes or has pay records, so they were archived instead: they can no longer sign in and are hidden from lists. Their history and salary records are kept.");
+    }
+
+    /// <summary>Runs the deletes in one transaction. A foreign-key refusal (the person has history) rolls everything back and returns false.</summary>
+    private async Task<bool> TryDeleteForeverAsync(Func<Task> deleteRows, string auditAction, string entity, Guid id, string summary, CancellationToken ct)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            await deleteRows();
+        }
+        catch (Exception ex) when (IsForeignKeyViolation(ex))
+        {
+            await tx.RollbackAsync(ct);
+            return false;
+        }
+        audit.Record(auditAction, entity, id, summary);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return true;
+    }
+
+    /// <summary>Blocks sign-in (and signs out every session) for a person being archived, and saves.</summary>
+    private async Task ArchiveAccountAsync(Guid id, string auditAction, string entity, CancellationToken ct)
+    {
+        await accounts.SetActiveAsync(id, false, ct);
+        audit.Record(auditAction, entity, id, "Deleted by admin; archived because records exist");
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// A row still referenced by history: PostgreSQL 23001 (restrict_violation, our ON DELETE RESTRICT keys) or 23503
+    /// (foreign_key_violation, NO ACTION keys), however the provider wraps it.
+    /// </summary>
+    private static bool IsForeignKeyViolation(Exception ex)
+    {
+        for (var e = ex; e is not null; e = e.InnerException)
+            if (e is System.Data.Common.DbException { SqlState: "23001" or "23503" }) return true;
+        return false;
     }
 
     // Tenant filters make another institution's ids look missing, so these are plain validation errors.

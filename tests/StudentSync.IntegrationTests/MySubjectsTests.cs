@@ -176,7 +176,8 @@ public sealed class MySubjectsTests(ApiFixture api)
             current.ChoiceGroups.SelectMany(g => g.ChosenSubjectIds.Select(id => new SubjectChoiceRequest(g.Group, id))).ToList(),
             [.. current.Additional.Select(a => a.Id), physicsId]));
 
-        var request = TenantIsolationTests.NewSession(SessionType.Group, null, [hiroId], date, time: new TimeOnly(6, 0)) with { SubjectId = physicsId };
+        // New classes are one-to-one only (owner decision 2026-11-12).
+        var request = TenantIsolationTests.NewSession(SessionType.OneToOne, null, [hiroId], date, time: new TimeOnly(6, 0)) with { SubjectId = physicsId };
         var sessionId = (await daniel.Post<CreateSessionResponse>("sessions", request)).SessionIds.Single();
 
         var syllabus = await hiro.Get<SubjectSyllabusDto>($"my/subjects/{physicsId}");

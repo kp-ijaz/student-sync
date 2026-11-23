@@ -14,6 +14,7 @@
                     <a class="btn btn-secondary" href="/assignments/@Id/edit">Edit</a>
                     @if (_a.Status == AssignmentStatus.Draft) { <button class="btn btn-primary" @onclick="Publish" disabled="@Busy">Publish to @_a.Recipients.Count student(s)</button> }
                     @if (_a.Status == AssignmentStatus.Published) { <button class="btn btn-secondary" @onclick="Close" disabled="@Busy">Close submissions</button> }
+                    <button class="btn btn-ghost danger-text" @onclick="() => _deleteOpen = true" disabled="@Busy"><Icon Name="trash" /> Delete</button>
                 }
             </Actions>
         </PageHeader>
@@ -72,7 +73,18 @@
     </div>
 </Modal>
 
+<Modal @bind-Open="_deleteOpen" Title="Delete this assignment?">
+    <p style="margin-top:0">Only possible before any student has handed it in. After that it stays with their work: close it instead.</p>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep it</button><button class="btn btn-danger" @onclick="Delete" disabled="@Busy"><Icon Name="trash" /> Delete assignment</button></div>
+</Modal>
+
 @code {
+    private bool _deleteOpen;
+    private async Task Delete()
+    {
+        if (await Run(() => Api.DeleteAsync($"assignments/{Id}"), "Assignment deleted.")) { _deleteOpen = false; Nav.NavigateTo("/assignments"); }
+    }
+
     [Parameter] public Guid Id { get; set; }
     [SupplyParameterFromQuery(Name = "studentId")] public Guid? StudentParam { get; set; }
     private AssignmentDetailDto? _a;

@@ -80,7 +80,7 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
         Manage();
         var g = await db.GradeLevels.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Class");
         await Unused(("student", await db.Students.CountAsync(x => x.GradeLevelId == id, ct)), ("course", await db.Courses.CountAsync(x => x.GradeLevelId == id, ct)),
-            ("exam", await db.Exams.CountAsync(x => x.GradeLevelId == id, ct)));
+            ("exam", await db.Exams.CountAsync(x => x.GradeLevelId == id, ct)), ("fee plan", await db.FeePlans.CountAsync(x => x.GradeLevelId == id, ct)));
         db.GradeLevels.Remove(g);
         await RemoveAsync("grade.removed", "GradeLevel", id, g.Name, ct);
     }
@@ -90,7 +90,7 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
         Manage();
         var c = await db.Curricula.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Syllabus");
         await Unused(("student", await db.Students.CountAsync(x => x.CurriculumId == id, ct)), ("course", await db.Courses.CountAsync(x => x.CurriculumId == id, ct)),
-            ("exam", await db.Exams.CountAsync(x => x.CurriculumId == id, ct)));
+            ("exam", await db.Exams.CountAsync(x => x.CurriculumId == id, ct)), ("fee plan", await db.FeePlans.CountAsync(x => x.CurriculumId == id, ct)));
         db.Curricula.Remove(c);
         await RemoveAsync("curriculum.removed", "Curriculum", id, c.Name, ct);
     }
@@ -371,6 +371,68 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
         db.Topics.Add(t);
         await db.SaveChangesAsync(ct);
         return t.Id;
+    }
+
+    public async Task UpdateChapterAsync(Guid id, SaveChapterRequest r, CancellationToken ct)
+    {
+        Manage();
+        var c = await db.Chapters.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Chapter");
+        c.Title = Text.Required(r.Title, "title", 200);
+        c.SortOrder = r.SortOrder;
+        audit.Record("chapter.saved", "Chapter", c.Id, c.Title);
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Removes a chapter (and its topics) that no class, question, material, doubt or weak-subject note points to.</summary>
+    public async Task DeleteChapterAsync(Guid id, CancellationToken ct)
+    {
+        Manage();
+        var c = await db.Chapters.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Chapter");
+        await Unused(("class", await db.Sessions.CountAsync(x => x.ChapterId == id, ct)), ("question", await db.Questions.CountAsync(x => x.ChapterId == id, ct)),
+            ("material", await db.Materials.CountAsync(x => x.ChapterId == id, ct)), ("doubt", await db.Doubts.CountAsync(x => x.ChapterId == id, ct)),
+            ("weak-subject note", await db.LearningNeeds.CountAsync(x => x.ChapterId == id, ct)));
+        db.Topics.RemoveRange(await db.Topics.Where(t => t.ChapterId == id).ToListAsync(ct));
+        db.Chapters.Remove(c);
+        await RemoveAsync("chapter.removed", "Chapter", id, c.Title, ct);
+    }
+
+    public async Task UpdateTopicAsync(Guid id, SaveTopicRequest r, CancellationToken ct)
+    {
+        Manage();
+        var t = await db.Topics.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Topic");
+        t.Title = Text.Required(r.Title, "title", 200);
+        t.SortOrder = r.SortOrder;
+        audit.Record("topic.saved", "Topic", t.Id, t.Title);
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteTopicAsync(Guid id, CancellationToken ct)
+    {
+        Manage();
+        var t = await db.Topics.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Topic");
+        db.Topics.Remove(t);
+        await RemoveAsync("topic.removed", "Topic", id, t.Title, ct);
+    }
+
+    public async Task UpdateTermAsync(Guid id, SaveTermRequest r, CancellationToken ct)
+    {
+        Manage();
+        var term = await db.Terms.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Term");
+        var y = await db.AcademicYears.Include(x => x.Terms).FirstAsync(x => x.Id == term.AcademicYearId, ct);
+        if (r.StartDate < y.StartDate || r.EndDate > y.EndDate || r.EndDate <= r.StartDate)
+            throw RequestValidationException.For("startDate", "Terms must fall within the academic year.");
+        if (y.Terms.Any(t => t.Id != id && t.StartDate < r.EndDate && r.StartDate < t.EndDate)) throw RequestValidationException.For("startDate", "Terms cannot overlap.");
+        (term.Name, term.StartDate, term.EndDate) = (Text.Required(r.Name, "name", 50), r.StartDate, r.EndDate);
+        audit.Record("term.saved", "Term", id, term.Name);
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteTermAsync(Guid id, CancellationToken ct)
+    {
+        Manage();
+        var term = await db.Terms.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Term");
+        db.Terms.Remove(term);
+        await RemoveAsync("term.removed", "Term", id, term.Name, ct);
     }
 
     public async Task AssignTeacherAsync(Guid subjectId, AssignTeacherRequest r, CancellationToken ct)

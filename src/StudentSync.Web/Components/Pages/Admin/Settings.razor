@@ -53,10 +53,11 @@
     case "holidays":
         <div class="card">
             <div class="row" style="margin-bottom:16px"><input type="date" class="input" style="max-width:200px" aria-label="Holiday date" @bind="_hDate" /><input class="input" style="max-width:280px" placeholder="Holiday name" aria-label="Holiday name" @bind="_hName" />
-                <button class="btn btn-primary" @onclick="AddHoliday" disabled="@Busy">Add holiday</button></div>
+                <button class="btn btn-primary" @onclick="AddHoliday" disabled="@Busy">@(_hEditId is null ? "Add holiday" : "Save holiday")</button>
+                @if (_hEditId is not null) { <button class="btn btn-secondary" @onclick="CancelHolidayEdit">Cancel</button> }</div>
             <p class="caption">Recurring schedules can skip these dates automatically.</p>
             <ul class="list">@foreach (var h in _holidays) { <li class="row-between"><span>@h.Date.ToString("ddd d MMM yyyy") — @h.Name</span>
-                <span class="btn-group"><button class="btn btn-ghost btn-sm" @onclick="() => CheckClasses(h.Date)">Classes that day</button><button class="btn btn-ghost btn-sm" @onclick="() => RemoveHoliday(h)">Remove</button></span></li> }</ul>
+                <span class="btn-group"><button class="btn btn-ghost btn-sm" @onclick="() => CheckClasses(h.Date)">Classes that day</button><button class="btn btn-ghost btn-sm" @onclick="() => EditHoliday(h)">Edit<span class="sr-only"> @h.Name</span></button><button class="btn btn-ghost btn-sm danger-text" @onclick="() => RemoveHoliday(h)">Remove<span class="sr-only"> @h.Name</span></button></span></li> }</ul>
         </div>
         @if (_hClasses is { } hc)
         {
@@ -173,7 +174,11 @@
     private async Task AddHoliday()
     {
         var day = _hDate;
-        if (await Run(() => Api.PostAsync("institution/holidays", new SaveHolidayRequest(_hDate, _hName)), "Holiday added.")) { _hName = ""; await Switch("holidays"); await CheckClasses(day); }
+        var request = new SaveHolidayRequest(_hDate, _hName);
+        var ok = _hEditId is { } id
+            ? await Run(() => Api.PutAsync($"institution/holidays/{id}", request), "Holiday saved.")
+            : await Run(() => Api.PostAsync("institution/holidays", request), "Holiday added.");
+        if (ok) { (_hName, _hEditId) = ("", null); await Switch("holidays"); await CheckClasses(day); }
     }
 
     private HolidayClassesDto? _hClasses;
@@ -194,5 +199,8 @@
             _hSkipped = result.Skipped.ToList();
         }
     }
+    private Guid? _hEditId;
+    private void EditHoliday(HolidayDto h) => (_hEditId, _hDate, _hName) = (h.Id, h.Date, h.Name);
+    private void CancelHolidayEdit() => (_hEditId, _hName) = (null, "");
     private async Task RemoveHoliday(HolidayDto h) { if (await Run(() => Api.DeleteAsync($"institution/holidays/{h.Id}"), "Holiday removed.")) await Switch("holidays"); }
 }

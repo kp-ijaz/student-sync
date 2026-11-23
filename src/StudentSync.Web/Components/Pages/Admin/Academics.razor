@@ -49,7 +49,23 @@
                             <li>
                                 <div class="grow"><strong>@s.Name</strong> <span class="caption">@s.Code</span>@if (s.Status != CatalogStatus.Active) { <span class="badge slate">@s.Status</span> }
                                     @if (s.Teachers.Count > 0) { <div class="pill-list" style="margin-top:4px">@foreach (var t in s.Teachers) { <span class="badge removable blue"><span>@t.Name</span><button type="button" class="chip-remove" aria-label="Unassign @t.Name" title="Unassign" @onclick="() => Unassign(s, t.Id)"><Icon Name="x" /></button></span> }</div> }
-                                    @if (s.Chapters.Count > 0) { <ul class="small acad-chapters">@foreach (var ch in s.Chapters) { <li>@ch.Title @if (ch.Topics.Count > 0) { <span class="caption">— @string.Join(", ", ch.Topics.Select(t => t.Title))</span> } <button class="btn btn-ghost btn-sm" @onclick="() => OpenTopic(ch)">+ topic</button></li> }</ul> }
+                                    @if (s.Chapters.Count > 0)
+                                    {
+                                        <ul class="small acad-chapters">@foreach (var ch in s.Chapters)
+                                        {
+                                            <li><span class="acad-chapter-title">@ch.Title</span>
+                                                <button type="button" class="icon-btn icon-btn-sm" title="Rename chapter" aria-label="@($"Rename chapter {ch.Title}")" @onclick="() => RenameChapter(ch)"><Icon Name="pencil" /></button>
+                                                <button type="button" class="icon-btn icon-btn-sm" title="Remove chapter" aria-label="@($"Remove chapter {ch.Title}")" @onclick='() => Confirm($"Remove chapter {ch.Title}?", "Its topics are removed too. Only possible when no class, question, material or doubt uses it.", () => Api.DeleteAsync($"academics/chapters/{ch.Id}"), "Chapter removed.")'><Icon Name="trash" /></button>
+                                                @if (ch.Topics.Count > 0)
+                                                {
+                                                    <span class="pill-list acad-topics">@foreach (var t in ch.Topics)
+                                                    {
+                                                        <span class="badge removable slate"><button type="button" class="chip-text" title="Rename topic" aria-label="@($"Rename topic {t.Title}")" @onclick="() => RenameTopic(t)">@t.Title</button><button type="button" class="chip-remove" aria-label="@($"Remove topic {t.Title}")" title="Remove topic" @onclick='() => Confirm($"Remove topic {t.Title}?", "The topic is removed from this chapter.", () => Api.DeleteAsync($"academics/topics/{t.Id}"), "Topic removed.")'><Icon Name="x" /></button></span>
+                                                    }</span>
+                                                }
+                                                <button class="btn btn-ghost btn-sm" @onclick="() => OpenTopic(ch)">+ topic</button></li>
+                                        }</ul>
+                                    }
                                 </div>
                                 <div class="btn-group acad-subject-actions">
                                     <button class="btn btn-ghost btn-sm" @onclick="() => EditSubject(s)">Edit<span class="sr-only"> @s.Name</span></button>
@@ -96,7 +112,12 @@
         <div class="row-between" style="margin-bottom:16px"><span></span><button class="btn btn-primary" @onclick="NewYear"><Icon Name="plus" /> Add academic year</button></div>
         <div class="stack">@foreach (var y in _years) { <div class="card"><div class="row-between"><div><h2>@y.Name @if (y.IsCurrent) { <span class="badge green">Current</span> }</h2><div class="caption">@y.StartDate.ToString("d MMM yyyy") – @y.EndDate.ToString("d MMM yyyy")</div></div><div class="btn-group"><button class="btn btn-secondary btn-sm" @onclick="() => OpenTerm(y)">Add term</button><button class="btn btn-ghost btn-sm" @onclick="() => EditYear(y)">Edit<span class="sr-only"> @y.Name</span></button>
                 <button class="btn btn-ghost btn-sm danger-text" @onclick='() => Confirm($"Remove {y.Name}?", "Only possible when no student or course uses this year.", () => Api.DeleteAsync($"academics/years/{y.Id}"), "Academic year removed.")'>Remove<span class="sr-only"> @y.Name</span></button></div></div>
-            <ul>@foreach (var t in y.Terms) { <li>@t.Name: @t.StartDate.ToString("d MMM") – @t.EndDate.ToString("d MMM yyyy")</li> }</ul></div> }</div>
+            <ul class="acad-terms">@foreach (var t in y.Terms)
+            {
+                <li><span>@t.Name: @t.StartDate.ToString("d MMM") – @t.EndDate.ToString("d MMM yyyy")</span>
+                    <button type="button" class="icon-btn icon-btn-sm" title="Edit term" aria-label="@($"Edit term {t.Name}")" @onclick="() => EditTerm(y, t)"><Icon Name="pencil" /></button>
+                    <button type="button" class="icon-btn icon-btn-sm" title="Remove term" aria-label="@($"Remove term {t.Name}")" @onclick='() => Confirm($"Remove term {t.Name}?", "The term is removed from this academic year.", () => Api.DeleteAsync($"academics/terms/{t.Id}"), "Term removed.")'><Icon Name="trash" /></button></li>
+            }</ul></div> }</div>
     }
     @if (_tab == "grades")
     {
@@ -187,13 +208,17 @@
     </div>
     <div class="form-actions"><button class="btn btn-primary" @onclick="SaveYear" disabled="@Busy">Save</button></div>
 </Modal>
-<Modal Open="_termFor is not null" OpenChanged="_ => _termFor = null" Title="@($"Add term to {_termFor?.Name}")">
+<Modal Open="_rename is not null" OpenChanged="_ => _rename = null" Title="@(_rename?.Title ?? "")">
+    <div class="stack"><div class="field"><label for="rnm">Name</label><input id="rnm" class="input" maxlength="200" @bind="_text" /></div>
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _rename = null">Cancel</button><button class="btn btn-primary" @onclick="SaveRename" disabled="@(Busy || string.IsNullOrWhiteSpace(_text))">Save</button></div></div>
+</Modal>
+<Modal Open="_termFor is not null" OpenChanged="_ => (_termFor, _termId) = (null, null)" Title="@(_termId is null ? $"Add term to {_termFor?.Name}" : "Edit term")">
     <div class="form-grid">
         <div class="field full"><label for="tn2">Name</label><input id="tn2" class="input" @bind="_text" /></div>
         <div class="field"><label for="ts2">Starts</label><input id="ts2" type="date" class="input" @bind="_yStart" /></div>
         <div class="field"><label for="te2">Ends</label><input id="te2" type="date" class="input" @bind="_yEnd" /></div>
     </div>
-    <div class="form-actions"><button class="btn btn-primary" @onclick="SaveTerm" disabled="@Busy">Add term</button></div>
+    <div class="form-actions"><button class="btn btn-primary" @onclick="SaveTerm" disabled="@Busy">@(_termId is null ? "Add term" : "Save term")</button></div>
 </Modal>
 
 <Modal Open="_confirm is not null" OpenChanged="_ => _confirm = null" Title="@(_confirm?.Title ?? "")">
@@ -448,6 +473,26 @@
         var req = new SaveAcademicYearRequest(_yearName, _yStart, _yEnd, _yCurrent);
         if (await Run(() => _yearId is null ? Api.PostAsync("academics/years", req) : Api.PutAsync($"academics/years/{_yearId}", req), "Academic year saved.")) { _yearOpen = false; await LoadAsync(); }
     }
-    private void OpenTerm(AcademicYearDto y) { _termFor = y; _text = ""; (_yStart, _yEnd) = (y.StartDate, y.EndDate); }
-    private async Task SaveTerm() { if (await Run(() => Api.PostAsync($"academics/years/{_termFor!.Id}/terms", new SaveTermRequest(_text, _yStart, _yEnd)), "Term added.")) { _termFor = null; await LoadAsync(); } }
+    private Guid? _termId;
+    private void OpenTerm(AcademicYearDto y) { (_termFor, _termId) = (y, null); _text = ""; (_yStart, _yEnd) = (y.StartDate, y.EndDate); }
+    private void EditTerm(AcademicYearDto y, TermDto t) { (_termFor, _termId, _text, _yStart, _yEnd) = (y, t.Id, t.Name, t.StartDate, t.EndDate); }
+    private async Task SaveTerm()
+    {
+        var req = new SaveTermRequest(_text, _yStart, _yEnd);
+        var ok = _termId is { } id
+            ? await Run(() => Api.PutAsync($"academics/terms/{id}", req), "Term saved.")
+            : await Run(() => Api.PostAsync($"academics/years/{_termFor!.Id}/terms", req), "Term added.");
+        if (ok) { (_termFor, _termId) = (null, null); await LoadAsync(); }
+    }
+
+    // Rename a chapter or topic in place (order is kept).
+    private sealed record Rename(string Title, Func<string, Task> Save);
+    private Rename? _rename;
+    private void RenameChapter(ChapterDto c) { _text = c.Title; _rename = new("Rename chapter", t => Api.PutAsync($"academics/chapters/{c.Id}", new SaveChapterRequest(t, c.SortOrder))); }
+    private void RenameTopic(TopicDto tp) { _text = tp.Title; _rename = new("Rename topic", t => Api.PutAsync($"academics/topics/{tp.Id}", new SaveTopicRequest(t, tp.SortOrder))); }
+    private async Task SaveRename()
+    {
+        if (_rename is not { } r) return;
+        if (await Run(() => r.Save(_text), "Saved.")) { _rename = null; await LoadAsync(); }
+    }
 }

@@ -10,6 +10,7 @@
             <Actions>
                 @if (_e.Status == ExamStatus.Draft) { <a class="btn btn-secondary" href="/exams/@Id/edit">Edit</a><button class="btn btn-primary" @onclick="Publish" disabled="@Busy">Publish to @_e.Recipients.Count student(s)</button> }
                 @if (_e.Status != ExamStatus.Draft) { <a class="btn btn-secondary" href="/exams/@Id/paper-entry"><Icon Name="clipboard" /> Enter paper answers</a> }
+                <button class="btn btn-ghost danger-text" @onclick="() => _deleteOpen = true" disabled="@Busy"><Icon Name="trash" /> Delete</button>
                 @if (_e.Status != ExamStatus.Draft && !_e.ResultsReleased) { <button class="btn btn-primary" @onclick="Release" disabled="@(Busy || _r?.PendingManualGrading > 0)">Release results</button> }
             </Actions>
         </PageHeader>
@@ -40,7 +41,18 @@
     }
 </DataView>
 
+<Modal @bind-Open="_deleteOpen" Title="Delete this exam?">
+    <p style="margin-top:0">Only possible before any student has taken it. Once there are attempts, their results are kept.</p>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep it</button><button class="btn btn-danger" @onclick="Delete" disabled="@Busy"><Icon Name="trash" /> Delete exam</button></div>
+</Modal>
+
 @code {
+    private bool _deleteOpen;
+    private async Task Delete()
+    {
+        if (await Run(() => Api.DeleteAsync($"exams/{Id}"), "Exam deleted.")) { _deleteOpen = false; Nav.NavigateTo("/exams"); }
+    }
+
     [Parameter] public Guid Id { get; set; }
     private ExamDetailDto? _e;
     private ExamResultsDto? _r;

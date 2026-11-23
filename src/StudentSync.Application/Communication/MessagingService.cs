@@ -10,7 +10,8 @@ using StudentSync.Domain.Identity;
 namespace StudentSync.Application.Communication;
 
 /// <summary>Direct messaging limited to relationships the institution permits (teacher↔their students/parents, admins↔anyone).</summary>
-public sealed class MessagingService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, NotificationService notify, IRealtimeNotifier realtime, FileService files)
+public sealed class MessagingService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, NotificationService notify, IRealtimeNotifier realtime, FileService files,
+    AuditService audit)
 {
     public async Task<IReadOnlyList<ContactDto>> ContactsAsync(CancellationToken ct)
     {
@@ -146,7 +147,7 @@ public sealed class MessagingService(IAppDbContext db, ICurrentUser user, Access
         }
         return await q.OrderByDescending(a => a.PublishedAtUtc).Take(50)
             .Select(a => new AnnouncementDto(a.Id, a.Title, a.Body, a.Audience, a.BatchId, db.Batches.Where(b => b.Id == a.BatchId).Select(b => b.Name).FirstOrDefault(),
-                db.Users.Where(u => u.Id == a.AuthorUserId).Select(u => u.FullName).First(), a.PublishedAtUtc)).ToListAsync(ct);
+                db.Users.Where(u => u.Id == a.AuthorUserId).Select(u => u.FullName).First(), a.PublishedAtUtc, a.AuthorUserId)).ToListAsync(ct);
     }
 
     public async Task<Guid> PublishAnnouncementAsync(CreateAnnouncementRequest r, CancellationToken ct)
@@ -186,5 +187,32 @@ public sealed class MessagingService(IAppDbContext db, ICurrentUser user, Access
             "/announcements", $"announcement:{a.Id}", ct);
         await db.SaveChangesAsync(ct);
         return a.Id;
+    }
+
+    /// <summary>Corrects the title or text. The audience cannot change (it was already notified); notifications already sent keep the old text.</summary>
+    public async Task UpdateAnnouncementAsync(Guid id, UpdateAnnouncementRequest r, CancellationToken ct)
+    {
+        var a = await ManageableAnnouncementAsync(id, ct);
+        a.Title = Text.Required(r.Title, "title", 200);
+        a.Body = Text.Required(r.Body, "body", 10_000);
+        audit.Record("announcement.updated", "Announcement", a.Id, a.Title);
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteAnnouncementAsync(Guid id, CancellationToken ct)
+    {
+        var a = await ManageableAnnouncementAsync(id, ct);
+        db.Announcements.Remove(a);
+        audit.Record("announcement.deleted", "Announcement", a.Id, a.Title);
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Admins manage every announcement; a teacher only their own. Anything else looks missing (no existence leak).</summary>
+    private async Task<Announcement> ManageableAnnouncementAsync(Guid id, CancellationToken ct)
+    {
+        access.Require(Permissions.AnnouncementsPublish);
+        var a = await db.Announcements.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Announcement");
+        if (!access.IsAdmin && a.AuthorUserId != user.UserId) throw new NotFoundException("Announcement");
+        return a;
     }
 }

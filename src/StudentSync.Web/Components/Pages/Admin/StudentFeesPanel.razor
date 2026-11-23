@@ -90,6 +90,7 @@
                                     {
                                         <button class="btn btn-secondary btn-sm btn-pill" @onclick="() => NewPayment(p)" disabled="@Busy"><Icon Name="plus" /> Take payment</button>
                                     }
+                                    <button class="btn btn-ghost btn-sm" @onclick="() => EditPackage(p)" disabled="@Busy"><Icon Name="pencil" /> Edit<span class="sr-only"> @p.Name</span></button>
                                     @if (!p.Payments.Any(x => !x.Voided)) { <button class="btn btn-ghost btn-sm" @onclick="() => Cancel(p)" disabled="@Busy">Cancel package<span class="sr-only"> @p.Name</span></button> }
                                 </div>
                             }
@@ -115,13 +116,26 @@
 </section>
 
 <Modal @bind-Open="_saleOpen" Title="Add hours">
+    @if (_plans.Count > 0)
+    {
+        <fieldset class="field fee-method plan-picks">
+            <legend>Fee plan</legend>
+            <div class="pick-group">
+                @foreach (var plan in _plans)
+                {
+                    <button type="button" class="pick" aria-pressed="@Aria.Bool(_planId == plan.Id)" @onclick="() => UsePlan(plan)">@plan.Name · @Money.Format(plan.Price, plan.CurrencyCode)</button>
+                }
+            </div>
+            <span class="help">Fills in the hours and price. You can still change them. <a href="/admin/fee-plans">Manage fee plans</a></span>
+        </fieldset>
+    }
     <fieldset class="field fee-method">
         <legend>Hours</legend>
         <div class="pick-group">
-            @foreach (var h in HourChoices) { <button type="button" class="pick" aria-pressed="@Aria.Bool(_hours == h)" @onclick="() => { _hours = h; PriceFromRate(); }">@h hours</button> }
+            @foreach (var h in HourChoices) { <button type="button" class="pick" aria-pressed="@Aria.Bool(_planId is null && _hours == h)" @onclick="() => { _hours = h; _planId = null; PriceFromRate(); }">@h hours</button> }
         </div>
         <label for="fh" class="sr-only">Other number of hours</label>
-        <input id="fh" class="input" type="number" min="0.5" max="1000" step="0.5" placeholder="Other" @bind="_hours" @bind:after="PriceFromRate" style="margin-top:8px;max-width:160px" />
+        <input id="fh" class="input" type="number" min="0.5" max="1000" step="0.5" placeholder="Other" @bind="_hours" @bind:after="() => { _planId = null; PriceFromRate(); }" style="margin-top:8px;max-width:160px" />
     </fieldset>
     <div class="form-grid">
         <div class="field"><label for="fp">Price (@Currency) *</label><input id="fp" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_price" @bind:after="() => _priceAuto = false" />
@@ -135,6 +149,22 @@
     <div class="form-actions">
         <button class="btn btn-secondary" @onclick="() => _saleOpen = false">Cancel</button>
         <button class="btn btn-primary" @onclick="AddHours" disabled="@(Busy || _hours is not > 0 || _price is null)">Add @(_hours is > 0 ? Money.Hours(_hours.Value) : "hours")</button>
+    </div>
+</Modal>
+
+<Modal @bind-Open="_editOpen" Title="@($"Edit {_editing?.Name}")">
+    <p class="small" style="margin-top:0">Fix a mistake in this package. Payments already taken stay as they are@(_editing is { Paid: > 0 } e ? $" ({Money.Format(e.Paid, e.CurrencyCode)} paid, so the price cannot be lower)" : "").</p>
+    <div class="form-grid">
+        <div class="field"><label for="eh">Hours *</label><input id="eh" class="input" type="number" min="0.5" max="1000" step="0.5" @bind="_editHours" /></div>
+        <div class="field"><label for="ep">Price (@Currency) *</label><input id="ep" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_editPrice" /></div>
+        <div class="field"><label for="es">Hours count from *</label><input id="es" class="input" type="date" @bind="_editStarts" /></div>
+        <div class="field"><label for="ed">Pay by</label><input id="ed" class="input" type="date" @bind="_editDue" /><span class="help">Leave empty if due on the start day.</span></div>
+        <div class="field"><label for="en">Name</label><input id="en" class="input" maxlength="100" @bind="_editName" /></div>
+        <div class="field"><label for="eno">Notes</label><input id="eno" class="input" maxlength="500" @bind="_editNotes" /></div>
+    </div>
+    <div class="form-actions">
+        <button class="btn btn-secondary" @onclick="() => _editOpen = false">Cancel</button>
+        <button class="btn btn-primary" @onclick="SavePackage" disabled="@(Busy || _editHours is not > 0 || _editPrice is null || _editStarts is null)">Save package</button>
     </div>
 </Modal>
 
@@ -185,9 +215,22 @@
     private StudentPackageDto? _payFor;
     private FeePaymentDto? _voiding;
     private string _idempotencyKey = "";
+    private List<FeePlanDto> _plans = [];
+    private Guid? _planId;
+    private string? _planName;
+    private bool _editOpen;
+    private StudentPackageDto? _editing;
+    private decimal? _editHours, _editPrice;
+    private DateOnly? _editStarts, _editDue;
+    private string? _editName, _editNotes;
 
     protected override Task OnParametersSetAsync() => LoadAsync();
-    private async Task LoadAsync() => (_f, _error) = await Fetch(() => Api.GetAsync<StudentFeesDto>($"students/{StudentId}/fees"));
+    private async Task LoadAsync()
+    {
+        (_f, _error) = await Fetch(() => Api.GetAsync<StudentFeesDto>($"students/{StudentId}/fees"));
+        // Plans that fit this student (any class/syllabus, or theirs). Optional: "Add hours" works without them.
+        _plans = (await Fetch(() => Api.GetAsync<List<FeePlanDto>>($"fee-plans?studentId={StudentId}"))).Value ?? [];
+    }
 
     public static string MethodName(PaymentMethod m) => m switch
     {
@@ -204,6 +247,7 @@
     private void NewSale()
     {
         (_hours, _price, _paidNow, _starts, _dueOn, _method, _reference) = (30, null, null, null, null, PaymentMethod.Cash, null);
+        (_planId, _planName) = (null, null);
         _priceAuto = true;
         PriceFromRate();
         _idempotencyKey = Guid.NewGuid().ToString("N");
@@ -218,6 +262,30 @@
     }
 
     private void AskVoid(FeePaymentDto p) => (_voiding, _voidReason, _voidOpen) = (p, null, true);
+
+    private void UsePlan(FeePlanDto plan)
+    {
+        (_planId, _planName, _hours, _price) = (plan.Id, plan.Name, plan.Hours, plan.Price);
+        _priceAuto = false;
+    }
+
+    private void EditPackage(StudentPackageDto p)
+    {
+        _editing = p;
+        (_editHours, _editPrice, _editStarts, _editDue, _editName, _editNotes) = (p.Hours, p.Price, p.StartsOn, p.DueOn == p.StartsOn ? null : p.DueOn, p.Name, p.Notes);
+        _editOpen = true;
+    }
+
+    private async Task SavePackage()
+    {
+        if (_editing is not { } p || _editStarts is not { } starts) return;
+        var request = new UpdatePackageRequest(_editHours ?? 0, _editPrice ?? 0, starts, _editDue, _editName, _editNotes);
+        if (await Run(() => Api.PutAsync($"students/{StudentId}/packages/{p.Id}", request), "Package saved."))
+        {
+            _editOpen = false;
+            await LoadAsync();
+        }
+    }
 
     // While the admin has not typed a price, it follows hours × the student's rate.
     private void PriceFromRate()
@@ -238,7 +306,9 @@
 
     private async Task AddHours()
     {
-        var request = new SavePackageRequest(_hours ?? 0, _price ?? 0, _starts, _dueOn, null, null, _paidNow is > 0 ? _paidNow : null, _method, _reference);
+        // A plan's name is kept only while its hours are unchanged; otherwise the package is called by its hours.
+        var name = _planId is not null ? _planName : null;
+        var request = new SavePackageRequest(_hours ?? 0, _price ?? 0, _starts, _dueOn, name, null, _paidNow is > 0 ? _paidNow : null, _method, _reference);
         if (await Run(() => Api.PostAsync($"students/{StudentId}/packages", request, _idempotencyKey), $"{Money.Hours(_hours ?? 0)} added."))
         {
             _saleOpen = false;

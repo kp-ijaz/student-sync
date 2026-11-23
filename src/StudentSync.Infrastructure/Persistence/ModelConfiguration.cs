@@ -228,6 +228,20 @@ internal static class ModelConfiguration
                 t.HasCheckConstraint("CK_StudentPackages_Price", "\"Price\" >= 0");
             });
         });
+        b.Entity<FeePlan>(e =>
+        {
+            e.HasIndex(x => new { x.IsActive, x.Hours });
+            e.HasOne<GradeLevel>().WithMany().HasForeignKey(x => x.GradeLevelId).OnDelete(R);
+            e.HasOne<Curriculum>().WithMany().HasForeignKey(x => x.CurriculumId).OnDelete(R);
+            e.Property(x => x.Name).HasMaxLength(100);
+            e.Property(x => x.Notes).HasMaxLength(500);
+            e.Property(x => x.Hours).HasPrecision(7, 2);
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_FeePlans_Hours", "\"Hours\" > 0");
+                t.HasCheckConstraint("CK_FeePlans_Price", "\"Price\" >= 0");
+            });
+        });
         b.Entity<FeePayment>(e =>
         {
             e.HasIndex(x => new { x.StudentId, x.PaidOn });
