@@ -135,6 +135,7 @@ public static class CoreEndpoints
         st.MapGet("/{id:guid}/subjects", (Guid id, StudentCurriculumService s, CancellationToken ct) => s.GetForStudentAsync(id, ct));
         st.MapGet("/{id:guid}/school-reports", (Guid id, SchoolReportService s, CancellationToken ct) => s.ListAsync(id, ct));
         st.MapPost("/{id:guid}/school-reports", async (Guid id, SaveSchoolReportRequest r, SchoolReportService s, CancellationToken ct) => new IdResponse(await s.AddAsync(id, r, ct)));
+        st.MapPut("/{id:guid}/school-reports/{reportId:guid}", async (Guid id, Guid reportId, SaveSchoolReportRequest r, SchoolReportService s, CancellationToken ct) => { await s.UpdateAsync(id, reportId, r, ct); return Results.NoContent(); });
         st.MapDelete("/{id:guid}/school-reports/{reportId:guid}", async (Guid id, Guid reportId, SchoolReportService s, CancellationToken ct) => { await s.DeleteAsync(id, reportId, ct); return Results.NoContent(); });
         // Fees (addendum A): prepaid hour packages and payments. Admin only (enforced in the service); POSTs replay on Idempotency-Key.
         st.MapGet("/{id:guid}/fees", (Guid id, FeeService s, CancellationToken ct) => s.ForStudentAsync(id, ct));
@@ -161,6 +162,7 @@ public static class CoreEndpoints
         lp.MapPost("/learning-needs/{needId:guid}/resolve", async (Guid id, Guid needId, ResolveLearningNeedRequest r, LearningProfileService s, CancellationToken ct) => { await s.ResolveNeedAsync(id, needId, r, ct); return Results.NoContent(); });
         lp.MapGet("/notes", (Guid id, LearningProfileService s, CancellationToken ct) => s.NotesAsync(id, ct));
         lp.MapPost("/notes", (Guid id, AddStudentNoteRequest r, LearningProfileService s, CancellationToken ct) => s.AddNoteAsync(id, r, ct));
+        lp.MapPut("/notes/{noteId:guid}", (Guid id, Guid noteId, AddStudentNoteRequest r, LearningProfileService s, CancellationToken ct) => s.UpdateNoteAsync(id, noteId, r, ct));
         lp.MapDelete("/notes/{noteId:guid}", async (Guid id, Guid noteId, LearningProfileService s, CancellationToken ct) => { await s.DeleteNoteAsync(id, noteId, ct); return Results.NoContent(); });
 
         var pa = api.MapGroup("/parents").WithTags("People");

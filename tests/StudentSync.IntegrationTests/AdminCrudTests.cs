@@ -379,3 +379,100 @@ public sealed class AdminCrudMoreTests(ApiFixture api)
         Assert.Equal(HttpStatusCode.NotFound, (await admin.GetRaw($"doubts/{id}")).StatusCode);
     }
 }
+
+/// <summary>2026-11-24: debts of removed students stay visible; announcement edits reach notifications; edit for school results, notes, materials.</summary>
+public sealed class AdminCrudFinalTests(ApiFixture api)
+{
+    private static string Tag() => Guid.NewGuid().ToString("N")[..8];
+
+    [Fact]
+    public async Task An_archived_student_who_still_owes_money_stays_on_fees_due()
+    {
+        var admin = await api.LoginAsync(Accounts.Admin);
+        var tag = Tag();
+        var owing = (await admin.Post<CreatedPersonResponse>("students", new CreateStudentRequest("Owes Fees (Demo Student)", $"owe-{tag}@horizon.example.test", $"OW-{tag}", null, null, "Asia/Dubai"))).Id;
+        var paid = (await admin.Post<CreatedPersonResponse>("students", new CreateStudentRequest("Paid Up (Demo Student)", $"paid-{tag}@horizon.example.test", $"PD-{tag}", null, null, "Asia/Dubai"))).Id;
+        await admin.Post<IdResponse>($"students/{owing}/packages", new SavePackageRequest(1, 5000, PaidNow: 1000));
+        await admin.Post<IdResponse>($"students/{paid}/packages", new SavePackageRequest(1, 500, PaidNow: 500)); // paid up but only 1 h left
+        Assert.False((await (await admin.DeleteRaw($"students/{owing}")).Content.ReadFromJsonAsync<RemovePersonResponse>(ApiFixture.Json))!.Deleted);
+        Assert.False((await (await admin.DeleteRaw($"students/{paid}")).Content.ReadFromJsonAsync<RemovePersonResponse>(ApiFixture.Json))!.Deleted);
+
+        var due = await admin.Get<FeesDueDto>("fees/due?take=200");
+        var row = Assert.Single(due.Items, i => i.StudentId == owing);
+        Assert.Equal((4000m, PersonStatus.Archived), (row.Due, row.Status));
+        Assert.DoesNotContain(due.Items, i => i.StudentId == paid); // a removed student is never "running out of hours"
+    }
+
+    [Fact]
+    public async Task Editing_or_deleting_an_announcement_updates_everyones_notifications()
+    {
+        var admin = await api.LoginAsync(Accounts.Admin);
+        var aisha = await api.LoginAsync(Accounts.Aisha);
+        var tag = Tag();
+        var id = (await admin.Post<IdResponse>("announcements", new CreateAnnouncementRequest($"Notice {tag}", "Closed Friday.", AnnouncementAudience.Students, null))).Id;
+        async Task<NotificationDto?> Mine() => (await aisha.Get<PagedResult<NotificationDto>>("notifications?pageSize=100")).Items.FirstOrDefault(n => n.Title.Contains(tag));
+        Assert.Equal("Closed Friday.", (await Mine())?.Body);
+
+        await admin.Put($"announcements/{id}", new UpdateAnnouncementRequest($"Notice {tag} (updated)", "Closed Saturday."));
+        var updated = await Mine();
+        Assert.Equal(($"Notice {tag} (updated)", "Closed Saturday."), (updated?.Title, updated?.Body));
+
+        await admin.DeleteRaw($"announcements/{id}");
+        Assert.Null(await Mine());
+    }
+
+    [Fact]
+    public async Task School_results_can_be_corrected_by_the_admin()
+    {
+        var admin = await api.LoginAsync(Accounts.Admin);
+        var tag = Tag();
+        var student = (await admin.Post<CreatedPersonResponse>("students", new CreateStudentRequest("Report Edit (Demo Student)", $"rep-{tag}@horizon.example.test", $"RE-{tag}", null, null, "Asia/Dubai"))).Id;
+        var report = (await admin.Post<IdResponse>($"students/{student}/school-reports", new SaveSchoolReportRequest("Term 1", null, 70, null, [new SchoolMarkDto("Maths", 60, 100, null)]))).Id;
+
+        await admin.Put($"students/{student}/school-reports/{report}", new SaveSchoolReportRequest("Term 1 2026", null, 72.5m, "Corrected", [new SchoolMarkDto("Maths", 65, 100, "B"), new SchoolMarkDto("Science", 80, 100, null)]));
+        var saved = Assert.Single(await admin.Get<List<SchoolReportDto>>($"students/{student}/school-reports"));
+        Assert.Equal(("Term 1 2026", 72.5m, "Corrected", 2), (saved.Title, saved.OverallPercent, saved.Notes, saved.Marks.Count));
+        Assert.Equal(65m, saved.Marks.Single(m => m.Subject == "Maths").Marks);
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutRaw($"students/{student}/school-reports/{report}", new SaveSchoolReportRequest("X", null, 140))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await (await api.LoginAsync(Accounts.Amira)).PutRaw($"students/{student}/school-reports/{report}", new SaveSchoolReportRequest("X"))).StatusCode);
+        var other = (await admin.Post<CreatedPersonResponse>("students", new CreateStudentRequest("Other (Demo Student)", $"rep2-{tag}@horizon.example.test", $"RO-{tag}", null, null, "Asia/Dubai"))).Id;
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PutRaw($"students/{other}/school-reports/{report}", new SaveSchoolReportRequest("X"))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Notes_are_edited_by_their_author_or_the_admin()
+    {
+        var admin = await api.LoginAsync(Accounts.Admin);
+        var amira = await api.LoginAsync(Accounts.Amira);
+        var aishaId = (await api.LoginAsync(Accounts.Aisha)).UserId;
+        var note = await amira.Post<StudentNoteDto>($"students/{aishaId}/notes", new AddStudentNoteRequest(StudentNoteKind.Observation, $"Needs practice {Tag()}", null));
+
+        var edited = await (await amira.PutRaw($"students/{aishaId}/notes/{note.Id}", new AddStudentNoteRequest(StudentNoteKind.Goal, "Finish chapter 3", null))).Content.ReadFromJsonAsync<StudentNoteDto>(ApiFixture.Json);
+        Assert.Equal((StudentNoteKind.Goal, "Finish chapter 3"), (edited!.Kind, edited.Text));
+        await admin.Put($"students/{aishaId}/notes/{note.Id}", new AddStudentNoteRequest(StudentNoteKind.Goal, "Finish chapters 3 and 4", null));
+        Assert.Contains(await admin.Get<List<StudentNoteDto>>($"students/{aishaId}/notes"), n => n.Id == note.Id && n.Text == "Finish chapters 3 and 4");
+
+        var adminNote = await admin.Post<StudentNoteDto>($"students/{aishaId}/notes", new AddStudentNoteRequest(StudentNoteKind.Observation, "Admin only", null));
+        Assert.Equal(HttpStatusCode.Forbidden, (await amira.PutRaw($"students/{aishaId}/notes/{adminNote.Id}", new AddStudentNoteRequest(StudentNoteKind.Observation, "X", null))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutRaw($"students/{aishaId}/notes/{note.Id}", new AddStudentNoteRequest(StudentNoteKind.Goal, " ", null))).StatusCode);
+        await admin.DeleteRaw($"students/{aishaId}/notes/{note.Id}");
+        await admin.DeleteRaw($"students/{aishaId}/notes/{adminNote.Id}");
+    }
+
+    [Fact]
+    public async Task Materials_can_be_renamed_by_whoever_may_remove_them()
+    {
+        var priya = await api.LoginAsync(Accounts.Priya);
+        var session = (await priya.Get<List<SessionListItemDto>>("sessions?limit=50")).First(s => s.SessionType == SessionType.OneToOne && s.Title.Contains("Fatima"));
+        var id = (await priya.Post<IdResponse>("materials/link", new CreateLinkMaterialRequest($"Notes {Tag()}", null, "https://example.test/a", session.Id, null, null, null, false))).Id;
+
+        await priya.Put($"materials/{id}", new UpdateMaterialRequest("Periodic table notes", "Read before class", "https://example.test/b"));
+        var m = (await priya.Get<PagedResult<MaterialDto>>($"sessions/{session.Id}/materials")).Items.Single(x => x.Id == id);
+        Assert.Equal(("Periodic table notes", "Read before class", "https://example.test/b"), (m.Title, m.Description, m.Url));
+        Assert.Equal(HttpStatusCode.BadRequest, (await priya.PutRaw($"materials/{id}", new UpdateMaterialRequest("X", null, "not a link"))).StatusCode);
+        Assert.NotEqual(HttpStatusCode.NoContent, (await (await api.LoginAsync(Accounts.Amira)).PutRaw($"materials/{id}", new UpdateMaterialRequest("X", null))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await (await api.LoginAsync(Accounts.Fatima)).PutRaw($"materials/{id}", new UpdateMaterialRequest("X", null))).StatusCode);
+        await priya.DeleteRaw($"materials/{id}");
+    }
+}

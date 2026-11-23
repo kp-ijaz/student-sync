@@ -46,7 +46,7 @@
     {
         "owing" => i.Due > 0,
         "overdue" => i.DaysOverdue > 0,
-        "hours" => i.HoursLeft <= (_d?.LowHoursAt ?? 2),
+        "hours" => i.Status == PersonStatus.Active && i.HoursLeft <= (_d?.LowHoursAt ?? 2),
         _ => true,
     };
 

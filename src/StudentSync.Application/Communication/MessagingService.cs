@@ -183,29 +183,52 @@ public sealed class MessagingService(IAppDbContext db, ICurrentUser user, Access
             PublishedAtUtc = clock.UtcNow,
         };
         db.Announcements.Add(a);
-        await notify.NotifyAsync(recipients.Where(id => id != user.UserId), NotificationType.Announcement, a.Title, a.Body.Length > 200 ? a.Body[..200] + "…" : a.Body,
+        await notify.NotifyAsync(recipients.Where(id => id != user.UserId), NotificationType.Announcement, a.Title, Preview(a.Body),
             "/announcements", $"announcement:{a.Id}", ct);
         await db.SaveChangesAsync(ct);
         return a.Id;
     }
 
-    /// <summary>Corrects the title or text. The audience cannot change (it was already notified); notifications already sent keep the old text.</summary>
+    /// <summary>
+    /// Corrects the title or text, also in everyone's in-app notification. The audience cannot change (it was already
+    /// notified). Emails already sent cannot be changed.
+    /// </summary>
     public async Task UpdateAnnouncementAsync(Guid id, UpdateAnnouncementRequest r, CancellationToken ct)
     {
         var a = await ManageableAnnouncementAsync(id, ct);
         a.Title = Text.Required(r.Title, "title", 200);
         a.Body = Text.Required(r.Body, "body", 10_000);
+        var (title, preview) = (a.Title, Preview(a.Body));
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await NotificationsOf(a.Id).ExecuteUpdateAsync(u => u.SetProperty(n => n.Title, title).SetProperty(n => n.Body, preview), ct);
         audit.Record("announcement.updated", "Announcement", a.Id, a.Title);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
     }
 
+    /// <summary>Deletes the announcement and its in-app notifications; emails not yet sent are dropped. Sent emails cannot be recalled.</summary>
     public async Task DeleteAnnouncementAsync(Guid id, CancellationToken ct)
     {
         var a = await ManageableAnnouncementAsync(id, ct);
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var notifications = NotificationsOf(a.Id);
+        await db.NotificationDeliveries.Where(d => notifications.Any(n => n.Id == d.NotificationId)).ExecuteDeleteAsync(ct);
+        await notifications.ExecuteDeleteAsync(ct);
         db.Announcements.Remove(a);
         audit.Record("announcement.deleted", "Announcement", a.Id, a.Title);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
     }
+
+    // Notifications are not tenant-filtered by the model (system ones have no tenant), so the institution is matched here.
+    private IQueryable<Domain.Communication.Notification> NotificationsOf(Guid announcementId)
+    {
+        var key = $"announcement:{announcementId}";
+        var tenantId = user.TenantId;
+        return db.Notifications.Where(n => n.TenantId == tenantId && n.DedupeKey == key);
+    }
+
+    private static string Preview(string body) => body.Length > 200 ? body[..200] + "…" : body;
 
     /// <summary>Admins manage every announcement; a teacher only their own. Anything else looks missing (no existence leak).</summary>
     private async Task<Announcement> ManageableAnnouncementAsync(Guid id, CancellationToken ct)

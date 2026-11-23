@@ -1,3 +1,4 @@
+using StudentSync.Domain.People;
 using StudentSync.Domain.Fees;
 using StudentSync.Domain.Scheduling;
 
@@ -34,8 +35,10 @@ public sealed record StudentFeesDto(
     DateOnly? OldestDueOn, IReadOnlyList<StudentPackageDto> Packages, IReadOnlyList<HoursUsedDto> RecentUsage, decimal? HourlyRate = null);
 
 /// <summary>One student who owes money or is running out of hours.</summary>
+/// <remarks><paramref name="Status"/> is not Active for a former (archived/inactive) student who still owes money.</remarks>
 public sealed record FeeDueItemDto(
-    Guid StudentId, string StudentName, string? StudentCode, string? PhotoUrl, decimal Due, DateOnly? DueOn, int DaysOverdue, decimal HoursLeft);
+    Guid StudentId, string StudentName, string? StudentCode, string? PhotoUrl, decimal Due, DateOnly? DueOn, int DaysOverdue, decimal HoursLeft,
+    PersonStatus Status = PersonStatus.Active);
 
 /// <summary>
 /// The front desk's money list. Items are ordered most overdue first, then by amount, then by fewest hours left.

@@ -20,7 +20,11 @@
                         </div>
                         <div class="row">
                             @if (r.File is { } f) { <FileButton FileId="f.Id" Label="Open report" /> }
-                            @if (CanManage) { <button class="btn btn-ghost btn-sm" @onclick="() => Delete(r)" disabled="@Busy">Remove<span class="sr-only"> @r.Title</span></button> }
+                            @if (CanManage)
+                            {
+                                <button class="btn btn-ghost btn-sm" @onclick="() => Edit(r)" disabled="@Busy">Edit<span class="sr-only"> @r.Title</span></button>
+                                <button class="btn btn-ghost btn-sm danger-text" @onclick="() => Delete(r)" disabled="@Busy">Remove<span class="sr-only"> @r.Title</span></button>
+                            }
                         </div>
                     </div>
                     @if (r.Marks.Count > 0)
@@ -36,7 +40,7 @@
     </DataView>
 </section>
 
-<Modal @bind-Open="_open" Title="Add school result" Wide="true">
+<Modal @bind-Open="_open" Title="@(_editId is null ? "Add school result" : "Edit school result")" Wide="true">
     <div class="form-grid">
         <div class="field"><label for="srt">Exam *</label><input id="srt" class="input" placeholder="e.g. Term 1 2026" @bind="_title" /></div>
         <div class="field"><label for="srd">Exam date</label><input id="srd" type="date" class="input" @bind="_date" /></div>
@@ -45,6 +49,7 @@
             <label for="srf">Progress report (PDF or photo)</label>
             <InputFile id="srf" accept="application/pdf,image/png,image/jpeg,image/webp" OnChange="Upload" disabled="@Busy" />
             @if (_file is not null) { <span class="help">Attached: @_file.FileName</span> }
+            else if (_currentFile is not null) { <span class="help">Current: @_currentFile.FileName. Choose a file only to replace it.</span> }
         </div>
     </div>
     <ul class="teacher-quals" style="margin-top:12px">
@@ -79,7 +84,8 @@
     private string? _notes;
     private DateOnly? _date;
     private decimal? _overall;
-    private FileDto? _file;
+    private FileDto? _file, _currentFile;
+    private Guid? _editId;
     private List<MarkRow> _marks = [];
 
     protected override Task OnParametersSetAsync() => LoadAsync();
@@ -94,8 +100,15 @@
 
     private void New()
     {
-        (_title, _notes, _date, _overall, _file) = ("", null, null, null, null);
+        (_title, _notes, _date, _overall, _file, _currentFile, _editId) = ("", null, null, null, null, null, null);
         _marks = SubjectNames.Select(n => new MarkRow { Subject = n }).ToList();
+        _open = true;
+    }
+
+    private void Edit(SchoolReportDto r)
+    {
+        (_editId, _title, _notes, _date, _overall, _file, _currentFile) = (r.Id, r.Title, r.Notes, r.ExamDate, r.OverallPercent, null, r.File);
+        _marks = r.Marks.Select(m => new MarkRow { Subject = m.Subject, Marks = m.Marks, MaxMarks = m.MaxMarks, Grade = m.Grade }).ToList();
         _open = true;
     }
 
@@ -116,7 +129,10 @@
     {
         var marks = _marks.Where(m => !string.IsNullOrWhiteSpace(m.Subject) && (m.Marks is not null || m.MaxMarks is not null || !string.IsNullOrWhiteSpace(m.Grade)))
             .Select(m => new SchoolMarkDto(m.Subject, m.Marks, m.MaxMarks, m.Grade)).ToList();
-        if (await Run(() => Api.PostAsync($"students/{StudentId}/school-reports", new SaveSchoolReportRequest(_title, _date, _overall, _notes, marks, _file?.Id)), "School result saved."))
+        var request = new SaveSchoolReportRequest(_title, _date, _overall, _notes, marks, _file?.Id);
+        if (await Run(() => _editId is { } id
+                ? Api.PutAsync($"students/{StudentId}/school-reports/{id}", request)
+                : Api.PostAsync($"students/{StudentId}/school-reports", request), "School result saved."))
         {
             _open = false;
             await LoadAsync();

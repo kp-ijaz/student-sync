@@ -19,6 +19,8 @@ public sealed record NoteDto(
 public sealed record SaveNoteRequest(string Title, string BodyMarkdown, NoteVisibility Visibility, bool AvailableOffline, string? RowVersion);
 
 public sealed record MaterialDto(Guid Id, string Title, string? Description, MaterialKind Kind, string? Url, FileDto? File, Guid? SessionId, string? SessionTitle, Guid? SubjectId, string? SubjectName, bool AvailableOffline, DateTime CreatedAtUtc);
+/// <summary>Url is used only for link materials; empty keeps the current link.</summary>
+public sealed record UpdateMaterialRequest(string Title, string? Description, string? Url = null);
 public sealed record CreateLinkMaterialRequest(string Title, string? Description, string Url, Guid? SessionId, Guid? SubjectId, Guid? ChapterId, Guid? BatchId, bool AvailableOffline);
 
 public sealed record LibraryQuery : PageQuery

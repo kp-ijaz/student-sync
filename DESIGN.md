@@ -456,6 +456,10 @@ classes; it reminds, alerts and prepares, and people decide.
   Settings ▸ Holidays rows have Edit (loads into the add row, "Save holiday") and Remove. Announcements show edit/delete
   icons to the admin and to their author. Assignment and exam pages have a ghost **Delete** (refused once students took
   part, with the reason); doubts have an admin-only **Delete**. Every delete asks first in a `Modal` with a red button.
+- **Edit added 2026-11-24**: School results (Edit reopens the dialog; "Current: <file>" until a new scan replaces it),
+  Goals & observations (Edit fills the form under the list; the button becomes "Save changes"), class Materials (Edit
+  dialog: title, description, link). Fees due shows former students who still owe money with their status badge
+  (e.g. Archived) instead of an hours badge.
 
 ### Easy adding and one-tap attendance (2026-11-16)
 

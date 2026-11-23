@@ -101,6 +101,7 @@ public static class LearningEndpoints
             var (stream, name, type, length) = await Read(file);
             await using (stream) return new IdResponse(await s.CreateFileMaterialAsync(stream, name, type, length, title, description, sessionId, subjectId, chapterId, batchId, availableOffline ?? false, ct));
         }).DisableAntiforgery();
+        m.MapPut("/{id:guid}", async (Guid id, UpdateMaterialRequest r, ContentService s, CancellationToken ct) => { await s.UpdateMaterialAsync(id, r, ct); return Results.NoContent(); });
         m.MapDelete("/{id:guid}", async (Guid id, ContentService s, CancellationToken ct) => { await s.DeleteMaterialAsync(id, ct); return Results.NoContent(); });
 
         var l = api.MapGroup("/library").WithTags("Notes & materials");

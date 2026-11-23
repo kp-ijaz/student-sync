@@ -49,24 +49,46 @@ public sealed class SchoolReportService(IAppDbContext db, ICurrentUser user, Acc
     /// <summary>Validates a report and adds it to the context; the caller saves (admission saves it with the new student).</summary>
     public async Task<StudentSchoolReport> BuildAsync(Guid studentId, SaveSchoolReportRequest r, CancellationToken ct)
     {
+        var report = new StudentSchoolReport { StudentId = studentId, RecordedByUserId = user.UserId };
+        Apply(report, r);
+        report.FileId = await ClaimFileAsync(r.FileId, ct);
+        db.StudentSchoolReports.Add(report);
+        audit.Record("student.school_report_added", "Student", studentId, report.Title);
+        return report;
+    }
+
+    /// <summary>
+    /// Corrects a report: title, date, overall %, notes and marks are replaced. A new <c>FileId</c> replaces the scan (the old
+    /// one is removed); leaving it empty keeps the current scan.
+    /// </summary>
+    public async Task UpdateAsync(Guid studentId, Guid reportId, SaveSchoolReportRequest r, CancellationToken ct)
+    {
+        access.Require(Permissions.UsersManage);
+        var report = await db.StudentSchoolReports.Include(x => x.Marks).FirstOrDefaultAsync(x => x.Id == reportId && x.StudentId == studentId, ct)
+                     ?? throw new NotFoundException("School report");
+        db.StudentSchoolMarks.RemoveRange(report.Marks);
+        report.Marks.Clear();
+        Apply(report, r);
+        if (r.FileId is { } newFile && newFile != report.FileId)
+        {
+            var claimed = await ClaimFileAsync(newFile, ct);
+            if (report.FileId is { } old && await db.Files.FirstOrDefaultAsync(x => x.Id == old, ct) is { } oldFile) oldFile.DeletedAtUtc = clock.UtcNow;
+            report.FileId = claimed;
+        }
+        audit.Record("student.school_report_updated", "Student", studentId, report.Title);
+        await db.SaveChangesAsync(ct);
+    }
+
+    private void Apply(StudentSchoolReport report, SaveSchoolReportRequest r)
+    {
         if (r.OverallPercent is < 0 or > 100) throw RequestValidationException.For("overallPercent", "The overall percentage must be between 0 and 100.");
         if (r.ExamDate is { } d && d > DateOnly.FromDateTime(clock.UtcNow).AddDays(31)) throw RequestValidationException.For("examDate", "The exam date is in the future.");
         var marks = r.Marks ?? [];
         if (marks.Count > MaxMarksPerReport) throw RequestValidationException.For("marks", $"Add at most {MaxMarksPerReport} subjects.");
-        var fileIds = await files.ClaimAsync(r.FileId is { } f ? [f] : null, FilePurpose.SchoolReport, ct);
-        if (fileIds.Count > 0 && await db.StudentSchoolReports.AnyAsync(x => x.FileId == fileIds[0], ct))
-            throw RequestValidationException.For("fileId", "This file is already attached to another report.");
-
-        var report = new StudentSchoolReport
-        {
-            StudentId = studentId,
-            Title = Text.Required(r.Title, "title", 150),
-            ExamDate = r.ExamDate,
-            OverallPercent = r.OverallPercent,
-            Notes = Text.Optional(r.Notes, "notes", 1000),
-            FileId = fileIds.Count > 0 ? fileIds[0] : null,
-            RecordedByUserId = user.UserId,
-        };
+        report.Title = Text.Required(r.Title, "title", 150);
+        report.ExamDate = r.ExamDate;
+        report.OverallPercent = r.OverallPercent;
+        report.Notes = Text.Optional(r.Notes, "notes", 1000);
         foreach (var (m, i) in marks.Select((m, i) => (m, i)))
         {
             var subject = Text.Required(m.Subject, "marks", 100);
@@ -74,9 +96,14 @@ public sealed class SchoolReportService(IAppDbContext db, ICurrentUser user, Acc
                 throw RequestValidationException.For("marks", $"Check the marks for {subject}.");
             report.Marks.Add(new StudentSchoolMark { Subject = subject, Marks = m.Marks, MaxMarks = m.MaxMarks, Grade = Text.Optional(m.Grade, "marks", 10), SortOrder = i });
         }
-        db.StudentSchoolReports.Add(report);
-        audit.Record("student.school_report_added", "Student", studentId, report.Title);
-        return report;
+    }
+
+    private async Task<Guid?> ClaimFileAsync(Guid? fileId, CancellationToken ct)
+    {
+        var fileIds = await files.ClaimAsync(fileId is { } f ? [f] : null, FilePurpose.SchoolReport, ct);
+        if (fileIds.Count > 0 && await db.StudentSchoolReports.AnyAsync(x => x.FileId == fileIds[0], ct))
+            throw RequestValidationException.For("fileId", "This file is already attached to another report.");
+        return fileIds.Count > 0 ? fileIds[0] : null;
     }
 
     public async Task DeleteAsync(Guid studentId, Guid reportId, CancellationToken ct)

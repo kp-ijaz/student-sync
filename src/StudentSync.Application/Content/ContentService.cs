@@ -203,7 +203,29 @@ public sealed class ContentService(
         return m.Id;
     }
 
+    /// <summary>Renames a material or changes its description (and a link's address). Same rule as deleting.</summary>
+    public async Task UpdateMaterialAsync(Guid id, UpdateMaterialRequest r, CancellationToken ct)
+    {
+        var m = await ManageableMaterialAsync(id, ct);
+        m.Title = Text.Required(r.Title, "title", 200);
+        m.Description = Text.Optional(r.Description, "description", 2000);
+        if (m.Kind == MaterialKind.Link && r.Url is not null)
+            m.Url = Text.OptionalUrl(r.Url, "url") ?? throw RequestValidationException.For("url", "A link is required.");
+        audit.Record("material.updated", "LearningMaterial", m.Id, m.Title);
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task DeleteMaterialAsync(Guid id, CancellationToken ct)
+    {
+        var m = await ManageableMaterialAsync(id, ct);
+        if (m.File is not null) m.File.DeletedAtUtc = clock.UtcNow;
+        db.Materials.Remove(m);
+        audit.Record("material.deleted", "LearningMaterial", m.Id, m.Title);
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Admins any material; others their own, or one on a class they manage.</summary>
+    private async Task<LearningMaterial> ManageableMaterialAsync(Guid id, CancellationToken ct)
     {
         access.Require(Permissions.ContentManage);
         var m = await db.Materials.Include(x => x.File).FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Material");
@@ -212,10 +234,7 @@ public sealed class ContentService(
             if (m.SessionId is { } sid) await access.GetManageableSessionAsync(sid, ct);
             else throw new ForbiddenException();
         }
-        if (m.File is not null) m.File.DeletedAtUtc = clock.UtcNow;
-        db.Materials.Remove(m);
-        audit.Record("material.deleted", "LearningMaterial", m.Id, m.Title);
-        await db.SaveChangesAsync(ct);
+        return m;
     }
 
     // ---------------- Recordings & consent ----------------

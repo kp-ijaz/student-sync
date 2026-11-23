@@ -97,28 +97,30 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
         access.Require(Permissions.UsersManage);
         var (currency, tz) = await CentreAsync(ct);
         var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
-        var (balances, _) = await BalancesAsync(today, ct);
+        // Former (archived/inactive) students stay on the list while they still owe money, so a debt never disappears
+        // when someone is removed; they are never "running out of hours" and get no automated reminders.
+        var (balances, _) = await BalancesAsync(today, includeInactive: true, ct);
         if (balances.Count == 0) return new FeesDueDto(currency, 0, 0, 0, 0, LowHoursAt, await CollectedThisMonthAsync(today, ct), 0, []);
 
-        var rows = balances.Where(r => r.Due > 0 || r.Left <= LowHoursAt)
+        var rows = balances.Where(r => r.Due > 0 || (r.Active && r.Left <= LowHoursAt))
             .OrderByDescending(r => r.OverdueDays).ThenByDescending(r => r.Due).ThenBy(r => r.Left)
             .ToList();
         var limit = Math.Clamp(take ?? 50, 1, MaxDueItems);
         var ids = rows.Take(limit).Select(r => r.StudentId).ToList();
         var people = await db.Students.Where(s => ids.Contains(s.Id))
-            .Select(s => new { s.Id, s.User!.FullName, s.StudentCode, s.User.PhotoFileId }).ToDictionaryAsync(s => s.Id, ct);
+            .Select(s => new { s.Id, s.User!.FullName, s.StudentCode, s.User.PhotoFileId, s.Status }).ToDictionaryAsync(s => s.Id, ct);
         var items = rows.Take(limit).Where(r => people.ContainsKey(r.StudentId)).Select(r =>
         {
             var p = people[r.StudentId];
-            return new FeeDueItemDto(r.StudentId, p.FullName, p.StudentCode, photos.For(p.PhotoFileId), r.Due, r.DueOn, r.OverdueDays, r.Left);
+            return new FeeDueItemDto(r.StudentId, p.FullName, p.StudentCode, photos.For(p.PhotoFileId), r.Due, r.DueOn, r.OverdueDays, r.Left, p.Status);
         }).ToList();
 
-        return new FeesDueDto(currency, rows.Sum(r => r.Due), rows.Count(r => r.Due > 0), rows.Count(r => r.OverdueDays > 0), rows.Count(r => r.Left <= LowHoursAt),
+        return new FeesDueDto(currency, rows.Sum(r => r.Due), rows.Count(r => r.Due > 0), rows.Count(r => r.OverdueDays > 0), rows.Count(r => r.Active && r.Left <= LowHoursAt),
             LowHoursAt, await CollectedThisMonthAsync(today, ct), rows.Count, items);
     }
 
     /// <summary>A student with at least one active package: what is owed, since when, and the hours left.</summary>
-    public sealed record StudentBalance(Guid StudentId, decimal Due, DateOnly? DueOn, int OverdueDays, decimal Bought, decimal Left, Guid LatestPackageId);
+    public sealed record StudentBalance(Guid StudentId, decimal Due, DateOnly? DueOn, int OverdueDays, decimal Bought, decimal Left, Guid LatestPackageId, bool Active = true);
     /// <summary>An active package that is not fully paid.</summary>
     public sealed record OpenPackage(Guid PackageId, Guid StudentId, string Name, decimal Price, decimal Paid, string CurrencyCode, DateOnly DueOn)
     {
@@ -129,11 +131,16 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
     /// Balances of every active student with an active package (shared by the Fees page and the automations; the caller
     /// checks permissions). Hours used = attended classes since each student's first active package.
     /// </summary>
-    public async Task<(List<StudentBalance> Students, List<OpenPackage> Packages)> BalancesAsync(DateOnly today, CancellationToken ct)
+    public Task<(List<StudentBalance> Students, List<OpenPackage> Packages)> BalancesAsync(DateOnly today, CancellationToken ct) =>
+        BalancesAsync(today, includeInactive: false, ct);
+
+    /// <param name="includeInactive">Also students who are not Active (archived, inactive, suspended) — for the admin's Fees due list only.</param>
+    public async Task<(List<StudentBalance> Students, List<OpenPackage> Packages)> BalancesAsync(DateOnly today, bool includeInactive, CancellationToken ct)
     {
-        var active = db.StudentPackages.Where(p => p.Status == PackageStatus.Active && p.Student!.Status == PersonStatus.Active);
+        var active = db.StudentPackages.Where(p => p.Status == PackageStatus.Active && (includeInactive || p.Student!.Status == PersonStatus.Active));
         var packages = await active.Select(p => new
         {
+            StudentActive = p.Student!.Status == PersonStatus.Active,
             p.Id,
             p.StudentId,
             p.Name,
@@ -165,7 +172,7 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
             DateOnly? dueOn = owing.Count == 0 ? null : owing.Min(o => o.DueOn);
             var bought = g.Sum(p => p.Hours);
             return new StudentBalance(g.Key, owing.Sum(o => o.Balance), dueOn, dueOn is { } d && d < today ? today.DayNumber - d.DayNumber : 0,
-                bought, bought - usedBy.GetValueOrDefault(g.Key), g.OrderByDescending(p => p.CreatedAtUtc).First().Id);
+                bought, bought - usedBy.GetValueOrDefault(g.Key), g.OrderByDescending(p => p.CreatedAtUtc).First().Id, g.First().StudentActive);
         }).ToList();
         return (students, open);
     }

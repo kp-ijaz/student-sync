@@ -21,7 +21,11 @@
                                     <div style="margin-top:4px;overflow-wrap:anywhere">@n.Text</div>
                                     <div class="caption" style="margin-top:4px">@n.AuthorName · <LocalTime Utc="n.CreatedAtUtc" Tz="@Tz" Format="date" /></div>
                                 </div>
-                                @if (n.CanDelete) { <button class="btn btn-ghost btn-sm" @onclick="() => Delete(n)" aria-label="Delete this @(n.Kind == StudentNoteKind.Goal ? "goal" : "observation")">Delete</button> }
+                                @if (n.CanDelete)
+                                {
+                                    <span class="btn-group"><button class="btn btn-ghost btn-sm" @onclick="() => Edit(n)" aria-label="Edit this @(n.Kind == StudentNoteKind.Goal ? "goal" : "observation")">Edit</button>
+                                    <button class="btn btn-ghost btn-sm danger-text" @onclick="() => Delete(n)" aria-label="Delete this @(n.Kind == StudentNoteKind.Goal ? "goal" : "observation")">Delete</button></span>
+                                }
                             </li>
                         }
                     </ul>
@@ -32,7 +36,9 @@
                     <div class="field"><label for="sn-subject">Subject (optional)</label>
                         <select id="sn-subject" class="select" @bind="_subjectId"><option value="">Any subject</option>@foreach (var s in _catalogue.Where(s => s.Status == CatalogStatus.Active).OrderBy(s => s.CourseName).ThenBy(s => s.Name)) { <option value="@s.Id">@s.Name (@s.CourseName)</option> }</select></div>
                     <div class="field full"><label for="sn-text">Text</label><textarea id="sn-text" class="textarea" rows="2" maxlength="2000" @bind="_text"></textarea></div>
-                    <div class="field full form-actions" style="margin-top:0"><button class="btn btn-primary" @onclick="Add" disabled="@(Busy || string.IsNullOrWhiteSpace(_text))"><Icon Name="plus" /> Add</button></div>
+                    <div class="field full form-actions" style="margin-top:0">
+                        @if (_editId is not null) { <button class="btn btn-secondary" @onclick="CancelEdit">Cancel</button> }
+                        <button class="btn btn-primary" @onclick="Add" disabled="@(Busy || string.IsNullOrWhiteSpace(_text))">@if (_editId is null) { <Icon Name="plus" /> <text>Add</text> } else { <text>Save changes</text> }</button></div>
                 </div>
             </div>
         }
@@ -61,11 +67,20 @@
         (_notes, _error) = await Fetch(() => Api.GetAsync<List<StudentNoteDto>>($"students/{StudentId}/notes"));
     }
 
+    // Editing reuses the add form below the list: it fills in the note and the button becomes "Save changes".
+    private Guid? _editId;
+    private void Edit(StudentNoteDto n) => (_editId, _kind, _subjectId, _text) = (n.Id, n.Kind, n.SubjectId, n.Text);
+    private void CancelEdit() => (_editId, _text, _subjectId) = (null, null, null);
+
     private async Task Add()
     {
-        if (await Run(() => Api.PostAsync<StudentNoteDto>($"students/{StudentId}/notes", new AddStudentNoteRequest(_kind, _text ?? "", _subjectId)), _kind == StudentNoteKind.Goal ? "Goal added." : "Observation added."))
+        var request = new AddStudentNoteRequest(_kind, _text ?? "", _subjectId);
+        var ok = _editId is { } id
+            ? await Run(() => Api.PutAsync<StudentNoteDto>($"students/{StudentId}/notes/{id}", request), "Saved.")
+            : await Run(() => Api.PostAsync<StudentNoteDto>($"students/{StudentId}/notes", request), _kind == StudentNoteKind.Goal ? "Goal added." : "Observation added.");
+        if (ok)
         {
-            (_text, _subjectId) = (null, null);
+            (_text, _subjectId, _editId) = (null, null, null);
             await LoadAsync();
         }
     }

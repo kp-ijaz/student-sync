@@ -12,7 +12,11 @@
                     <div class="row">
                         @if (m.Kind == MaterialKind.Link && m.Url is not null) { <a class="btn btn-secondary btn-sm" href="@m.Url" target="_blank" rel="noopener noreferrer">Open link</a> }
                         @if (m.File is { } f) { <FileButton FileId="f.Id" Label="@($"{f.FileName} ({f.SizeBytes / 1024:N0} KB)")" /> }
-                        @if (Session.CanManage) { <button class="btn btn-ghost btn-sm" @onclick="() => Delete(m)">Remove</button> }
+                        @if (Session.CanManage)
+                        {
+                            <button class="btn btn-ghost btn-sm" @onclick="() => Edit(m)">Edit<span class="sr-only"> @m.Title</span></button>
+                            <button class="btn btn-ghost btn-sm danger-text" @onclick="() => Delete(m)">Remove<span class="sr-only"> @m.Title</span></button>
+                        }
                     </div>
                 </li>
             }
@@ -38,7 +42,27 @@
     </div>
 </Modal>
 
+<Modal @bind-Open="_editOpen" Title="Edit material">
+    <div class="stack">
+        <div class="field"><label for="emt">Title *</label><input id="emt" class="input" maxlength="200" @bind="_eTitle" /></div>
+        <div class="field"><label for="emd">Description</label><input id="emd" class="input" maxlength="2000" @bind="_eDescription" /></div>
+        @if (_editing?.Kind == MaterialKind.Link) { <div class="field"><label for="emu">Link *</label><input id="emu" class="input" type="url" @bind="_eUrl" /></div> }
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _editOpen = false">Cancel</button><button class="btn btn-primary" @onclick="SaveEdit" disabled="@(Busy || string.IsNullOrWhiteSpace(_eTitle))">Save</button></div>
+    </div>
+</Modal>
+
 @code {
+    private bool _editOpen;
+    private MaterialDto? _editing;
+    private string _eTitle = "";
+    private string? _eDescription, _eUrl;
+    private void Edit(MaterialDto m) => (_editing, _eTitle, _eDescription, _eUrl, _editOpen) = (m, m.Title, m.Description, m.Url, true);
+    private async Task SaveEdit()
+    {
+        if (_editing is not { } m) return;
+        if (await Run(() => Api.PutAsync($"materials/{m.Id}", new UpdateMaterialRequest(_eTitle, _eDescription, m.Kind == MaterialKind.Link ? _eUrl : null)), "Material saved.")) { _editOpen = false; await Load(); }
+    }
+
     [Parameter, EditorRequired] public SessionDetailDto Session { get; set; } = default!;
     private List<MaterialDto>? _items;
     private ApiException? _error;

@@ -129,6 +129,20 @@ public sealed class LearningProfileService(IAppDbContext db, ICurrentUser user, 
         return (await NotesAsync(studentId, ct)).First(n => n.Id == note.Id);
     }
 
+    /// <summary>Corrects a goal or observation. Same rule as deleting: admins any note, staff their own.</summary>
+    public async Task<StudentNoteDto> UpdateNoteAsync(Guid studentId, Guid noteId, AddStudentNoteRequest r, CancellationToken ct)
+    {
+        access.Require(Permissions.LearningNeedsManage);
+        await EnsureCanViewAsync(studentId, ct);
+        var note = await db.StudentNotes.FirstOrDefaultAsync(n => n.Id == noteId && n.StudentId == studentId, ct) ?? throw new NotFoundException("Note");
+        if (!access.IsAdmin && note.AuthorUserId != user.UserId) throw new ForbiddenException();
+        if (r.SubjectId is { } sid && !await db.Subjects.AnyAsync(s => s.Id == sid, ct)) throw RequestValidationException.For("subjectId", "Subject not found.");
+        (note.Kind, note.Text, note.SubjectId) = (r.Kind, Text.Required(r.Text, "text", 2000), r.SubjectId);
+        audit.Record("student.note_updated", "Student", studentId, note.Kind.ToString());
+        await db.SaveChangesAsync(ct);
+        return (await NotesAsync(studentId, ct)).First(n => n.Id == note.Id);
+    }
+
     public async Task DeleteNoteAsync(Guid studentId, Guid noteId, CancellationToken ct)
     {
         access.Require(Permissions.LearningNeedsManage);

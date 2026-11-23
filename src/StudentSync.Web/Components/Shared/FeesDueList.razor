@@ -2,7 +2,7 @@
 <ul class="fee-list">
     @foreach (var i in Items)
     {
-        var low = i.HoursLeft <= LowHoursAt;
+        var low = i.Status == PersonStatus.Active && i.HoursLeft <= LowHoursAt;
         <li>
             <a href="@($"/students/{i.StudentId}#fees")">
                 <Avatar Name="@i.StudentName" PhotoUrl="@i.PhotoUrl" Size="sm" Decorative="true" />
@@ -11,7 +11,8 @@
                     <span class="caption">@DueLine(i)</span>
                 </span>
                 @if (i.Due > 0) { <span class="fee-amount @(i.DaysOverdue > 0 ? "late" : "")">@Money.Format(i.Due, Currency)</span> }
-                @if (low) { <span class="badge @(i.HoursLeft <= 0 ? "red" : "amber")">@Money.HoursLeft(i.HoursLeft)</span> }
+                @if (i.Status != PersonStatus.Active) { <Badge Style="StatusStyles.For(i.Status)" /> }
+                else if (low) { <span class="badge @(i.HoursLeft <= 0 ? "red" : "amber")">@Money.HoursLeft(i.HoursLeft)</span> }
             </a>
         </li>
     }
@@ -26,6 +27,7 @@
     {
         { Due: > 0, DaysOverdue: > 0 } => i.DaysOverdue == 1 ? "Overdue by 1 day" : $"Overdue by {i.DaysOverdue} days",
         { Due: > 0, DueOn: { } d } => $"Due {d:d MMM}",
+        { Status: not PersonStatus.Active } => "Paid up",
         _ => "Paid up · renew hours",
     };
 }
