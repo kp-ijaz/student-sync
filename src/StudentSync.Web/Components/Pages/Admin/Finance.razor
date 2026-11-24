@@ -18,26 +18,7 @@
 </PageHeader>
 
 @* 1. Period *@
-<div class="card finance-period">
-    <Segmented TValue="string" Options="PeriodOptions" Value="_period" ValueChanged="SetPeriod" Label="Period" />
-    @if (_period == "custom")
-    {
-        <div class="finance-custom">
-            <label class="sr-only" for="ff">From</label><input id="ff" class="input" type="date" @bind="_from" />
-            <span aria-hidden="true">–</span>
-            <label class="sr-only" for="ft">To</label><input id="ft" class="input" type="date" @bind="_to" />
-            <button class="btn btn-secondary btn-sm" @onclick="ApplyCustom" disabled="@(_to < _from)">Show</button>
-        </div>
-    }
-    else
-    {
-        <div class="finance-nav">
-            <button class="icon-btn" aria-label="@(_period == "year" ? "Previous year" : "Previous month")" @onclick="() => Move(-1)"><Icon Name="chevron-left" /></button>
-            <h2>@PeriodLabel</h2>
-            <button class="icon-btn" aria-label="@(_period == "year" ? "Next year" : "Next month")" @onclick="() => Move(1)" disabled="@(_from >= CurrentStart)"><Icon Name="chevron-right" /></button>
-        </div>
-    }
-</div>
+<PeriodSwitcher Period="@_period" From="_from" To="_to" AllowDates="true" Changed="PeriodChanged" />
 
 <DataView Loading="_s is null && _error is null" Error="_error" OnRetry="LoadAll">
     @if (_s is { } s)
@@ -46,20 +27,20 @@
         <div class="metric-strip finance-kpis" role="group" aria-label="Money at a glance" style="--n:4">
             <button type="button" class="metric-cell @(_kind == "Income" ? "on" : "")" aria-pressed="@Aria.Bool(_kind == "Income")" @onclick='() => SetKind("Income")'>
                 <span class="metric-strip-label"><Icon Name="trending-up" /> Income</span><strong class="metric-value">@Money.Format(s.Income, s.CurrencyCode)</strong>
-                <span class="metric-strip-note">fees received · @Change(s.Income, s.Previous.Income)</span></button>
+                <span class="metric-strip-note">fees received · @Periods.Change(s.Income, s.Previous.Income)</span></button>
             <button type="button" class="metric-cell @(_kind == "Salary" ? "on" : "")" aria-pressed="@Aria.Bool(_kind == "Salary")" @onclick='() => SetKind("Salary")'>
                 <span class="metric-strip-label"><Icon Name="users" /> Salaries paid</span><strong class="metric-value">@Money.Format(s.Salaries, s.CurrencyCode)</strong>
-                <span class="metric-strip-note">to teachers · @Change(s.Salaries, s.Previous.Salaries)</span></button>
+                <span class="metric-strip-note">to teachers · @Periods.Change(s.Salaries, s.Previous.Salaries)</span></button>
             <button type="button" class="metric-cell @(_kind == "Expense" ? "on" : "")" aria-pressed="@Aria.Bool(_kind == "Expense")" @onclick='() => SetKind("Expense")'>
                 <span class="metric-strip-label"><Icon Name="wallet" /> Expenses</span><strong class="metric-value">@Money.Format(s.Expenses, s.CurrencyCode)</strong>
-                <span class="metric-strip-note">rent, bills, other · @Change(s.Expenses, s.Previous.Expenses)</span></button>
+                <span class="metric-strip-note">rent, bills, other · @Periods.Change(s.Expenses, s.Previous.Expenses)</span></button>
             <button type="button" class="metric-cell @(_kind == "all" ? "on" : "")" aria-pressed="@Aria.Bool(_kind == "all")" @onclick='() => SetKind("all")'>
                 <span class="metric-strip-label"><Icon Name="@(s.Profit < 0 ? "alert" : "check-circle")" /> @(s.Profit < 0 ? "Loss" : "Profit")</span>
                 <strong class="metric-value @(s.Profit < 0 ? "loss" : "")">@Money.Format(Math.Abs(s.Profit), s.CurrencyCode)</strong>
                 <span class="metric-strip-note">income − salaries − expenses@(s.MarginPercent is { } mp ? $" · {mp:0.#}% of income" : "")</span></button>
         </div>
         <p class="caption finance-open">
-            Before (@PeriodName(s.Previous.From, s.Previous.To)): @(s.Previous.Profit < 0 ? "loss" : "profit") @Money.Format(Math.Abs(s.Previous.Profit), s.CurrencyCode).
+            Before (@Periods.Name(s.Previous.From, s.Previous.To)): @(s.Previous.Profit < 0 ? "loss" : "profit") @Money.Format(Math.Abs(s.Previous.Profit), s.CurrencyCode).
             Open today: <a href="/admin/fees">@Money.Format(s.FeesToCollect, s.CurrencyCode) fees to collect</a> ·
             <a href="/admin/salaries">@Money.Format(s.SalariesOwed, s.CurrencyCode) salaries to pay</a>
         </p>
@@ -187,10 +168,7 @@
     </div>
 </Modal>
 
-<Modal @bind-Open="_deleteOpen" Title="@($"Delete {_deleting?.Title}?")">
-    <p style="margin-top:0">The expense is removed from the totals. The audit log keeps a note of it.</p>
-    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep it</button><button class="btn btn-danger" @onclick="DeleteExpense" disabled="@Busy"><Icon Name="trash" /> Delete expense</button></div>
-</Modal>
+<ConfirmDialog @bind-Open="_deleteOpen" Title="@($"Delete {_deleting?.Title}?")" ConfirmText="Delete expense" Busy="Busy" OnConfirm="DeleteExpense">The expense is removed from the totals. The audit log keeps a note of it.</ConfirmDialog>
 
 @if (Me is not null)
 {
@@ -199,7 +177,6 @@
 
 @code {
     private static readonly IReadOnlyList<Choice<ExpenseCategory>.Option> Categories = Enum.GetValues<ExpenseCategory>().Select(c => new Choice<ExpenseCategory>.Option(c, FinanceLabels.Category(c))).ToList();
-    private static readonly IReadOnlyList<Segmented<string>.Option> PeriodOptions = [new("month", "Month"), new("year", "Year"), new("custom", "Dates")];
 
     [SupplyParameterFromQuery(Name = "kind")] public string? KindParam { get; set; }
     [SupplyParameterFromQuery(Name = "from")] public string? FromParam { get; set; }
@@ -213,8 +190,7 @@
     private DateOnly _from = new(DateTime.Today.Year, DateTime.Today.Month, 1), _to;
     private string? _appliedQuery;
 
-    private DateOnly CurrentStart => _period == "year" ? new(DateTime.Today.Year, 1, 1) : new(DateTime.Today.Year, DateTime.Today.Month, 1);
-    private string PeriodLabel => PeriodName(_from, _to);
+    private string PeriodLabel => Periods.Name(_from, _to);
     private string Currency => _s?.CurrencyCode ?? "";
     private ExpenseCategory? CategoryFilter => Enum.TryParse<ExpenseCategory>(_categoryText, out var c) ? c : null;
     private bool Filtered => _kind != "all" || CategoryFilter is not null || !string.IsNullOrWhiteSpace(_search);
@@ -247,7 +223,7 @@
         if (DateOnly.TryParse(FromParam, out var f) && DateOnly.TryParse(ToParam, out var t) && t >= f)
         {
             (_from, _to) = (f, t);
-            _period = f.Day == 1 && t == f.AddMonths(1).AddDays(-1) ? "month" : f.Day == 1 && f.Month == 1 && t == f.AddYears(1).AddDays(-1) ? "year" : "custom";
+            _period = Periods.Kind(f, t);
         }
     }
 
@@ -265,23 +241,11 @@
 
     private async Task LoadEntries(int page) => (_e, _entriesError) = await Fetch(() => Api.GetAsync<FinanceEntriesDto>($"finance/entries?{EntriesQuery(page)}"));
 
-    private async Task SetPeriod(string p)
+    private async Task PeriodChanged(PeriodSwitcher.Range r)
     {
-        _period = p;
-        if (p == "custom") return; // the dates are applied with "Show"
-        var today = DateOnly.FromDateTime(DateTime.Today);
-        _from = p == "year" ? new(_from.Year, 1, 1) : (_from.Year == today.Year ? new(today.Year, today.Month, 1) : new(_from.Year, 12, 1));
-        _to = p == "year" ? _from.AddYears(1).AddDays(-1) : _from.AddMonths(1).AddDays(-1);
-        await LoadAll();
-    }
-
-    private async Task ApplyCustom() { if (_to >= _from) await LoadAll(); }
-
-    private async Task Move(int step)
-    {
-        _from = _period == "year" ? _from.AddYears(step) : _from.AddMonths(step);
-        _to = _period == "year" ? _from.AddYears(1).AddDays(-1) : _from.AddMonths(1).AddDays(-1);
-        await LoadAll();
+        var reload = (r.From, r.To) != (_from, _to);
+        (_period, _from, _to) = (r.Period, r.From, r.To);
+        if (reload) await LoadAll(); // choosing "Dates" alone changes nothing until "Show"
     }
 
     private async Task OpenMonth(DateOnly month) { (_period, _from, _to) = ("month", month, month.AddMonths(1).AddDays(-1)); await LoadAll(); }
@@ -299,19 +263,6 @@
 
     private Task ExportCsv() => Run(async () => await JS.InvokeVoidAsync("ss.download", $"finance-{_from:yyyy-MM-dd}-to-{_to:yyyy-MM-dd}.csv",
         await Api.GetStringAsync($"finance/entries.csv?{EntriesQuery(1)}"), "text/csv"), "Export ready.");
-
-    private static string PeriodName(DateOnly from, DateOnly to) =>
-        from.Day == 1 && to == from.AddMonths(1).AddDays(-1) ? from.ToString("MMMM yyyy")
-        : from.Day == 1 && from.Month == 1 && to == from.AddYears(1).AddDays(-1) ? from.Year.ToString()
-        : $"{from:d MMM yyyy} – {to:d MMM yyyy}";
-
-    /// <summary>Change from the previous period, in words (no invented percentage when there was nothing before).</summary>
-    private static string Change(decimal now, decimal before) => (now, before) switch
-    {
-        _ when now == before => "same as before",
-        (_, 0) => "none the period before",
-        _ => $"{(now > before ? "▲" : "▼")} {Math.Abs((now - before) / before * 100m):0}% vs before",
-    };
 
     private static string KindIcon(FinanceEntryKind k) => k switch { FinanceEntryKind.Income => "trending-up", FinanceEntryKind.Salary => "users", _ => "wallet" };
 

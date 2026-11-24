@@ -11,7 +11,7 @@ namespace StudentSync.Application.Fees;
 /// The centre's fee plans (packages it offers, optionally per class and syllabus). Admin only. A plan only pre-fills
 /// "Add hours": each sale copies the hours and price, so changing or deleting a plan never rewrites what a student bought.
 /// </summary>
-public sealed class FeePlanService(IAppDbContext db, ICurrentUser user, AccessPolicy access, AuditService audit)
+public sealed class FeePlanService(IAppDbContext db, AccessPolicy access, AuditService audit, CentreService centre)
 {
     public const int MaxPlans = 200;
 
@@ -22,7 +22,7 @@ public sealed class FeePlanService(IAppDbContext db, ICurrentUser user, AccessPo
     public async Task<List<FeePlanDto>> ListAsync(Guid? studentId, CancellationToken ct)
     {
         access.Require(Permissions.UsersManage);
-        var currency = await CurrencyAsync(ct);
+        var currency = (await centre.GetAsync(ct)).Currency;
         var plans = db.FeePlans.AsQueryable();
         if (studentId is { } sid)
         {
@@ -75,7 +75,7 @@ public sealed class FeePlanService(IAppDbContext db, ICurrentUser user, AccessPo
         plan.CurriculumId = r.CurriculumId;
         plan.Notes = Text.Optional(r.Notes, "notes", 500);
         plan.IsActive = r.IsActive;
-        var currency = await CurrencyAsync(ct);
+        var currency = (await centre.GetAsync(ct)).Currency;
         audit.Record(id is null ? "fees.plan_added" : "fees.plan_updated", "FeePlan", plan.Id,
             $"{plan.Name} · {plan.Hours:0.##} h · {plan.Price:0.##} {currency}{(plan.IsActive ? "" : " · hidden")}");
         await db.SaveChangesAsync(ct);
@@ -91,7 +91,4 @@ public sealed class FeePlanService(IAppDbContext db, ICurrentUser user, AccessPo
         audit.Record("fees.plan_deleted", "FeePlan", id, plan.Name);
         await db.SaveChangesAsync(ct);
     }
-
-    private async Task<string> CurrencyAsync(CancellationToken ct) =>
-        await db.Tenants.Where(t => t.Id == user.TenantId).Select(t => t.CurrencyCode).FirstOrDefaultAsync(ct) ?? "USD";
 }

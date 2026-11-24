@@ -11,7 +11,7 @@ using StudentSync.Domain.Scheduling;
 
 namespace StudentSync.Application.Reporting;
 
-public sealed class ReportService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, DashboardService dashboards, Fees.FeeService fees, Fees.TeacherPayService pay)
+public sealed class ReportService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, DashboardService dashboards, Fees.FeeService fees, Fees.SalaryService salaries, CentreService centre)
 {
     /// <summary>How many active students are in each class, syllabus and academic year (admins only — owner request 2026-11-17).</summary>
     public async Task<StudentsBreakdownDto> StudentsBreakdownAsync(Guid? academicYearId, CancellationToken ct)
@@ -122,12 +122,12 @@ public sealed class ReportService(IAppDbContext db, ICurrentUser user, AccessPol
         MoneyReportDto? money = null;
         if (seeMoney)
         {
-            var currency = await db.Tenants.Where(t => t.Id == user.TenantId).Select(t => t.CurrencyCode).FirstAsync(ct);
+            var currency = (await centre.GetAsync(ct)).Currency;
             var collected = await db.FeePayments.Where(p => p.VoidedAtUtc == null && p.PaidOn >= from && p.PaidOn <= to).SumAsync(p => (decimal?)p.Amount, ct) ?? 0;
             var salaryPaid = await db.TeacherPayments.Where(p => p.VoidedAtUtc == null && p.PaidOn >= from && p.PaidOn <= to).SumAsync(p => (decimal?)p.Amount, ct) ?? 0;
             var pending = (await fees.DueAsync(1, ct)).TotalDue;
-            decimal salaryDue = 0;
-            foreach (var tr in teacherRows) salaryDue += Math.Max(0, (await pay.PayAsync(tr.Id, ct)).Due);
+            // What every teacher is owed today, worked out for all teachers together (it used to be asked teacher by teacher).
+            var salaryDue = (await salaries.MonthAsync(await centre.TodayAsync(ct), ct)).Sum(r => r.DueNow);
             money = new MoneyReportDto(currency, completed.Count, completed.Sum(c => c.Hours), collected, salaryPaid, pending, salaryDue);
         }
 

@@ -1,0 +1,73 @@
+@* Two things side by side for each of the last few months (for example money in and money out), on one shared scale
+   starting at zero. A legend names the two colours, hovering a bar shows its figure, the newest month is marked, and a
+   table of the same figures is available to screen readers. No second axis, no decoration. *@
+@if (Months.Count == 0 || Max <= 0)
+{
+    <InlineEmpty Icon="bar-chart" Text="@EmptyText" />
+}
+else
+{
+    <div class="mbars">
+        <div class="mbars-legend">
+            <span><span class="donut-swatch" style="background:var(--ss-blue)" aria-hidden="true"></span> @FirstLabel</span>
+            <span><span class="donut-swatch" style="background:var(--ss-orange-deep)" aria-hidden="true"></span> @SecondLabel</span>
+        </div>
+        <svg class="mbars-plot" viewBox="0 0 @W @H" role="img" aria-label="@($"{FirstLabel} and {SecondLabel} for the last {Months.Count} months. Figures are in the table that follows.")">
+            @* <text> directly inside a code block is Razor's own tag, so SVG labels sit in a <g>. *@
+            @for (var g = 0; g <= 3; g++)
+            {
+                var y = Top + PlotH - PlotH * g / 3.0;
+                <line x1="@Left" x2="@(W - 4)" y1="@F(y)" y2="@F(y)" class="mbars-grid" />
+                <g><text x="@(Left - 6)" y="@F(y + 3.5)" text-anchor="end" class="mbars-axis">@Short(Scale * g / 3m)</text></g>
+            }
+            @for (var i = 0; i < Months.Count; i++)
+            {
+                var m = Months[i];
+                var x = Left + Slot * i + (Slot - (2 * BarW + 3)) / 2.0;
+                <rect x="@F(x)" y="@F(Y(m.First))" width="@BarW" height="@F(Hgt(m.First))" rx="3" class="mbars-a"><title>@($"{m.Month:MMM yyyy} · {FirstLabel}: {Format(m.First)}")</title></rect>
+                <rect x="@F(x + BarW + 3)" y="@F(Y(m.Second))" width="@BarW" height="@F(Hgt(m.Second))" rx="3" class="mbars-b"><title>@($"{m.Month:MMM yyyy} · {SecondLabel}: {Format(m.Second)}")</title></rect>
+                <g><text x="@F(Left + Slot * i + Slot / 2.0)" y="@(H - 6)" text-anchor="middle" class="mbars-axis @(i == Months.Count - 1 ? "now" : "")">@m.Month.ToString("MMM")</text></g>
+            }
+        </svg>
+        <table class="sr-only">
+            <caption>@FirstLabel and @SecondLabel by month</caption>
+            <thead><tr><th>Month</th><th>@FirstLabel</th><th>@SecondLabel</th></tr></thead>
+            <tbody>@foreach (var m in Months) { <tr><td>@m.Month.ToString("MMMM yyyy")</td><td>@Format(m.First)</td><td>@Format(m.Second)</td></tr> }</tbody>
+        </table>
+    </div>
+}
+
+@code {
+    public sealed record Point(DateOnly Month, decimal First, decimal Second);
+
+    private const int W = 360, H = 190, Left = 44, Top = 10, BarW = 14;
+    private const double PlotH = 150;
+
+    [Parameter, EditorRequired] public IReadOnlyList<Point> Months { get; set; } = [];
+    [Parameter] public string FirstLabel { get; set; } = "In";
+    [Parameter] public string SecondLabel { get; set; } = "Out";
+    [Parameter] public string EmptyText { get; set; } = "Nothing recorded in these months yet.";
+    /// <summary>How a figure is written in tooltips and the table (e.g. money with its currency).</summary>
+    [Parameter] public Func<decimal, string> Format { get; set; } = v => v.ToString("N0");
+
+    private decimal Max => Months.Count == 0 ? 0 : Months.Max(m => Math.Max(m.First, m.Second));
+    private double Slot => (W - Left - 4) / (double)Months.Count;
+
+    /// <summary>The top of the axis: the largest figure rounded up to a tidy number (1, 2, 3, 5 or 10 × a power of ten), so the three gridlines read cleanly.</summary>
+    private decimal Scale
+    {
+        get
+        {
+            if (Max <= 0) return 3;
+            var step = (decimal)Math.Pow(10, Math.Floor(Math.Log10((double)Max / 3)));
+            foreach (var k in new[] { 1m, 2m, 3m, 5m, 10m })
+                if (step * k * 3 >= Max) return step * k * 3;
+            return step * 30;
+        }
+    }
+
+    private double Hgt(decimal v) => v <= 0 ? 0 : Math.Max(2, (double)(v / Scale) * PlotH);
+    private double Y(decimal v) => Top + PlotH - Hgt(v);
+    private static string F(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+    private static string Short(decimal v) => v >= 1_000_000 ? $"{v / 1_000_000m:0.#}M" : v >= 1_000 ? $"{v / 1_000m:0.#}k" : v.ToString("0");
+}

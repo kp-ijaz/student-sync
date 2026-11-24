@@ -79,7 +79,7 @@ public sealed class AttendanceService(IAppDbContext db, ICurrentUser user, Acces
         var local = ZonedTime.ToLocal(s.StartUtc, centre);
         var monthStart = ZonedTime.ToUtc(new DateOnly(local.Year, local.Month, 1), TimeOnly.MinValue, centre).Utc;
         var monthEnd = ZonedTime.ToUtc(new DateOnly(local.Year, local.Month, 1).AddMonths(1), TimeOnly.MinValue, centre).Utc;
-        var names = await db.Users.Where(u => absentees.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        var names = await db.Users.Where(u => absentees.Contains(u.Id)).Select(u => new { u.Id, u.FullName }).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
         var admins = settings.AbsenceFlagAt > 0
             ? await db.Users.Where(u => u.TenantId == user.TenantId && u.Role == Domain.Identity.UserRole.InstitutionAdmin && u.IsActive).Select(u => u.Id).ToListAsync(ct)
             : [];

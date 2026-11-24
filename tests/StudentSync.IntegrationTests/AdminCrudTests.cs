@@ -476,3 +476,29 @@ public sealed class AdminCrudFinalTests(ApiFixture api)
         await priya.DeleteRaw($"materials/{id}");
     }
 }
+
+/// <summary>Messages: unread counts come from one query (2026-11-24 optimisation) and must still count per conversation.</summary>
+public sealed class MessagingUnreadTests(ApiFixture api)
+{
+    [Fact]
+    public async Task Unread_counts_follow_what_each_person_has_read()
+    {
+        var amira = await api.LoginAsync(Accounts.Amira);
+        var aisha = await api.LoginAsync(Accounts.Aisha);
+        var tag = Guid.NewGuid().ToString("N")[..8];
+        var id = (await amira.Post<IdResponse>("conversations", new StartConversationRequest(aisha.UserId, $"Hello {tag}"))).Id;
+        await amira.Post<IdResponse>($"conversations/{id}/messages", new SendMessageRequest($"Second {tag}", null));
+
+        async Task<int> Unread(Client who) => (await who.Get<List<ConversationDto>>("conversations")).Single(c => c.Id == id).UnreadCount;
+        var before = await Unread(aisha);
+        Assert.True(before >= 2);                 // both new messages are unread for Aisha (an older thread may add more)
+        Assert.Equal(0, await Unread(amira));     // her own messages are never "unread" for the sender
+
+        await aisha.Get<List<MessageDto>>($"conversations/{id}/messages"); // opening the conversation marks it read
+        Assert.Equal(0, await Unread(aisha));
+        await amira.Post<IdResponse>($"conversations/{id}/messages", new SendMessageRequest($"Third {tag}", null));
+        Assert.Equal(1, await Unread(aisha));
+        await aisha.Post<IdResponse>($"conversations/{id}/messages", new SendMessageRequest($"Reply {tag}", null));
+        Assert.Equal(1, await Unread(amira));
+    }
+}

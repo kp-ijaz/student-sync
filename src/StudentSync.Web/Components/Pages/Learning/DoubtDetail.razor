@@ -69,10 +69,7 @@
     }
 </DataView>
 
-<Modal @bind-Open="_deleteOpen" Title="Delete this doubt?">
-    <p style="margin-top:0">The question, its replies and history are removed for everyone. Use this for doubts posted by mistake.</p>
-    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep it</button><button class="btn btn-danger" @onclick="Delete" disabled="@Busy"><Icon Name="trash" /> Delete doubt</button></div>
-</Modal>
+<ConfirmDialog @bind-Open="_deleteOpen" Title="Delete this doubt?" ConfirmText="Delete doubt" Busy="Busy" OnConfirm="Delete">The question, its replies and history are removed for everyone. Use this for doubts posted by mistake.</ConfirmDialog>
 
 @code {
     private bool _deleteOpen;

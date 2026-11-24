@@ -407,7 +407,7 @@ public sealed class DailyAutomations(IAppDbContext db, ITenantContext tenant, IC
     private Task<Dictionary<Guid, string>> NamesAsync(IEnumerable<Guid> ids, CancellationToken ct)
     {
         var list = ids.Distinct().ToList();
-        return db.Users.Where(u => list.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        return db.Users.Where(u => list.Contains(u.Id)).Select(u => new { u.Id, u.FullName }).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
     }
 
     private static (DateTime From, DateTime To) DayUtc(DateOnly day, string tz) =>

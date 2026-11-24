@@ -24,7 +24,7 @@ public sealed class HoursBudgetService(IAppDbContext db)
     public async Task<Dictionary<Guid, Budget>> ForStudentsAsync(IReadOnlyCollection<Guid> studentIds, Guid? excludeSessionId, CancellationToken ct)
     {
         var ids = studentIds.Distinct().ToList();
-        var names = await db.Users.Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        var names = await db.Users.Where(u => ids.Contains(u.Id)).Select(u => new { u.Id, u.FullName }).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
         var packages = await db.StudentPackages.Where(p => ids.Contains(p.StudentId) && p.Status == PackageStatus.Active)
             .GroupBy(p => p.StudentId).Select(g => new { StudentId = g.Key, Hours = g.Sum(p => p.Hours), From = g.Min(p => p.CountsFromUtc) })
             .ToDictionaryAsync(x => x.StudentId, ct);

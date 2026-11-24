@@ -195,7 +195,7 @@ public sealed class AiService(
     {
         var d = await DraftForReviewAsync(draftId, ct);
         var title = await db.Sessions.Where(s => s.Id == d.SessionId).Select(s => s.Title).FirstAsync(ct);
-        var editors = await db.Users.Where(u => d.Versions.Select(v => v.EditedByUserId).Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        var editors = await db.Users.Where(u => d.Versions.Select(v => v.EditedByUserId).Contains(u.Id)).Select(u => new { u.Id, u.FullName }).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
         var contentObj = JsonSerializer.Deserialize<LessonDraftContent>(d.ContentJson, Json)!;
         return new AiDraftDto(d.Id, d.SessionId, title, d.Status, d.CurrentVersion, contentObj, d.Provider, d.Model, d.IsDemo, d.RejectionReason, d.CreatedAtUtc,
             d.Versions.OrderByDescending(v => v.VersionNumber).Select(v => new AiDraftVersionDto(v.VersionNumber, v.CreatedAtUtc,

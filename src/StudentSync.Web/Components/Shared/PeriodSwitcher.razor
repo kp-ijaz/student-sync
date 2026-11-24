@@ -1,0 +1,59 @@
+@* Choose the period a money or marketing screen shows: a month or a year with previous/next, and optionally any two
+   dates. One component for Finance and the Marketing overview (they had the same markup and date arithmetic twice).
+   The parent keeps the state; this works out the new period and reports it through Changed. *@
+<div class="card finance-period">
+    <Segmented TValue="string" Options="Options" Value="Period" ValueChanged="SetPeriod" Label="Period" />
+    @if (Period == "custom")
+    {
+        <div class="finance-custom">
+            <label class="sr-only" for="@($"{_id}-f")">From</label><input id="@($"{_id}-f")" class="input" type="date" @bind="_customFrom" />
+            <span aria-hidden="true">–</span>
+            <label class="sr-only" for="@($"{_id}-t")">To</label><input id="@($"{_id}-t")" class="input" type="date" @bind="_customTo" />
+            <button class="btn btn-secondary btn-sm" @onclick="() => Changed.InvokeAsync(new Range(Period, _customFrom, _customTo))" disabled="@(_customTo < _customFrom)">Show</button>
+        </div>
+    }
+    else
+    {
+        <div class="finance-nav">
+            <button class="icon-btn" aria-label="@(Period == "year" ? "Previous year" : "Previous month")" @onclick="() => Move(-1)"><Icon Name="chevron-left" /></button>
+            <h2>@Periods.Name(From, To)</h2>
+            <button class="icon-btn" aria-label="@(Period == "year" ? "Next year" : "Next month")" @onclick="() => Move(1)" disabled="@(From >= CurrentStart)"><Icon Name="chevron-right" /></button>
+        </div>
+    }
+</div>
+
+@code {
+    public sealed record Range(string Period, DateOnly From, DateOnly To);
+
+    private static readonly IReadOnlyList<Segmented<string>.Option> MonthYear = [new("month", "Month"), new("year", "Year")];
+    private static readonly IReadOnlyList<Segmented<string>.Option> WithDates = [new("month", "Month"), new("year", "Year"), new("custom", "Dates")];
+    private readonly string _id = "per-" + Guid.NewGuid().ToString("N")[..6];
+
+    /// <summary>"month", "year" or (when <see cref="AllowDates"/>) "custom".</summary>
+    [Parameter, EditorRequired] public string Period { get; set; } = "month";
+    [Parameter, EditorRequired] public DateOnly From { get; set; }
+    [Parameter, EditorRequired] public DateOnly To { get; set; }
+    [Parameter] public bool AllowDates { get; set; }
+    [Parameter] public EventCallback<Range> Changed { get; set; }
+
+    private DateOnly _customFrom, _customTo;
+    private IReadOnlyList<Segmented<string>.Option> Options => AllowDates ? WithDates : MonthYear;
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+    private DateOnly CurrentStart => Period == "year" ? new(Today.Year, 1, 1) : new(Today.Year, Today.Month, 1);
+
+    protected override void OnParametersSet() => (_customFrom, _customTo) = (From, To);
+
+    private Task SetPeriod(string period)
+    {
+        if (period == "custom") return Changed.InvokeAsync(new Range(period, From, To)); // dates are applied with "Show"
+        // Year: the year being looked at. Month: this month in the current year, otherwise that year's December.
+        var from = period == "year" ? new DateOnly(From.Year, 1, 1) : From.Year == Today.Year ? new DateOnly(Today.Year, Today.Month, 1) : new DateOnly(From.Year, 12, 1);
+        return Changed.InvokeAsync(new Range(period, from, Periods.End(period, from)));
+    }
+
+    private Task Move(int step)
+    {
+        var from = Period == "year" ? From.AddYears(step) : From.AddMonths(step);
+        return Changed.InvokeAsync(new Range(Period, from, Periods.End(Period, from)));
+    }
+}

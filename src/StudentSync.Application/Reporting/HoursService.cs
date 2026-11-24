@@ -47,7 +47,7 @@ public sealed class HoursService(IAppDbContext db, ICurrentUser user, AccessPoli
         var assigned = await db.TeacherSubjects.Where(t => subjectIds.Contains(t.SubjectId))
             .Select(t => new { t.SubjectId, t.TeacherId, t.Teacher!.User!.FullName }).ToListAsync(ct);
         var teacherIds = rows.Select(r => r.TeacherId).Distinct().ToList();
-        var teacherNames = await db.Users.Where(u => teacherIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        var teacherNames = await db.Users.Where(u => teacherIds.Contains(u.Id)).Select(u => new { u.Id, u.FullName }).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
         var bySubject = subjects.Select(s =>
         {
             var done = rows.Where(r => r.SubjectId == s.Id && Attended(r)).ToList();

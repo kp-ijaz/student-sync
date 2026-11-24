@@ -14,7 +14,7 @@ namespace StudentSync.Application.Fees;
 /// period, a 12-month trend, one list of every payment in and out, and balances left open by people who are no longer
 /// active. Cash basis: money counts on the day it was received or paid. Admin only.
 /// </summary>
-public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, AuditService audit, FeeService fees, SalaryService salaries)
+public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, AuditService audit, FeeService fees, SalaryService salaries, CentreService centre)
 {
     private const int MaxRangeDays = 366 * 3;
 
@@ -23,7 +23,7 @@ public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPo
     public async Task<FinanceSummaryDto> SummaryAsync(DateOnly? fromDay, DateOnly? toDay, CancellationToken ct)
     {
         access.Require(Permissions.UsersManage);
-        var (currency, tz) = await CentreAsync(ct);
+        var (currency, tz) = await centre.GetAsync(ct);
         var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
         var (from, to) = Range(fromDay, toDay, today);
         var (prevFrom, prevTo) = PreviousPeriod(from, to);
@@ -67,7 +67,7 @@ public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPo
     }
 
     /// <summary>Default: this month. Validated: end not before start, at most three years.</summary>
-    private static (DateOnly From, DateOnly To) Range(DateOnly? fromDay, DateOnly? toDay, DateOnly today)
+    public static (DateOnly From, DateOnly To) Range(DateOnly? fromDay, DateOnly? toDay, DateOnly today)
     {
         var from = fromDay ?? new DateOnly(today.Year, today.Month, 1);
         var to = toDay ?? from.AddMonths(1).AddDays(-1);
@@ -128,7 +128,7 @@ public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPo
     /// </summary>
     private async Task<(List<FinanceEntryDto> Items, Dictionary<FinanceEntryKind, int> Kinds)> MatchingAsync(FinanceEntryQuery q, CancellationToken ct)
     {
-        var (_, tz) = await CentreAsync(ct);
+        var (_, tz) = await centre.GetAsync(ct);
         var (from, to) = Range(q.From, q.To, DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz)));
         var term = string.IsNullOrWhiteSpace(q.Search) ? null : q.Search.Trim().ToLowerInvariant();
         if (term is { Length: > 100 }) throw RequestValidationException.For("search", "Search for at most 100 characters.");
@@ -188,7 +188,7 @@ public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPo
     public async Task<FormerBalancesDto> FormerAsync(CancellationToken ct)
     {
         access.Require(Permissions.UsersManage);
-        var (currency, tz) = await CentreAsync(ct);
+        var (currency, tz) = await centre.GetAsync(ct);
         var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
 
         var (balances, _) = await fees.BalancesAsync(today, includeInactive: true, ct);
@@ -237,7 +237,7 @@ public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPo
         catch (DomainException ex) { throw RequestValidationException.For("amount", ex.Message); }
         if (!Enum.IsDefined(r.Category)) throw RequestValidationException.For("category", "Choose a category.");
         if (!Enum.IsDefined(r.Method) || r.Method == PaymentMethod.Online) throw RequestValidationException.For("method", "Choose how it was paid.");
-        var (currency, tz) = await CentreAsync(ct);
+        var (currency, tz) = await centre.GetAsync(ct);
         var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
         if (r.SpentOn > today) throw RequestValidationException.For("spentOn", "The day cannot be in the future.");
         if (r.SpentOn < today.AddYears(-5)) throw RequestValidationException.For("spentOn", "The day must be within the last five years.");
@@ -272,9 +272,4 @@ public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPo
         await db.SaveChangesAsync(ct);
     }
 
-    private async Task<(string Currency, string TimeZoneId)> CentreAsync(CancellationToken ct)
-    {
-        var t = await db.Tenants.Where(x => x.Id == user.TenantId).Select(x => new { x.CurrencyCode, x.DefaultTimeZoneId }).FirstOrDefaultAsync(ct);
-        return (t?.CurrencyCode ?? "USD", t?.DefaultTimeZoneId ?? "UTC");
-    }
 }

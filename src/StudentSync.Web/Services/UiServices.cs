@@ -532,6 +532,30 @@ public static class Navigation
     };
 }
 
+/// <summary>Period names and comparisons shared by the money and marketing screens.</summary>
+public static class Periods
+{
+    public static DateOnly End(string period, DateOnly from) => period == "year" ? from.AddYears(1).AddDays(-1) : from.AddMonths(1).AddDays(-1);
+
+    /// <summary>"November 2026" for a whole month, "2026" for a whole year, otherwise "3 Nov 2026 – 9 Nov 2026".</summary>
+    public static string Name(DateOnly from, DateOnly to) =>
+        from.Day == 1 && to == from.AddMonths(1).AddDays(-1) ? from.ToString("MMMM yyyy")
+        : from.Day == 1 && from.Month == 1 && to == from.AddYears(1).AddDays(-1) ? from.Year.ToString()
+        : $"{from:d MMM yyyy} – {to:d MMM yyyy}";
+
+    /// <summary>"month", "year" or "custom" for a pair of dates (used when a link presets the view).</summary>
+    public static string Kind(DateOnly from, DateOnly to) =>
+        from.Day == 1 && to == from.AddMonths(1).AddDays(-1) ? "month" : from.Day == 1 && from.Month == 1 && to == from.AddYears(1).AddDays(-1) ? "year" : "custom";
+
+    /// <summary>Change from the period before, in words — never an invented percentage when there was nothing before.</summary>
+    public static string Change(decimal now, decimal before) => (now, before) switch
+    {
+        _ when now == before => "same as before",
+        (_, 0) => "none the period before",
+        _ => $"{(now > before ? "▲" : "▼")} {Math.Abs((now - before) / before * 100m):0}% vs before",
+    };
+}
+
 /// <summary>ARIA state values must be the strings "true"/"false"; Blazor renders raw booleans as empty attributes.</summary>
 public static class Aria
 {

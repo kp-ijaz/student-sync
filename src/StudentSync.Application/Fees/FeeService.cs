@@ -17,7 +17,7 @@ namespace StudentSync.Application.Fees;
 /// be charged twice. Admin only; nothing here blocks a student — the centre is warned and decides (owner decision).
 /// </summary>
 public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, AuditService audit, PhotoUrls photos, NotificationService notify,
-    IServiceScopeFactory scopes, ILogger<FeeService> logger)
+    IServiceScopeFactory scopes, ILogger<FeeService> logger, CentreService centre)
 {
     /// <summary>"Running out of hours" at or below this many hours left.</summary>
     public const decimal LowHoursAt = 2m;
@@ -27,7 +27,7 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
     {
         access.Require(Permissions.UsersManage);
         if (!await db.Students.AnyAsync(s => s.Id == studentId, ct)) throw new NotFoundException("Student");
-        var (currency, _) = await CentreAsync(ct);
+        var (currency, _) = await centre.GetAsync(ct);
 
         var packages = await db.StudentPackages.Where(p => p.StudentId == studentId)
             .OrderByDescending(p => p.StartsOn).ThenByDescending(p => p.CreatedAtUtc)
@@ -86,7 +86,7 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
         if (r.HourlyRate is < 0 or > 1_000_000) throw RequestValidationException.For("hourlyRate", "Enter a valid rate per hour.");
         var before = s.HourlyRate;
         s.HourlyRate = r.HourlyRate is { } v ? decimal.Round(v, 2) : null;
-        var (currency, _) = await CentreAsync(ct);
+        var (currency, _) = await centre.GetAsync(ct);
         audit.Record("student.fee_rate_set", "Student", studentId, $"{currency} {before?.ToString() ?? "—"} -> {s.HourlyRate?.ToString() ?? "—"} per hour");
         await db.SaveChangesAsync(ct);
     }
@@ -95,7 +95,7 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
     public async Task<FeesDueDto> DueAsync(int? take, CancellationToken ct)
     {
         access.Require(Permissions.UsersManage);
-        var (currency, tz) = await CentreAsync(ct);
+        var (currency, tz) = await centre.GetAsync(ct);
         var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
         // Former (archived/inactive) students stay on the list while they still owe money, so a debt never disappears
         // when someone is removed; they are never "running out of hours" and get no automated reminders.
@@ -184,7 +184,7 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
         access.Require(Permissions.UsersManage);
         var student = await db.Students.Where(s => s.Id == studentId).Select(s => new { s.Id, s.User!.FullName }).FirstOrDefaultAsync(ct)
                       ?? throw new NotFoundException("Student");
-        var (currency, tz) = await CentreAsync(ct);
+        var (currency, tz) = await centre.GetAsync(ct);
         var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
         Guard(() => StudentPackage.Validate(r.Hours, r.Price), "hours");
         var starts = r.StartsOn ?? today;
@@ -225,7 +225,7 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
                       ?? throw new NotFoundException("Package");
         if (package.Status != PackageStatus.Active) throw new DomainException("This package was cancelled.", "package_cancelled");
         Guard(() => StudentPackage.Validate(r.Hours, r.Price), "hours");
-        var (_, tz) = await CentreAsync(ct);
+        var (_, tz) = await centre.GetAsync(ct);
         var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
         if (Math.Abs(r.StartsOn.DayNumber - today.DayNumber) > 366) throw RequestValidationException.For("startsOn", "The start day must be within a year of today.");
         if (r.PaymentDueOn is { } due && (due < r.StartsOn.AddDays(-366) || due > r.StartsOn.AddDays(366)))
@@ -253,7 +253,7 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
         var package = await db.StudentPackages.Include(p => p.Payments).FirstOrDefaultAsync(p => p.Id == packageId && p.StudentId == studentId, ct)
                       ?? throw new NotFoundException("Package");
         if (package.Status != PackageStatus.Active) throw new DomainException("This package was cancelled.", "package_cancelled");
-        var (_, tz) = await CentreAsync(ct);
+        var (_, tz) = await centre.GetAsync(ct);
         var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
         var paidOn = r.PaidOn ?? today;
         if (paidOn > today) throw RequestValidationException.For("paidOn", "The payment day cannot be in the future.");
@@ -329,7 +329,7 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
             "Thank you. Your receipt is ready.", $"/receipts/{payment.Id}", $"paid:{payment.Id}", ct);
 
     /// <summary>Exact minutes, in hours (two decimals). A 45-minute class uses 0.75 h.</summary>
-    public static decimal HoursOf(DateTime startUtc, DateTime endUtc) => decimal.Round((decimal)(endUtc - startUtc).TotalMinutes / 60m, 2);
+    public static decimal HoursOf(DateTime startUtc, DateTime endUtc) => TeacherPayRules.Hours(startUtc, endUtc); // one rule for fees and pay
 
     private IQueryable<AttendedClass> AttendedClasses() =>
         from a in db.Attendance
@@ -372,11 +372,6 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
         return await db.FeePayments.Where(x => x.VoidedAtUtc == null && x.PaidOn >= first && x.PaidOn <= today).SumAsync(x => (decimal?)x.Amount, ct) ?? 0;
     }
 
-    private async Task<(string Currency, string TimeZoneId)> CentreAsync(CancellationToken ct)
-    {
-        var t = await db.Tenants.Where(x => x.Id == user.TenantId).Select(x => new { x.CurrencyCode, x.DefaultTimeZoneId }).FirstOrDefaultAsync(ct);
-        return (t?.CurrencyCode ?? "USD", t?.DefaultTimeZoneId ?? "UTC");
-    }
 
     private static void Guard(Action rule, string field)
     {

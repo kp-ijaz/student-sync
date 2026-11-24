@@ -28,9 +28,9 @@
             <div class="card">
                 <div class="card-head"><h2>Attempts</h2></div>
                 <DataView IsEmpty="_r?.Attempts.Count == 0" EmptyTitle="No attempts yet" EmptyIcon="inbox">
-                    <table class="table stack-mobile"><thead><tr><th>Student</th><th>Attempt</th><th>Status</th><th>Score</th><th></th></tr></thead>
+                    <div class="table-wrap"><table class="table stack-mobile"><thead><tr><th>Student</th><th>Attempt</th><th>Status</th><th>Score</th><th></th></tr></thead>
                         <tbody>@foreach (var a in _r?.Attempts ?? []) { <tr><td data-label="Student">@a.StudentName</td><td data-label="Attempt">#@a.AttemptNumber@if (a.EntryMode == AttemptEntryMode.PaperEntered) { <span class="caption"> · paper</span> }</td><td data-label="Status"><Badge Style="StatusStyles.For(a.Status)" /></td>
-                            <td data-label="Score" class="num">@(a.Score?.ToString() ?? "—")</td><td><a class="btn btn-secondary btn-sm" href="/attempts/@a.AttemptId/result">@(a.Status == AttemptStatus.Submitted ? "Grade" : _e.Purpose == ExamPurpose.Diagnostic ? "Breakdown" : "View")</a></td></tr> }</tbody></table>
+                            <td data-label="Score" class="num">@(a.Score?.ToString() ?? "—")</td><td><a class="btn btn-secondary btn-sm" href="/attempts/@a.AttemptId/result">@(a.Status == AttemptStatus.Submitted ? "Grade" : _e.Purpose == ExamPurpose.Diagnostic ? "Breakdown" : "View")</a></td></tr> }</tbody></table></div>
                 </DataView>
             </div>
             <div class="card">
@@ -41,10 +41,7 @@
     }
 </DataView>
 
-<Modal @bind-Open="_deleteOpen" Title="Delete this exam?">
-    <p style="margin-top:0">Only possible before any student has taken it. Once there are attempts, their results are kept.</p>
-    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep it</button><button class="btn btn-danger" @onclick="Delete" disabled="@Busy"><Icon Name="trash" /> Delete exam</button></div>
-</Modal>
+<ConfirmDialog @bind-Open="_deleteOpen" Title="Delete this exam?" ConfirmText="Delete exam" Busy="Busy" OnConfirm="Delete">Only possible before any student has taken it. Once there are attempts, their results are kept.</ConfirmDialog>
 
 @code {
     private bool _deleteOpen;

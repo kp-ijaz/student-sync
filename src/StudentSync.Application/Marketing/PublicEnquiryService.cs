@@ -53,9 +53,7 @@ public sealed class PublicEnquiryService(IAppDbContext db, ITenantContext tenant
             throw new DomainException("We could not take your enquiry online just now. Please call the centre.", "enquiry_limit");
 
         // The same family sending the form again: keep the lead they already have.
-        var key = MarketingRules.PhoneKey(phone);
-        var open = await db.Leads.Where(l => l.Status != LeadStatus.Admitted && l.Status != LeadStatus.NotInterested).Select(l => new { l.Phone, l.StudentName }).ToListAsync(ct);
-        if (open.Any(o => MarketingRules.PhoneKey(o.Phone) == key && string.Equals(o.StudentName.Trim(), name, StringComparison.OrdinalIgnoreCase))) return;
+        if (await MarketingService.OpenLeadExistsAsync(db, name, phone, ct)) return;
 
         var lead = new Lead { StudentName = name, Phone = phone, GuardianName = guardian, GradeLevelId = r.GradeLevelId, Interest = interest, Source = LeadSource.Website, EnquiredOn = today, FromWebsiteForm = true };
         db.Leads.Add(lead);

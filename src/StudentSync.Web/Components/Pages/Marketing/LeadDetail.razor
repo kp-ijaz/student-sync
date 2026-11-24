@@ -97,15 +97,9 @@
     }
 </DataView>
 
-<Modal @bind-Open="_deleteOpen" Title="Delete this lead?">
-    <p style="margin-top:0">The enquiry and its call log are removed for good. To keep the history, mark it "Not interested" instead.</p>
-    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep it</button><button class="btn btn-danger" @onclick="Delete" disabled="@Busy"><Icon Name="trash" /> Delete lead</button></div>
-</Modal>
+<ConfirmDialog @bind-Open="_deleteOpen" Title="Delete this lead?" ConfirmText="Delete lead" Busy="Busy" OnConfirm="Delete">The enquiry and its call log are removed for good. To keep the history, mark it "Not interested" instead.</ConfirmDialog>
 
-<Modal @bind-Open="_deleteActivityOpen" Title="Delete this entry?">
-    <p style="margin-top:0">It is removed from the log and from the call counts.</p>
-    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteActivityOpen = false">Keep it</button><button class="btn btn-danger" @onclick="DeleteActivity" disabled="@Busy"><Icon Name="trash" /> Delete entry</button></div>
-</Modal>
+<ConfirmDialog @bind-Open="_deleteActivityOpen" Title="Delete this entry?" ConfirmText="Delete entry" Busy="Busy" OnConfirm="DeleteActivity">It is removed from the log and from the call counts.</ConfirmDialog>
 
 <Modal @bind-Open="_linkOpen" Title="Link to the admitted student">
     <p class="small" style="margin-top:0">Admit the student first (People ▸ Students ▸ Admit student), then choose them here.</p>

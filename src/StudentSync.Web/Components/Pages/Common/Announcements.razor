@@ -45,10 +45,7 @@
     </div>
 </Modal>
 
-<Modal @bind-Open="_deleteOpen" Title="@($"Delete {_deleting?.Title}?")">
-    <p style="margin-top:0">It disappears from everyone's announcements. Notifications already sent are not recalled.</p>
-    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep it</button><button class="btn btn-danger" @onclick="Delete" disabled="@Busy"><Icon Name="trash" /> Delete</button></div>
-</Modal>
+<ConfirmDialog @bind-Open="_deleteOpen" Title="@($"Delete {_deleting?.Title}?")" ConfirmText="Delete" Busy="Busy" OnConfirm="Delete">It disappears from everyone's announcements. Notifications already sent are not recalled.</ConfirmDialog>
 
 @code {
     private bool _editOpen, _deleteOpen;

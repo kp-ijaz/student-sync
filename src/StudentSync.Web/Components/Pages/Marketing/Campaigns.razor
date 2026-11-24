@@ -67,10 +67,7 @@
     </div>
 </Modal>
 
-<Modal @bind-Open="_deleteOpen" Title="@($"Delete {_deleting?.Name}?")">
-    <p style="margin-top:0">The campaign is removed. Its @(_deleting?.Leads ?? 0) lead(s) stay, without a campaign, and money already recorded stays in Finance.</p>
-    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep it</button><button class="btn btn-danger" @onclick="Delete" disabled="@Busy"><Icon Name="trash" /> Delete campaign</button></div>
-</Modal>
+<ConfirmDialog @bind-Open="_deleteOpen" Title="@($"Delete {_deleting?.Name}?")" ConfirmText="Delete campaign" Busy="Busy" OnConfirm="Delete">The campaign is removed. Its @(_deleting?.Leads ?? 0) lead(s) stay, without a campaign, and money already recorded stays in Finance.</ConfirmDialog>
 
 <Modal @bind-Open="_spendOpen" Title="@($"Spend · {_spendFor?.Name}")" Wide="true">
     <p class="small" style="margin-top:0">Each amount paid for this campaign. It is also counted under Expenses ▸ Marketing in Finance, so it is never entered twice.</p>

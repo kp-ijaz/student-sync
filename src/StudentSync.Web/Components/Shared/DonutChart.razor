@@ -1,0 +1,74 @@
+@* A ring chart for "parts of a whole" with a few parts (up to about five): the total in the middle, and a legend that
+   always shows each part's name, number and share, so nothing depends on colour alone. Parts are drawn as arcs with a
+   small gap between them; hovering an arc or a legend row shows its figure. Colours are design tokens passed by the
+   caller (validated for colour-blind separation — see DESIGN.md "Charts"). Shows a quiet empty line when there is no data. *@
+@if (Total <= 0)
+{
+    <InlineEmpty Icon="bar-chart" Text="@EmptyText" />
+}
+else
+{
+    <div class="donut">
+        <svg class="donut-ring" viewBox="0 0 120 120" role="img" aria-label="@Summary">
+            <circle cx="60" cy="60" r="@R" fill="none" stroke="var(--ss-fill)" stroke-width="16" />
+            @foreach (var a in Arcs)
+            {
+                <circle cx="60" cy="60" r="@R" fill="none" stroke="@a.Color" stroke-width="16" stroke-dasharray="@a.Dash" stroke-dashoffset="@a.Offset" transform="rotate(-90 60 60)">
+                    <title>@a.Title</title>
+                </circle>
+            }
+            <text x="60" y="58" text-anchor="middle" class="donut-total">@CenterValue</text>
+            <text x="60" y="74" text-anchor="middle" class="donut-caption">@CenterLabel</text>
+        </svg>
+        <ul class="donut-legend">
+            @foreach (var s in Slices.Where(s => s.Value > 0 || ShowZero))
+            {
+                <li title="@($"{s.Label}: {s.Value:0.##} ({Percent(s.Value)}%)")">
+                    <span class="donut-swatch" style="background:@s.Color" aria-hidden="true"></span>
+                    <span class="grow">@if (s.Href is not null) { <a href="@s.Href">@s.Label</a> } else { @s.Label }</span>
+                    <strong>@(s.Text ?? s.Value.ToString("0.##"))</strong>
+                    <span class="caption">@Percent(s.Value)%</span>
+                </li>
+            }
+        </ul>
+    </div>
+}
+
+@code {
+    /// <summary>One part. <c>Color</c> is a CSS colour, normally a design token such as <c>var(--ss-blue)</c>; <c>Text</c> replaces the number (e.g. money).</summary>
+    public sealed record Slice(string Label, decimal Value, string Color, string? Href = null, string? Text = null);
+
+    private const double R = 44, Circumference = 2 * Math.PI * R, Gap = 2;
+
+    [Parameter, EditorRequired] public IReadOnlyList<Slice> Slices { get; set; } = [];
+    [Parameter] public string? CenterValue { get; set; }
+    [Parameter] public string CenterLabel { get; set; } = "total";
+    [Parameter] public string EmptyText { get; set; } = "Nothing to show yet.";
+    /// <summary>List parts whose value is 0 in the legend too (off by default to keep it short).</summary>
+    [Parameter] public bool ShowZero { get; set; }
+
+    private decimal Total => Slices.Sum(s => Math.Max(0, s.Value));
+    private string Percent(decimal value) => Total <= 0 ? "0" : (100m * value / Total).ToString("0.#");
+    private string Summary => string.Join(", ", Slices.Where(s => s.Value > 0).Select(s => $"{s.Label} {Percent(s.Value)}%"));
+
+    private sealed record Arc(string Color, string Dash, string Offset, string Title);
+
+    private IEnumerable<Arc> Arcs
+    {
+        get
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var parts = Slices.Where(s => s.Value > 0).ToList();
+            var gap = parts.Count > 1 ? Gap : 0;
+            double start = 0;
+            foreach (var s in parts)
+            {
+                var length = (double)(s.Value / Total) * Circumference;
+                var drawn = Math.Max(0.5, length - gap);
+                yield return new Arc(s.Color, $"{drawn.ToString("0.###", inv)} {(Circumference - drawn).ToString("0.###", inv)}", (-start).ToString("0.###", inv),
+                    $"{s.Label}: {s.Text ?? s.Value.ToString("0.##")} ({Percent(s.Value)}%)");
+                start += length;
+            }
+        }
+    }
+}

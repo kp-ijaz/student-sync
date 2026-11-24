@@ -68,10 +68,7 @@
     </div>
 </Modal>
 
-<Modal @bind-Open="_deleteOpen" Title="@($"Delete {_name}?")">
-    <p style="margin-top:0">They can no longer sign in and their open leads become unassigned. If they logged calls, the account is switched off instead so their name stays on the call log.</p>
-    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep</button><button class="btn btn-danger" @onclick="Delete" disabled="@Busy"><Icon Name="trash" /> Delete team member</button></div>
-</Modal>
+<ConfirmDialog @bind-Open="_deleteOpen" Title="@($"Delete {_name}?")" ConfirmText="Delete team member" KeepText="Keep" Busy="Busy" OnConfirm="Delete">They can no longer sign in and their open leads become unassigned. If they logged calls, the account is switched off instead so their name stays on the call log.</ConfirmDialog>
 <TempPasswordDialog @bind-Password="_tempPassword" Title="@_tempTitle" />
 
 @code {

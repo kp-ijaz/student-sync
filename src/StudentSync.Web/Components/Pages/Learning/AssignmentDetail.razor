@@ -73,10 +73,7 @@
     </div>
 </Modal>
 
-<Modal @bind-Open="_deleteOpen" Title="Delete this assignment?">
-    <p style="margin-top:0">Only possible before any student has handed it in. After that it stays with their work: close it instead.</p>
-    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep it</button><button class="btn btn-danger" @onclick="Delete" disabled="@Busy"><Icon Name="trash" /> Delete assignment</button></div>
-</Modal>
+<ConfirmDialog @bind-Open="_deleteOpen" Title="Delete this assignment?" ConfirmText="Delete assignment" Busy="Busy" OnConfirm="Delete">Only possible before any student has handed it in. After that it stays with their work: close it instead.</ConfirmDialog>
 
 @code {
     private bool _deleteOpen;

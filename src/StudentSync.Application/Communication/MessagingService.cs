@@ -63,14 +63,16 @@ public sealed class MessagingService(IAppDbContext db, ICurrentUser user, Access
                 c.LastMessageAtUtc,
                 Participants = c.Participants.Where(p => p.UserId != me).Select(p => new LookupItem(p.UserId, db.Users.Where(u => u.Id == p.UserId).Select(u => u.FullName).First(), null)).ToList(),
                 Last = db.Messages.Where(m => m.ConversationId == c.Id).OrderByDescending(m => m.CreatedAtUtc).Select(m => m.Body).FirstOrDefault(),
-                LastRead = c.Participants.Where(p => p.UserId == me).Select(p => p.LastReadAtUtc).First(),
+                // Unread = messages from others that arrived after this user last read the conversation (counted in this query,
+                // not one query per conversation).
+                Unread = db.Messages.Count(m => m.ConversationId == c.Id && m.SenderUserId != me
+                    && !c.Participants.Any(p => p.UserId == me && p.LastReadAtUtc != null && p.LastReadAtUtc >= m.CreatedAtUtc)),
             }).ToListAsync(ct);
         var result = new List<ConversationDto>();
         foreach (var r in rows)
         {
-            var unread = await db.Messages.CountAsync(m => m.ConversationId == r.Id && m.SenderUserId != me && (r.LastRead == null || m.CreatedAtUtc > r.LastRead), ct);
             var title = r.Subject ?? string.Join(", ", r.Participants.Select(p => p.Name));
-            result.Add(new ConversationDto(r.Id, r.Type, title, r.Participants, r.Last is { Length: > 120 } l ? l[..120] + "…" : r.Last, r.LastMessageAtUtc, unread));
+            result.Add(new ConversationDto(r.Id, r.Type, title, r.Participants, r.Last is { Length: > 120 } l ? l[..120] + "…" : r.Last, r.LastMessageAtUtc, r.Unread));
         }
         return result;
     }

@@ -16,19 +16,33 @@ namespace StudentSync.Application.Marketing;
 /// The marketing team never reads student, fee or class data through this service: a lead is its own small record, and
 /// linking it to an admitted student is an admin action.
 /// </summary>
-public sealed class MarketingService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, AuditService audit)
+public sealed class MarketingService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, AuditService audit, CentreService centre)
 {
     public const int MaxCampaigns = 500;
-    private const int MaxRangeDays = 366 * 3;
 
     private void Require() => access.Require(Permissions.MarketingManage);
+
+    /// <summary>A lead still being worked on (not admitted, not lost) — the same test as <see cref="MarketingRules.IsOpen"/>, for queries.</summary>
+    public static readonly System.Linq.Expressions.Expression<Func<Lead, bool>> OpenLead = l => l.Status != LeadStatus.Admitted && l.Status != LeadStatus.NotInterested;
+
+    /// <summary>
+    /// Whether this family already has an open lead for this child: same name (any letter case) and the same phone number
+    /// compared by its last ten digits. Only leads with that name are read, not every open lead.
+    /// </summary>
+    public static async Task<bool> OpenLeadExistsAsync(IAppDbContext db, string studentName, string phone, CancellationToken ct)
+    {
+        var name = studentName.Trim().ToLower();
+        var key = MarketingRules.PhoneKey(phone);
+        var phones = await db.Leads.Where(OpenLead).Where(l => l.StudentName.ToLower() == name).Select(l => l.Phone).Take(50).ToListAsync(ct);
+        return phones.Any(p => MarketingRules.PhoneKey(p) == key);
+    }
 
     // ---------------- Options ----------------
 
     public async Task<MarketingOptionsDto> OptionsAsync(CancellationToken ct)
     {
         Require();
-        var (currency, _) = await CentreAsync(ct);
+        var (currency, _) = await centre.GetAsync(ct);
         var grades = await db.GradeLevels.OrderBy(g => g.SortOrder).Select(g => new LookupItem(g.Id, g.Name, null)).ToListAsync(ct);
         var curricula = await db.Curricula.Where(c => c.Status == Domain.Academics.CatalogStatus.Active).OrderBy(c => c.Name).Select(c => new LookupItem(c.Id, c.Name, null)).ToListAsync(ct);
         var campaigns = await db.Campaigns.OrderByDescending(c => c.StartsOn).Take(MaxCampaigns).Select(c => new LookupItem(c.Id, c.Name, c.Status.ToString())).ToListAsync(ct);
@@ -45,7 +59,7 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
     public async Task<PagedResult<LeadDto>> LeadsAsync(LeadQuery q, CancellationToken ct)
     {
         Require();
-        var today = await TodayAsync(ct);
+        var today = await centre.TodayAsync(ct);
         var leads = Filter(db.Leads.AsQueryable(), q, today);
         var total = await leads.CountAsync(ct);
         leads = (q.Sort ?? LeadSort.Newest) switch
@@ -66,7 +80,7 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
     {
         if (q.Status is { } st) leads = leads.Where(l => l.Status == st);
         if (q.Open is { } open)
-            leads = open ? leads.Where(l => l.Status != LeadStatus.Admitted && l.Status != LeadStatus.NotInterested)
+            leads = open ? leads.Where(OpenLead)
                 : leads.Where(l => l.Status == LeadStatus.Admitted || l.Status == LeadStatus.NotInterested);
         if (q.Source is { } src) leads = leads.Where(l => l.Source == src);
         if (q.CampaignId is { } cid) leads = leads.Where(l => l.CampaignId == cid);
@@ -113,7 +127,7 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
     public async Task<LeadDetailDto> LeadAsync(Guid id, CancellationToken ct)
     {
         Require();
-        var (_, tz) = await CentreAsync(ct);
+        var (_, tz) = await centre.GetAsync(ct);
         var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
         var lead = await Project(db.Leads.Where(l => l.Id == id), today).FirstOrDefaultAsync(ct) ?? throw new NotFoundException("Lead");
         var me = user.UserId;
@@ -127,7 +141,7 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
     public async Task<Guid> SaveLeadAsync(Guid? id, SaveLeadRequest r, CancellationToken ct)
     {
         Require();
-        var today = await TodayAsync(ct);
+        var today = await centre.TodayAsync(ct);
         var phone = Text.Required(r.Phone, "phone", 30);
         if (MarketingRules.PhoneKey(phone).Length < 6) throw RequestValidationException.For("phone", "Enter a phone number with at least 6 digits.");
         if (!Enum.IsDefined(r.Source)) throw RequestValidationException.For("source", "Choose where the enquiry came from.");
@@ -152,9 +166,7 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
         {
             db.Leads.Add(lead = new Lead());
             // The same phone number already on an open lead is almost always the same family calling again.
-            var key = MarketingRules.PhoneKey(phone);
-            var open = await db.Leads.Where(l => l.Status != LeadStatus.Admitted && l.Status != LeadStatus.NotInterested).Select(l => new { l.Phone, l.StudentName }).ToListAsync(ct);
-            if (open.FirstOrDefault(o => MarketingRules.PhoneKey(o.Phone) == key && string.Equals(o.StudentName.Trim(), r.StudentName?.Trim(), StringComparison.OrdinalIgnoreCase)) is not null)
+            if (await OpenLeadExistsAsync(db, r.StudentName ?? "", phone, ct))
                 throw RequestValidationException.For("phone", "An open lead with this name and phone number already exists.");
         }
         var before = lead.Status;
@@ -231,7 +243,7 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
         var at = r.OccurredAtUtc is { } o ? DateTime.SpecifyKind(o, DateTimeKind.Utc) : now;
         if (at > now.AddMinutes(10)) throw RequestValidationException.For("occurredAtUtc", "The time cannot be in the future.");
         if (at < now.AddYears(-5)) throw RequestValidationException.For("occurredAtUtc", "The time must be within the last five years.");
-        var today = await TodayAsync(ct);
+        var today = await centre.TodayAsync(ct);
         if (r.NextFollowUpOn is { } follow && (follow < today || follow > today.AddYears(2))) throw RequestValidationException.For("nextFollowUpOn", "Choose a follow-up day from today on.");
 
         LeadActivity activity;
@@ -306,7 +318,7 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
         if (!Enum.IsDefined(r.Channel) || !Enum.IsDefined(r.Status)) throw RequestValidationException.For("channel", "Choose a channel and a status.");
         if (r.Budget is < 0 or > 100_000_000) throw RequestValidationException.For("budget", "Enter a valid budget.");
         if (r.EndsOn is { } end && end < r.StartsOn) throw RequestValidationException.For("endsOn", "The campaign ends before it starts.");
-        var today = await TodayAsync(ct);
+        var today = await centre.TodayAsync(ct);
         if (Math.Abs(r.StartsOn.DayNumber - today.DayNumber) > 366 * 5) throw RequestValidationException.For("startsOn", "Choose a start day within five years of today.");
         var name = Text.Required(r.Name, "name", 150);
         if (await db.Campaigns.AnyAsync(c => c.Name.ToLower() == name.ToLowerInvariant() && c.Id != id, ct)) throw RequestValidationException.For("name", "A campaign with this name already exists.");
@@ -316,7 +328,7 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
         else
         {
             if (await db.Campaigns.CountAsync(ct) >= MaxCampaigns) throw new DomainException($"Up to {MaxCampaigns} campaigns can be kept. Delete old ones first.", "campaign_limit");
-            var (currency, _) = await CentreAsync(ct);
+            var (currency, _) = await centre.GetAsync(ct);
             db.Campaigns.Add(c = new Campaign { CurrencyCode = currency });
         }
         (c.Name, c.Channel, c.Location, c.StartsOn, c.EndsOn) = (name, r.Channel, Text.Optional(r.Location, "location", 200), r.StartsOn, r.EndsOn);
@@ -344,7 +356,7 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
         try { Domain.Fees.Expense.Validate(r.Amount); }
         catch (DomainException ex) { throw RequestValidationException.For("amount", ex.Message); }
         if (!Enum.IsDefined(r.Method) || r.Method == Domain.Fees.PaymentMethod.Online) throw RequestValidationException.For("method", "Choose how it was paid.");
-        var today = await TodayAsync(ct);
+        var today = await centre.TodayAsync(ct);
         var day = r.SpentOn ?? today;
         if (day > today) throw RequestValidationException.For("spentOn", "The day cannot be in the future.");
         if (day < today.AddYears(-5)) throw RequestValidationException.For("spentOn", "The day must be within the last five years.");
@@ -396,12 +408,9 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
     public async Task<MarketingOverviewDto> OverviewAsync(DateOnly? fromDay, DateOnly? toDay, CancellationToken ct)
     {
         Require();
-        var (currency, tz) = await CentreAsync(ct);
+        var (currency, tz) = await centre.GetAsync(ct);
         var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
-        var from = fromDay ?? new DateOnly(today.Year, today.Month, 1);
-        var to = toDay ?? from.AddMonths(1).AddDays(-1);
-        if (to < from) throw RequestValidationException.For("to", "The end day is before the start day.");
-        if (to.DayNumber - from.DayNumber > MaxRangeDays) throw RequestValidationException.For("to", "Choose a period of at most three years.");
+        var (from, to) = FinanceService.Range(fromDay, toDay, today);
         var (prevFrom, prevTo) = FinanceService.PreviousPeriod(from, to);
 
         var leads = await db.Leads.Where(l => l.EnquiredOn >= prevFrom && l.EnquiredOn <= to)
@@ -425,7 +434,7 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
         // Everything spent on marketing in the period: campaign spend plus any other expense filed under Marketing.
         var spend = await db.Expenses.Where(e => e.Category == Domain.Fees.ExpenseCategory.Marketing && e.SpentOn >= from && e.SpentOn <= to).SumAsync(e => (decimal?)e.Amount, ct) ?? 0;
 
-        var open = db.Leads.Where(l => l.Status != LeadStatus.Admitted && l.Status != LeadStatus.NotInterested);
+        var open = db.Leads.Where(OpenLead);
         var openCount = await open.CountAsync(ct);
         var dueToday = await open.CountAsync(l => l.NextFollowUpOn == today, ct);
         var overdue = await open.CountAsync(l => l.NextFollowUpOn < today, ct);
@@ -479,7 +488,7 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
     public async Task<string> LeadsCsvAsync(LeadQuery q, CancellationToken ct)
     {
         Require();
-        var today = await TodayAsync(ct);
+        var today = await centre.TodayAsync(ct);
         var rows = await Project(Filter(db.Leads.AsQueryable(), q, today).OrderByDescending(l => l.EnquiredOn).Take(5000), today).ToListAsync(ct);
         var sb = new System.Text.StringBuilder();
         sb.AppendLine(CsvText.Row("Enquired", "Student", "Parent / guardian", "Phone", "Class", "Syllabus", "School", "Asked about", "Source", "Campaign", "Status", "Assigned to", "Next follow-up", "Calls", "Lost reason"));
@@ -508,7 +517,7 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
     public async Task<CreatedPersonResponse> CreateTeamMemberAsync(CreateMarketingUserRequest r, IUserAccountService accounts, CancellationToken ct)
     {
         access.Require(Permissions.UsersManage);
-        var (_, tz) = await CentreAsync(ct);
+        var (_, tz) = await centre.GetAsync(ct);
         var account = await accounts.CreateAsync(user.TenantId, r.Email, Text.Required(r.FullName, "fullName", 150), UserRole.Marketing, tz, null, false, ct);
         audit.Record("marketing.team_added", "User", account.UserId, r.FullName);
         await db.SaveChangesAsync(ct);
@@ -607,9 +616,9 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
         var lines = (r.Rows ?? "").Split('\n').Select(l => l.Trim('\r', ' ')).Where(l => l.Length > 0).ToList();
         if (lines.Count == 0) throw RequestValidationException.For("rows", "Paste at least one line: name, phone.");
         if (lines.Count > MaxImportRows + 1) throw RequestValidationException.For("rows", $"Paste at most {MaxImportRows} lines at a time.");
-        var today = await TodayAsync(ct);
+        var today = await centre.TodayAsync(ct);
         var grades = await db.GradeLevels.Select(g => new { g.Id, g.Name }).ToListAsync(ct);
-        var known = (await db.Leads.Where(l => l.Status != LeadStatus.Admitted && l.Status != LeadStatus.NotInterested).Select(l => new { l.Phone, l.StudentName }).ToListAsync(ct))
+        var known = (await db.Leads.Where(OpenLead).Select(l => new { l.Phone, l.StudentName }).ToListAsync(ct))
             .Select(l => MarketingRules.PhoneKey(l.Phone) + "|" + l.StudentName.Trim().ToLowerInvariant()).ToHashSet();
         var problems = new List<string>();
         var added = 0;
@@ -628,19 +637,5 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
         audit.Record("marketing.leads_imported", "Lead", Guid.Empty, $"{added} added, {problems.Count} skipped · {r.Source}");
         await db.SaveChangesAsync(ct);
         return new ImportLeadsResult(added, problems.Count, problems.Take(50).ToList());
-    }
-
-    private async Task<DateOnly> TodayAsync(CancellationToken ct)
-    {
-        var (_, tz) = await CentreAsync(ct);
-        return DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
-    }
-
-    private (string Currency, string TimeZoneId)? _centre;
-    private async Task<(string Currency, string TimeZoneId)> CentreAsync(CancellationToken ct)
-    {
-        if (_centre is { } known) return known;
-        var t = await db.Tenants.Where(x => x.Id == user.TenantId).Select(x => new { x.CurrencyCode, x.DefaultTimeZoneId }).FirstOrDefaultAsync(ct);
-        return (_centre = (t?.CurrencyCode ?? "USD", t?.DefaultTimeZoneId ?? "UTC")).Value;
     }
 }

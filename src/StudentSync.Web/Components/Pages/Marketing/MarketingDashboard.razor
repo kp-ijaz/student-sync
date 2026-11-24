@@ -14,22 +14,15 @@
     </Actions>
 </PageHeader>
 
-<div class="card finance-period">
-    <Segmented TValue="string" Options="PeriodOptions" Value="_period" ValueChanged="SetPeriod" Label="Period" />
-    <div class="finance-nav">
-        <button class="icon-btn" aria-label="@(_period == "year" ? "Previous year" : "Previous month")" @onclick="() => Move(-1)"><Icon Name="chevron-left" /></button>
-        <h2>@(_period == "year" ? _from.Year.ToString() : _from.ToString("MMMM yyyy"))</h2>
-        <button class="icon-btn" aria-label="@(_period == "year" ? "Next year" : "Next month")" @onclick="() => Move(1)" disabled="@(_from >= CurrentStart)"><Icon Name="chevron-right" /></button>
-    </div>
-</div>
+<PeriodSwitcher Period="@_period" From="_from" To="To" Changed="PeriodChanged" />
 
 <DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync">
     @if (_d is { } d)
     {
         <MetricStrip AriaLabel="Marketing at a glance" Items="@([
-            new("Leads", d.Leads.ToString(), $"enquiries in the period · {Change(d.Leads, d.PreviousLeads)}", "user-plus", $"/marketing/leads"),
-            new("Calls made", d.Calls.ToString(), (d.AnswerRatePercent is { } ar ? $"{d.CallsReached} reached ({ar:0.#}%)" : "none logged") + $" · {Change(d.Calls, d.PreviousCalls)}", "message"),
-            new("Admitted", d.Admitted.ToString(), (d.ConversionPercent is { } cv ? $"{cv:0.#}% of the leads" : "no leads yet") + $" · {Change(d.Admitted, d.PreviousAdmitted)}", "check-circle", "/marketing/leads?status=Admitted"),
+            new("Leads", d.Leads.ToString(), $"enquiries in the period · {Periods.Change(d.Leads, d.PreviousLeads)}", "user-plus", $"/marketing/leads"),
+            new("Calls made", d.Calls.ToString(), (d.AnswerRatePercent is { } ar ? $"{d.CallsReached} reached ({ar:0.#}%)" : "none logged") + $" · {Periods.Change(d.Calls, d.PreviousCalls)}", "message"),
+            new("Admitted", d.Admitted.ToString(), (d.ConversionPercent is { } cv ? $"{cv:0.#}% of the leads" : "no leads yet") + $" · {Periods.Change(d.Admitted, d.PreviousAdmitted)}", "check-circle", "/marketing/leads?status=Admitted"),
             new("Spent", Money.Format(d.Spend, d.CurrencyCode), d.CostPerLead is { } cpl ? $"{Money.Format(cpl, d.CurrencyCode)} per lead" + (d.CostPerAdmission is { } cpa ? $" · {Money.Format(cpa, d.CurrencyCode)} per admission" : "") : "on campaigns in the period", "wallet", "/marketing/campaigns"),
         ])" />
 
@@ -178,37 +171,20 @@
 </DataView>
 
 @code {
-    private static readonly IReadOnlyList<Segmented<string>.Option> PeriodOptions = [new("month", "Month"), new("year", "Year")];
     private MarketingOverviewDto? _d;
     private ApiException? _error;
     private string _period = "month";
     private DateOnly _from = new(DateTime.Today.Year, DateTime.Today.Month, 1);
 
-    private DateOnly CurrentStart => _period == "year" ? new(DateTime.Today.Year, 1, 1) : new(DateTime.Today.Year, DateTime.Today.Month, 1);
-    private DateOnly To => _period == "year" ? _from.AddYears(1).AddDays(-1) : _from.AddMonths(1).AddDays(-1);
+    private DateOnly To => Periods.End(_period, _from);
 
     protected override async Task LoadAsync() { _d = null; (_d, _error) = await Fetch(() => Api.GetAsync<MarketingOverviewDto>($"marketing/overview?from={_from:yyyy-MM-dd}&to={To:yyyy-MM-dd}")); }
 
-    private async Task SetPeriod(string p)
-    {
-        var today = DateOnly.FromDateTime(DateTime.Today);
-        _period = p;
-        _from = p == "year" ? new(_from.Year, 1, 1) : (_from.Year == today.Year ? new(today.Year, today.Month, 1) : new(_from.Year, 12, 1));
-        await LoadAsync();
-    }
-
-    private async Task Move(int step) { _from = _period == "year" ? _from.AddYears(step) : _from.AddMonths(step); await LoadAsync(); }
+    private async Task PeriodChanged(PeriodSwitcher.Range r) { (_period, _from) = (r.Period, r.From); await LoadAsync(); }
 
     /// <summary>"8 of 20" when a target is set, otherwise just the number.</summary>
     private static string Against(int done, int? target) => target is { } t ? $"{done} of {t}" : done.ToString();
 
     private static string Pct(int part, int whole) => (whole <= 0 ? 0 : Math.Clamp(100.0 * part / whole, 0, 100)).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
 
-    /// <summary>Change from the period before, in words (no percentage when there was nothing to compare with).</summary>
-    private static string Change(int now, int before) => (now, before) switch
-    {
-        _ when now == before => "same as before",
-        (_, 0) => "none the period before",
-        _ => $"{(now > before ? "▲" : "▼")} {Math.Abs(100.0 * (now - before) / before):0}% vs before",
-    };
 }

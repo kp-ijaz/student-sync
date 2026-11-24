@@ -2,9 +2,10 @@
 @attribute [Authorize(Roles = "InstitutionAdmin")]
 @inherits AppPage
 
-@* The front desk's home (DESIGN.md "Home pattern"): greeting with the two everyday actions, shortcut pills, the centre
-   in five numbers, what is coming up (grouped by day, live/next marked), what needs the admin, who owes fees or is
-   running out of hours, and recent activity. Every number links to where it is managed. *@
+@* The admin's home (owner request 2026-11-24: "see everything here, quickly, with charts, kept simple"). Top to bottom:
+   greeting with the two everyday actions and shortcuts → six numbers → four small charts (money in and out by month,
+   attendance, students by class, this month's enquiries) → today's classes, what needs the admin and who owes fees.
+   Each number and chart says what it counts and opens the page behind it. Charts load after the first paint. *@
 <PageTitle>Home · Student Sync</PageTitle>
 <HomeGreeting FullName="@Me?.FullName" PhotoUrl="@Me?.PhotoUrl" Tz="@Tz" Caption="@Me?.TenantName">
     <Actions>
@@ -17,7 +18,47 @@
     @if (_d is not null)
     {
         <QuickLinks Items="Shortcuts" AriaLabel="Front desk shortcuts" />
-        <MetricStrip Items="Metrics" AriaLabel="The centre at a glance" />
+        <MetricStrip Items="Metrics" AriaLabel="The centre at a glance" Class="dash-metrics" />
+
+        <div class="dash-charts">
+            <section class="card" aria-labelledby="dc-money">
+                <div class="card-head"><div><h2 id="dc-money">Money in and out</h2><div class="caption">Fees received, and salaries plus expenses paid, by month</div></div><a href="/admin/finance">Finance</a></div>
+                @if (_money is null) { <div class="sk sk-block dash-sk" aria-hidden="true"></div> }
+                else { <MonthBars Months="MoneyPoints" FirstLabel="Money in" SecondLabel="Money out" Format="@(v => Money.Format(v, _money.CurrencyCode))" EmptyText="No payments recorded in the last six months." /> }
+            </section>
+
+            <section class="card" aria-labelledby="dc-att">
+                <div class="card-head"><div><h2 id="dc-att">Attendance</h2><div class="caption">Marks given in the last 30 days</div></div><a href="/admin/reports">Reports</a></div>
+                <DonutChart Slices="AttendanceSlices" CenterValue="@(_d.AttendanceLast30Days.AttendanceRatePercent is { } r ? $"{r:0}%" : "—")" CenterLabel="attended"
+                            EmptyText="No attendance marked in the last 30 days." />
+            </section>
+
+            <section class="card" aria-labelledby="dc-class">
+                <div class="card-head"><div><h2 id="dc-class">Students by class</h2><div class="caption">Active students</div></div><a href="/admin/student-numbers">All classes</a></div>
+                @if (_classes is null) { <div class="sk sk-block dash-sk" aria-hidden="true"></div> }
+                else if (_classes.Count == 0) { <InlineEmpty Icon="users" Text="No students have a class yet." /> }
+                else
+                {
+                    var most = Math.Max(1, _classes.Max(c => c.Count));
+                    <div class="dash-bars">
+                        @foreach (var c in _classes)
+                        {
+                            <div class="bar-row dash-bar" title="@($"{c.Name}: {c.Count} student{(c.Count == 1 ? "" : "s")}")">
+                                <span class="small">@c.Name</span>
+                                <div class="progress-bar" role="img" aria-label="@($"{c.Name}: {c.Count} students")"><span style="width:@((100.0 * c.Count / most).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></span></div>
+                                <span class="small num">@c.Count</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+
+            <section class="card" aria-labelledby="dc-leads">
+                <div class="card-head"><div><h2 id="dc-leads">Enquiries this month</h2><div class="caption">@LeadsCaption</div></div><a href="/marketing">Marketing</a></div>
+                @if (_marketing is null) { <div class="sk sk-block dash-sk" aria-hidden="true"></div> }
+                else { <DonutChart Slices="LeadSlices" CenterValue="@_marketing.Leads.ToString()" CenterLabel="@(_marketing.Leads == 1 ? "enquiry" : "enquiries")" ShowZero="true" EmptyText="No enquiries this month yet. Add them under Marketing ▸ Leads." /> }
+            </section>
+        </div>
 
         <div class="home-main">
             <ClassAgenda Sessions="_d.UpcomingSessions" Tz="@Tz" LinkHref="/sessions"
@@ -54,13 +95,6 @@
                         }
                     </DataView>
                 </section>
-
-                <section class="card" aria-labelledby="act-h">
-                    <div class="card-head"><h2 id="act-h">Recent activity</h2><a href="/admin/settings?tab=audit">Audit log</a></div>
-                    <DataView IsEmpty="_d.RecentActivity.Count == 0" EmptyTitle="No activity yet">
-                        <ul class="activity-list">@foreach (var a in _d.RecentActivity.Take(6)) { <li><span class="activity-dot" aria-hidden="true"></span><div><div class="small">@a.Summary</div><div class="caption">@(People.ShortName(a.UserName) is { Length: > 0 } n ? n : "System") · <LocalTime Utc="a.AtUtc" Tz="@Tz" Format="relative" /></div></div></li> }</ul>
-                    </DataView>
-                </section>
             </div>
         </div>
     }
@@ -82,6 +116,45 @@
     private FeesDueDto? _fees;
     private ApiException? _feesError;
 
+    // Charts: loaded after the first paint, each from the page that owns the figures (one source for every number).
+    private FinanceSummaryDto? _money;
+    private List<BreakdownItemDto>? _classes;
+    private MarketingOverviewDto? _marketing;
+
+    private List<MonthBars.Point> MoneyPoints => (_money?.Months ?? []).TakeLast(6).Select(m => new MonthBars.Point(m.Month, m.Income, m.Salaries + m.Expenses)).ToList();
+
+    private List<DonutChart.Slice> AttendanceSlices
+    {
+        get
+        {
+            var a = _d!.AttendanceLast30Days;
+            return
+            [
+                new("Present", a.Present, "var(--ss-success)"), new("Late", a.Late, "var(--ss-warning)"),
+                new("Absent", a.Absent, "var(--ss-error)"), new("Excused", a.Excused, "var(--ss-slate)"),
+            ];
+        }
+    }
+
+    private List<DonutChart.Slice> LeadSlices
+    {
+        get
+        {
+            var m = _marketing!;
+            var open = m.Leads - m.Admitted - m.Lost;
+            return
+            [
+                new("Still open", open, "var(--ss-blue)", "/marketing/leads?status=open"),
+                new("Admitted", m.Admitted, "var(--ss-success)", "/marketing/leads?status=Admitted"),
+                new("Not interested", m.Lost, "var(--ss-orange-deep)", "/marketing/leads?status=NotInterested"),
+            ];
+        }
+    }
+
+    private string LeadsCaption => _marketing is not { } m ? "Where they stand now"
+        : m.FollowUpsToday + m.FollowUpsOverdue == 0 ? "Where they stand now"
+        : $"{m.FollowUpsToday + m.FollowUpsOverdue} follow-up{(m.FollowUpsToday + m.FollowUpsOverdue == 1 ? "" : "s")} due";
+
     private List<MetricStrip.Item> Metrics
     {
         get
@@ -91,10 +164,13 @@
             [
                 new("Students", Stat("students"), "active", "users", "/admin/students"),
                 new("Teachers", Stat("teachers"), "active", "graduation", "/admin/teachers"),
-                new("Subjects", Stat("subjects"), "being studied", "book", "/admin/subjects"),
-                new("Hours taught", Stat("hours"), "this month", "clock", "/admin/reports"),
                 new("Classes", Stat("sessions"), "in the next 7 days", "calendar", "/sessions"),
-                new("Doubts", Stat("doubts"), "open", "help", "/doubts"),
+                _money is { } m
+                    ? new("Income", Money.Format(m.Income, m.CurrencyCode), "fees received this month", "trending-up", "/admin/finance")
+                    : new("Income", "—", "this month", "trending-up", "/admin/finance"),
+                _money is { } p
+                    ? new(p.Profit < 0 ? "Loss" : "Profit", Money.Format(Math.Abs(p.Profit), p.CurrencyCode), "this month, after salaries and expenses", p.Profit < 0 ? "alert" : "check-circle", "/admin/finance")
+                    : new("Profit", "—", "this month", "check-circle", "/admin/finance"),
                 _fees is { } f
                     ? new("Fees due", Money.Format(f.TotalDue, f.CurrencyCode), f.StudentsOwing == 1 ? "from 1 student" : $"from {f.StudentsOwing} students", "wallet", "/admin/fees")
                     : new("Fees due", "—", "not loaded", "wallet", "/admin/fees"),
@@ -131,5 +207,12 @@
     {
         (_d, _error) = await Fetch(() => Api.GetAsync<AdminDashboardDto>("dashboard/admin"));
         await LoadFeesAsync();
+        StateHasChanged(); // numbers, classes and fees first; the charts fill in as they arrive
+        _money = (await Fetch(() => Api.GetAsync<FinanceSummaryDto>("finance/summary"))).Value;
+        StateHasChanged();
+        _classes = ((await Fetch(() => Api.GetAsync<StudentsBreakdownDto>("reports/students"))).Value?.Classes ?? [])
+            .Where(c => c.Count > 0).OrderByDescending(c => c.Count).Take(8).ToList();
+        StateHasChanged();
+        _marketing = (await Fetch(() => Api.GetAsync<MarketingOverviewDto>("marketing/overview"))).Value;
     }
 }

@@ -15,13 +15,13 @@ namespace StudentSync.Application.Fees;
 /// with a reason. Admins manage everything; a teacher can read only their own pay. Every change is audited (no amounts
 /// of other people in the audit summary beyond the teacher's own record).
 /// </summary>
-public sealed class TeacherPayService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, AuditService audit)
+public sealed class TeacherPayService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, AuditService audit, CentreService centre)
 {
     public async Task<TeacherPayDto> PayAsync(Guid teacherId, CancellationToken ct)
     {
         if (!(access.IsTeacher && teacherId == user.UserId)) access.Require(Permissions.UsersManage);
         if (!await db.Teachers.AnyAsync(t => t.Id == teacherId, ct)) throw new NotFoundException("Teacher");
-        var (currency, tz) = await CentreAsync(ct);
+        var (currency, tz) = await centre.GetAsync(ct);
 
         var rates = await db.TeacherPayRates.Where(r => r.TeacherId == teacherId).OrderByDescending(r => r.EffectiveFrom)
             .Select(r => new TeacherPayRateDto(r.HourlyRate, r.EffectiveFrom, r.Id)).ToListAsync(ct);
@@ -56,7 +56,7 @@ public sealed class TeacherPayService(IAppDbContext db, ICurrentUser user, Acces
         if (!await db.Teachers.AnyAsync(t => t.Id == teacherId, ct)) throw new NotFoundException("Teacher");
         try { TeacherPayRate.Validate(r.HourlyRate); }
         catch (DomainException e) { throw RequestValidationException.For("hourlyRate", e.Message); }
-        var (currency, tz) = await CentreAsync(ct);
+        var (currency, tz) = await centre.GetAsync(ct);
         var from = r.EffectiveFrom ?? DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
         var row = await db.TeacherPayRates.FirstOrDefaultAsync(x => x.TeacherId == teacherId && x.EffectiveFrom == from, ct);
         if (row is null) db.TeacherPayRates.Add(row = new TeacherPayRate { TeacherId = teacherId, EffectiveFrom = from });
@@ -85,7 +85,7 @@ public sealed class TeacherPayService(IAppDbContext db, ICurrentUser user, Acces
         try { TeacherPayment.Validate(r.Amount, r.PeriodFrom, r.PeriodTo); }
         catch (DomainException e) { throw RequestValidationException.For(e.Code == "invalid_period" ? "periodTo" : "amount", e.Message); }
         if (!Enum.IsDefined(r.Method) || r.Method == PaymentMethod.Online) throw RequestValidationException.For("method", "Choose how it was paid.");
-        var (currency, tz) = await CentreAsync(ct);
+        var (currency, tz) = await centre.GetAsync(ct);
         var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
         if (r.PaidOn > today.AddDays(1)) throw RequestValidationException.For("paidOn", "The payment date cannot be in the future.");
         var payment = new TeacherPayment
@@ -118,9 +118,4 @@ public sealed class TeacherPayService(IAppDbContext db, ICurrentUser user, Acces
         await db.SaveChangesAsync(ct);
     }
 
-    private async Task<(string Currency, string Tz)> CentreAsync(CancellationToken ct)
-    {
-        var t = await db.Tenants.Where(x => x.Id == user.TenantId).Select(x => new { x.CurrencyCode, x.DefaultTimeZoneId }).FirstAsync(ct);
-        return (t.CurrencyCode, t.DefaultTimeZoneId);
-    }
 }

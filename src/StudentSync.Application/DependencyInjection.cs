@@ -61,6 +61,7 @@ public static class DependencyInjection
         services.AddScoped<AutomationJobs>();
         services.AddScoped<Automation.DailyAutomations>();
         services.AddScoped<Fees.SalaryService>();
+        services.AddScoped<CentreService>();
         services.AddScoped<Fees.FeePlanService>();
         services.AddScoped<Fees.FinanceService>();
         services.AddScoped<Marketing.MarketingService>();

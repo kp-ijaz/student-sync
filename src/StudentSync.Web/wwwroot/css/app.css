@@ -340,6 +340,8 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .badge.info { background: #E3F5FD; color: #075985; }
 .badge.violet { background: #F0EBFF; color: #5B3CC4; }
 .tag-pill { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 4px 10px; border-radius: 999px; background: var(--ss-fill); color: var(--ss-navy); font-size: 12px; font-weight: 600; line-height: 16px; white-space: nowrap; }
+/* A long label shortens with an ellipsis instead of pushing its row wider than the screen. */
+.tag-pill { overflow: hidden; text-overflow: ellipsis; }
 .tag-pill > span { overflow: hidden; text-overflow: ellipsis; }
 .tag-pill svg { width: 13px; height: 13px; flex: none; }
 /* GlassPill: translucent pill for text on photos and hero cards. */
@@ -2059,6 +2061,50 @@ a.finance-bar-btn { text-decoration: none; }
   .finance-nav { width: 100%; justify-content: space-between; }
   .finance-custom .input { flex: 1 1 calc(50% - 20px); min-width: 0; }
   .finance-custom .btn { flex: 1 1 100%; }
+  /* Tap targets of at least 44 px for the money bars, month links and "see all" links. */
+  .finance-bar-btn { min-height: 44px; display: flex; align-items: center; }
+  .finance-bar-btn > .bar-row { flex: 1; margin-bottom: 0; }
+  .link-btn, .fee-more { display: inline-flex; align-items: center; min-height: 44px; }
   .salary-act { width: 100%; justify-content: flex-start; }
   .salary-act .btn { flex: 1 1 0; }
 }
+
+/* ---------- Admin home charts (2026-11-24): ring chart, month bars, class bars ---------- */
+.dash-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-5); }
+.dash-charts > .card { display: flex; flex-direction: column; min-width: 0; }
+.dash-metrics strong { font-size: clamp(20px, 1.9vw, 26px); white-space: nowrap; }
+.dash-charts .donut { margin-block: auto; }
+.dash-sk { height: 180px; border-radius: var(--r-control); }
+.donut { display: flex; align-items: center; gap: var(--sp-5); flex-wrap: wrap; }
+.donut-ring { flex: none; width: 150px; height: 150px; }
+.donut-ring circle[stroke-dasharray] { transition: stroke-width 150ms var(--ease); }
+.donut-ring circle[stroke-dasharray]:hover { stroke-width: 19; }
+.donut-total { font: 700 22px var(--font-head); fill: var(--ss-navy); }
+.donut-caption { font: 500 9px var(--font-body); fill: var(--ss-text-2); }
+.donut-legend { flex: 1 1 180px; list-style: none; margin: 0; padding: 0; min-width: 0; }
+.donut-legend li { display: flex; align-items: center; gap: var(--sp-2); padding: 7px 0; border-top: 1px solid var(--ss-border); font-size: 14px; }
+.donut-legend li:first-child { border-top: 0; }
+.donut-legend strong { font-variant-numeric: tabular-nums; color: var(--ss-navy); }
+.donut-legend .caption { min-width: 42px; text-align: end; font-variant-numeric: tabular-nums; }
+.donut-swatch { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 3px; }
+.mbars-legend { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); font-size: 13px; color: var(--ss-text-2); margin-bottom: var(--sp-2); }
+.mbars-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.mbars-plot { display: block; width: 100%; height: auto; max-height: 240px; }
+.mbars-grid { stroke: var(--ss-border); stroke-width: 1; }
+.mbars-axis { font: 500 10px var(--font-body); fill: var(--ss-text-2); }
+.mbars-axis.now { font-weight: 700; fill: var(--ss-navy); }
+.mbars-a { fill: var(--ss-blue); }
+.mbars-b { fill: var(--ss-orange-deep); }
+.mbars-plot rect:hover { opacity: .8; }
+.dash-bars { display: grid; gap: 2px; }
+.dash-bar { grid-template-columns: minmax(70px, 110px) 1fr 32px; margin-bottom: var(--sp-1); }
+.dash-bar .num { text-align: end; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ss-navy); }
+@media (max-width: 899px) { .dash-charts { grid-template-columns: minmax(0, 1fr); } }
+/* Six numbers: one row on wide screens, three across on tablets and small laptops, two on phones (base rule). */
+@media (min-width: 768px) and (max-width: 1199px) {
+  .dash-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dash-metrics .metric-cell:nth-child(n + 4) { border-block-start: 1px solid var(--ss-border); }
+  .dash-metrics .metric-cell:nth-child(4) { border-inline-start: 0; }
+  .dash-metrics strong { font-size: 24px; }
+}
+@media (max-width: 479px) { .donut { gap: var(--sp-3); } .donut-ring { width: 124px; height: 124px; margin-inline: auto; } .donut-legend { flex-basis: 100%; } }

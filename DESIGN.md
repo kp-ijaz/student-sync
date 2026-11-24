@@ -241,6 +241,28 @@ package** (only with no payments), and a collapsed list of the classes that used
 pills or a number, price, hours count from, pay by, paid now + `MethodPicker` pills), **Take payment**, **Remove payment**
 (reason required; the payment stays, struck through). Money reads "AED 4,000" (`Money.Format`, tenant currency).
 
+### Admin home with charts (2026-11-24, owner request: "see everything here, quickly, kept simple")
+
+Supersedes the row list of "Admin home — the front desk" where they differ. Order: greeting + two actions + shortcuts →
+six numbers (`MetricStrip` with `dash-metrics`: Students, Teachers, Classes next 7 days, Income this month, Profit or
+Loss this month, Fees due; 6 across ≥ 1200 px, 3 across on tablets, 2 on phones) → four chart cards (`.dash-charts`,
+2 × 2, one column < 900 px) → Coming up, Needs you, Fees due. The recent-activity card was removed (it lives in the
+audit log). Every number and chart card links to the page that owns the figure and reads from that page's API
+(`finance/summary`, `reports/students`, `marketing/overview`), so the home never disagrees with it; charts load after
+the first paint behind a skeleton.
+
+Chart rules (apply to any future chart):
+
+- Shared components only: `DonutChart` (ring with a centre figure and a legend that prints the count and share of every
+  slice) and `MonthBars` (two bars per month on one zero-based scale, legend above, newest month bold, screen-reader
+  table). Ranked lists use the existing `bar-row` + `progress-bar` in one hue. Plain SVG, no chart library.
+- Colour never carries meaning alone: every slice or bar has its label and figure in text, and a hover title.
+- Colours are tokens. Two money series: `--ss-blue` (in) and `--ss-orange-deep` (out) — brand orange `--ss-orange` is too
+  light on white for a mark. Attendance uses the status colours (present success, late warning, absent error, excused
+  slate). Enquiries: open blue, admitted success, not interested orange-deep. Palettes were checked for colour-blind
+  separation; the amber "late" slice is the weakest on contrast, which is why its legend row is always shown.
+- One axis per chart, at most three gridlines, no gradients or 3-D, and an `InlineEmpty` sentence instead of an empty plot.
+
 ### Home pattern — the same design on every home and profile (2026-11-13)
 
 Owner request: "keep the same design in every screen". The admin front desk is now the pattern for every role, built
@@ -509,6 +531,17 @@ classes; it reminds, alerts and prepares, and people decide.
 - **Filters on phones**: search on its own row, dropdown lists two per row.
 - **Dialogs on phones**: stacked full-width actions with the main one first.
 - **Toasts** never take taps (only their close button does), so a message cannot block the button under it.
+
+### Shared pieces added in the optimisation pass (2026-11-24)
+
+- **`ConfirmDialog`** (`Components/Shared`): the "are you sure?" before a delete — title, what will happen, "Keep it" and
+  one red button. Use it for every new delete instead of a hand-written `Modal`.
+- **`PeriodSwitcher`** (`Components/Shared`): Month | Year (| Dates with `AllowDates`) with previous/next; the parent keeps
+  the dates and reloads in `Changed`. Used by Finance and the Marketing overview. Names and "▲ 12% vs before" text come
+  from `Periods` in `UiServices.cs`.
+- On phones, money bars, month links and "see all" links are at least 44 px tall.
+- Layout audit: `tests/e2e/puppeteer/mobile-audit.mjs` covers 64 screens for the three main roles; run it with
+  `AUDIT_WIDTH=360|768|1024|1280` after layout changes.
 
 ### Salaries and Finance, connected (2026-11-24, second pass)
 
