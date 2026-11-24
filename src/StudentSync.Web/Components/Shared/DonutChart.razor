@@ -8,7 +8,7 @@
 }
 else
 {
-    <div class="donut">
+    <div class="donut @(Compact ? "donut-compact" : "")">
         <svg class="donut-ring" viewBox="0 0 120 120" role="img" aria-label="@Summary">
             <circle cx="60" cy="60" r="@R" fill="none" stroke="var(--ss-fill)" stroke-width="16" />
             @foreach (var a in Arcs)
@@ -46,6 +46,8 @@ else
     [Parameter] public string EmptyText { get; set; } = "Nothing to show yet.";
     /// <summary>List parts whose value is 0 in the legend too (off by default to keep it short).</summary>
     [Parameter] public bool ShowZero { get; set; }
+    /// <summary>A smaller ring beside its legend, for short cards.</summary>
+    [Parameter] public bool Compact { get; set; }
 
     private decimal Total => Slices.Sum(s => Math.Max(0, s.Value));
     private string Percent(decimal value) => Total <= 0 ? "0" : (100m * value / Total).ToString("0.#");

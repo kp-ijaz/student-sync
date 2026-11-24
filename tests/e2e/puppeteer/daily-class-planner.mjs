@@ -71,7 +71,7 @@ try {
     const [links, count] = ['.quick-links a', 5];
     await page.waitForSelector(links);
     assert.equal(await page.$$eval(links, (l) => l.length), count);
-    if (role === 'admin') assert.equal(await page.$$eval('.metric-cell', (m) => m.length), 7); // + Subjects, Hours taught (2026-11-16)
+    if (role === 'admin') assert.equal(await page.$$eval('.dash-kpis .kpi', (m) => m.length), 6); // six number tiles (2026-11-24)
     await shots(page, `daily-${role}`);
     if (role === 'student') { await page.close(); continue; }
 

@@ -227,3 +227,17 @@ format checks clean; Puppeteer `admin-dashboard.mjs` (new, read-only) and `fees.
 overflow, console errors or failed requests; screenshots inspected at all three sizes. Not run: the other Puppeteer
 flows, the 64-screen layout audit and an axe pass after this change. Not committed and not deployed.
 
+### Dashboard layout pass (2026-11-24, later the same day)
+
+Reworked for a cleaner, fully responsive overview: six number tiles (income and profit compared with last month, fees
+due with its overdue count), and one card grid driven by container queries (1, 6 or 12 columns by the real content
+width). The money card now leads with this month's received / paid out / profit; `MonthBars` is built from plain
+elements and stretches to the card; `DonutChart` gained `Compact`. Design notes: DESIGN.md "Admin home with charts".
+
+Verified locally on demo data: build 0 errors; unit 230/230; integration 143/143; whitespace and style format clean;
+Puppeteer `admin-dashboard.mjs` at 360/375/768/1024/1280/1440 (no page overflow, nothing spilling out of a tile or
+card, no console errors or failed requests; screenshots inspected), `fees.mjs` (selector updated to the tiles), and
+the 64-screen layout audit at 360/768/1024 all pass. `daily-class-planner.mjs` had a stale count of dashboard numbers;
+its selector was updated but the script was not re-run. Not run: the remaining Puppeteer flows, the Playwright pixel
+baselines and an axe pass. Two earlier failed `fees.mjs` runs left a demo student owing extra in the local database only.
+

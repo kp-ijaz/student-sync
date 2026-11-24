@@ -241,21 +241,31 @@ package** (only with no payments), and a collapsed list of the classes that used
 pills or a number, price, hours count from, pay by, paid now + `MethodPicker` pills), **Take payment**, **Remove payment**
 (reason required; the payment stays, struck through). Money reads "AED 4,000" (`Money.Format`, tenant currency).
 
-### Admin home with charts (2026-11-24, owner request: "see everything here, quickly, kept simple")
+### Admin home with charts (2026-11-24, owner requests: "see everything here, quickly, kept simple", then "more responsive and professional")
 
-Supersedes the row list of "Admin home — the front desk" where they differ. Order: greeting + two actions + shortcuts →
-six numbers (`MetricStrip` with `dash-metrics`: Students, Teachers, Classes next 7 days, Income this month, Profit or
-Loss this month, Fees due; 6 across ≥ 1200 px, 3 across on tablets, 2 on phones) → four chart cards (`.dash-charts`,
-2 × 2, one column < 900 px) → Coming up, Needs you, Fees due. The recent-activity card was removed (it lives in the
-audit log). Every number and chart card links to the page that owns the figure and reads from that page's API
-(`finance/summary`, `reports/students`, `marketing/overview`), so the home never disagrees with it; charts load after
-the first paint behind a skeleton.
+Supersedes the row list of "Admin home — the front desk" where they differ. Greeting + two actions + shortcuts, then
+`.dash`:
+
+- **Number tiles** (`.dash-kpis` of `.kpi` links): Students, Teachers, Classes next 7 days, Income this month, Profit
+  or Loss this month, Fees due. Each has a tinted icon, the figure on one line, and a note. Income and Profit show the
+  change against last month ("▲ 12% vs last month") only when last month had a figure; Fees due shows the overdue count.
+- **One card grid** (`.dash-grid`): Money in and out (this month's received / paid out / profit, then two bars per
+  month), Attendance ring, Enquiries ring (compact), Students by class, Needs you, Coming up, Fees due.
+- **Responsive by the width the page really has** (container queries on `.dash`, so it is right with the side menu
+  docked or as a drawer): < 620 px one column with 2 tiles across and Needs you first; 620–1039 px 3 tiles across and
+  cards two-up (money, needs and agenda full width); ≥ 1040 px 6 tiles in a row and a 12-column grid (money 8 +
+  attendance 4; enquiries, classes, needs 4 each; agenda 8 + fees 4).
+- The recent-activity card was removed (it lives in the audit log). Every tile and card links to the page that owns
+  the figure and reads that page's API (`finance/summary`, `reports/students`, `marketing/overview`), so the home never
+  disagrees with it; charts load after the first paint behind a skeleton.
+- New tokens `--ss-success-deep` and `--ss-error-deep`: text-strength green and red for figures and chips on tinted
+  backgrounds (the plain status colours are too light for small text).
 
 Chart rules (apply to any future chart):
 
 - Shared components only: `DonutChart` (ring with a centre figure and a legend that prints the count and share of every
-  slice) and `MonthBars` (two bars per month on one zero-based scale, legend above, newest month bold, screen-reader
-  table). Ranked lists use the existing `bar-row` + `progress-bar` in one hue. Plain SVG, no chart library.
+  slice; `Compact` for short cards) and `MonthBars` (two bars per month on one zero-based scale, built from plain
+  elements so it stretches to any width; legend above, newest month bold, screen-reader table). Ranked lists use the existing `bar-row` + `progress-bar` in one hue. No chart library.
 - Colour never carries meaning alone: every slice or bar has its label and figure in text, and a hover title.
 - Colours are tokens. Two money series: `--ss-blue` (in) and `--ss-orange-deep` (out) — brand orange `--ss-orange` is too
   light on white for a mark. Attendance uses the status colours (present success, late warning, absent error, excused

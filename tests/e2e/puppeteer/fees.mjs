@@ -65,7 +65,7 @@ try {
   const total = await page.$eval(".home-fees", (el) => el.textContent);
   if (!/To collect/.test(total)) fail("Fees due card shows no total");
   if (!onCard && !/See all/.test(total)) fail("Student missing from the Fees due card");
-  if (!(await page.$$eval(".metric-cell", (m) => m.some((x) => x.textContent.includes("Fees due"))))) fail("No Fees due metric");
+  if (!(await page.$$eval(".dash-kpis .kpi", (m) => m.some((x) => x.textContent.includes("Fees due"))))) fail("No Fees due metric");
   await overflowCheck(page, "dashboard");
 
   await page.goto(`${BASE_URL}/admin/fees`, { waitUntil: "networkidle0" });
