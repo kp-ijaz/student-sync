@@ -1,7 +1,8 @@
 @inherits AppComponent
 
 @* Fees & hours (admin): the student's prepaid hours (bought − used = left) and money (price − paid = due).
-   Add hours with an optional first payment, take a payment, or remove a payment entered by mistake (kept on record).
+   Add hours with an optional first payment, take a payment, and correct or remove a payment entered by mistake
+   (PaymentEditor; a removed payment is kept on record).
    Hours used come from attendance: present or late, class not cancelled. *@
 <section class="card fee-panel" id="fees" aria-labelledby="fees-h">
     <div class="card-head">
@@ -78,7 +79,11 @@
                                             <span><strong>@Money.Format(pay.Amount, p.CurrencyCode)</strong> · @MethodName(pay.Method) · @pay.PaidOn.ToString("d MMM yyyy")@(pay.Reference is { } r ? $" · {r}" : "")
                                                 @if (pay.Voided) { <span class="caption"> — removed: @pay.VoidReason</span> }</span>
                                             <span class="btn-group"><a class="btn btn-ghost btn-sm" href="/receipts/@pay.Id">Receipt<span class="sr-only"> for @Money.Format(pay.Amount, p.CurrencyCode)</span></a>
-                                            @if (!pay.Voided) { <button class="btn btn-ghost btn-sm" @onclick="() => AskVoid(pay)" disabled="@Busy">Remove<span class="sr-only"> payment of @Money.Format(pay.Amount, p.CurrencyCode)</span></button> }</span>
+                                            @if (!pay.Voided)
+                                            {
+                                                @if (PaymentEditor.CanEdit(pay.Method)) { <button class="btn btn-ghost btn-sm" @onclick="() => _editor?.EditFee(StudentId, pay.Id, pay.Amount, pay.PaidOn, pay.Method, pay.Reference, p.CurrencyCode)" disabled="@Busy">Edit<span class="sr-only"> payment of @Money.Format(pay.Amount, p.CurrencyCode)</span></button> }
+                                                <button class="btn btn-ghost btn-sm" @onclick="@(() => _editor?.RemoveFee(StudentId, pay.Id, $"{Money.Format(pay.Amount, p.CurrencyCode)} received on {pay.PaidOn:d MMM yyyy}"))" disabled="@Busy">Remove<span class="sr-only"> payment of @Money.Format(pay.Amount, p.CurrencyCode)</span></button>
+                                            }</span>
                                         </li>
                                     }
                                 </ul>
@@ -181,14 +186,7 @@
     </div>
 </Modal>
 
-<Modal @bind-Open="_voidOpen" Title="Remove payment">
-    <p class="small" style="margin-top:0">The payment stays on record as removed and no longer counts as paid.</p>
-    <div class="field"><label for="vr">Why? *</label><input id="vr" class="input" placeholder="e.g. Entered twice" maxlength="300" @bind="_voidReason" @bind:event="oninput" /></div>
-    <div class="form-actions">
-        <button class="btn btn-secondary" @onclick="() => _voidOpen = false">Keep it</button>
-        <button class="btn btn-danger" @onclick="Void" disabled="@(Busy || string.IsNullOrWhiteSpace(_voidReason))">Remove payment</button>
-    </div>
-</Modal>
+<PaymentEditor @ref="_editor" Me="Me" OnChanged="LoadAsync" />
 
 <Modal @bind-Open="_rateOpen" Title="Rate per hour">
     <div class="field"><label for="fr">Fee per hour (@Currency)</label>
@@ -206,14 +204,14 @@
     private ApiException? _error;
     private string Currency => _f?.CurrencyCode ?? "";
 
-    private bool _saleOpen, _payOpen, _voidOpen;
+    private bool _saleOpen, _payOpen;
+    private PaymentEditor? _editor;
     private decimal? _hours, _price, _paidNow, _amount, _rate;
     private bool _priceAuto, _rateOpen;
     private DateOnly? _starts, _dueOn, _paidOn;
     private PaymentMethod _method = PaymentMethod.Cash;
-    private string? _reference, _voidReason;
+    private string? _reference;
     private StudentPackageDto? _payFor;
-    private FeePaymentDto? _voiding;
     private string _idempotencyKey = "";
     private List<FeePlanDto> _plans = [];
     private Guid? _planId;
@@ -256,7 +254,6 @@
         _payOpen = true;
     }
 
-    private void AskVoid(FeePaymentDto p) => (_voiding, _voidReason, _voidOpen) = (p, null, true);
 
     private void UsePlan(FeePlanDto plan)
     {
@@ -317,16 +314,6 @@
         if (await Run(() => Api.PostAsync($"students/{StudentId}/packages/{p.Id}/payments", new RecordPaymentRequest(_amount ?? 0, _paidOn, _method, _reference), _idempotencyKey), "Payment saved."))
         {
             _payOpen = false;
-            await LoadAsync();
-        }
-    }
-
-    private async Task Void()
-    {
-        if (_voiding is not { } p) return;
-        if (await Run(() => Api.PostAsync($"students/{StudentId}/payments/{p.Id}/void", new VoidPaymentRequest(_voidReason ?? "")), "Payment removed."))
-        {
-            _voidOpen = false;
             await LoadAsync();
         }
     }

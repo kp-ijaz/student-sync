@@ -107,7 +107,7 @@
                                     <strong>@Money.Format(f.TotalDue, f.CurrencyCode)</strong>
                                     <span class="caption">@FeeSummary(f)</span>
                                 </div>
-                                <FeesDueList Items="@f.Items.Where(i => i.Status is PersonStatus.Active or PersonStatus.OnHold).ToList()" Currency="@f.CurrencyCode" LowHoursAt="f.LowHoursAt" />
+                                <FeesDueList Items="f.Items" Currency="@f.CurrencyCode" LowHoursAt="f.LowHoursAt" />
                                 @if (f.TotalItems > f.Items.Count) { <a class="fee-more" href="/admin/fees">See all @f.TotalItems students</a> }
                             }
                             <p class="caption fee-month">@Money.Format(f.CollectedThisMonth, f.CurrencyCode) collected this month</p>

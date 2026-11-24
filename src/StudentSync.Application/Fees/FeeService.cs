@@ -97,9 +97,10 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
         access.Require(Permissions.UsersManage);
         var (currency, tz) = await centre.GetAsync(ct);
         var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
-        // Former (archived/inactive) students stay on the list while they still owe money, so a debt never disappears
-        // when someone is removed; they are never "running out of hours" and get no automated reminders.
-        var (balances, _) = await BalancesAsync(today, includeInactive: true, ct);
+        // Every student except deleted ones (owner decision 2026-11-24: a deleted student is gone from every working
+        // list and figure). What a deleted student still owes is kept with their record: Students ▸ Deleted.
+        // Inactive or suspended students stay while they owe; they are never "running out of hours".
+        var (balances, _) = await BalancesAsync(today, StudentScope.NotDeleted, ct);
         if (balances.Count == 0) return new FeesDueDto(currency, 0, 0, 0, 0, LowHoursAt, await CollectedThisMonthAsync(today, ct), 0, []);
 
         var rows = balances.Where(r => r.Due > 0 || (r.Active && r.Left <= LowHoursAt))
@@ -132,14 +133,24 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
     /// checks permissions). Hours used = attended classes since each student's first active package.
     /// </summary>
     public Task<(List<StudentBalance> Students, List<OpenPackage> Packages)> BalancesAsync(DateOnly today, CancellationToken ct) =>
-        BalancesAsync(today, includeInactive: false, ct);
+        BalancesAsync(today, StudentScope.Current, ct);
 
-    /// <param name="includeInactive">Also students who are not Active (archived, inactive, suspended) — for the admin's Fees due list only.</param>
-    public async Task<(List<StudentBalance> Students, List<OpenPackage> Packages)> BalancesAsync(DateOnly today, bool includeInactive, CancellationToken ct)
+    /// <summary>
+    /// Whose balances: <c>Current</c> = Active or On hold (reminders and automations); <c>NotDeleted</c> = everyone except
+    /// deleted students (the admin's Fees due); <c>Deleted</c> = deleted students only (their record under Students ▸ Deleted).
+    /// </summary>
+    public enum StudentScope { Current, NotDeleted, Deleted }
+
+    public async Task<(List<StudentBalance> Students, List<OpenPackage> Packages)> BalancesAsync(DateOnly today, StudentScope scope, CancellationToken ct)
     {
         // Students on hold are still the centre's students: their fees stay on the current list and reminders continue.
-        var active = db.StudentPackages.Where(p => p.Status == PackageStatus.Active
-            && (includeInactive || p.Student!.Status == PersonStatus.Active || p.Student!.Status == PersonStatus.OnHold));
+        var active = db.StudentPackages.Where(p => p.Status == PackageStatus.Active);
+        active = scope switch
+        {
+            StudentScope.Current => active.Where(p => p.Student!.Status == PersonStatus.Active || p.Student!.Status == PersonStatus.OnHold),
+            StudentScope.NotDeleted => active.Where(p => p.Student!.Status != PersonStatus.Archived),
+            _ => active.Where(p => p.Student!.Status == PersonStatus.Archived),
+        };
         var packages = await active.Select(p => new
         {
             StudentActive = p.Student!.Status == PersonStatus.Active || p.Student!.Status == PersonStatus.OnHold,
@@ -271,6 +282,32 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
         await db.SaveChangesAsync(ct);
         await CloseLinksAsync(packageId, ct);
         return payment.Id;
+    }
+
+    /// <summary>
+    /// Corrects a fee payment entered wrongly (owner decision 2026-11-24: the admin can change every entry): amount, day,
+    /// how it was paid and the reference. Never more than the package price in total; a removed payment and a payment the
+    /// online gateway confirmed cannot be changed (remove it instead). The audit entry keeps the figures before and after.
+    /// </summary>
+    public async Task UpdatePaymentAsync(Guid studentId, Guid paymentId, RecordPaymentRequest r, CancellationToken ct)
+    {
+        access.Require(Permissions.UsersManage);
+        var payment = await db.FeePayments.FirstOrDefaultAsync(x => x.Id == paymentId && x.StudentId == studentId, ct) ?? throw new NotFoundException("Payment");
+        if (payment.VoidedAtUtc is not null) throw new DomainException("This payment was removed and cannot be changed.", "payment_voided");
+        if (payment.Method == PaymentMethod.Online) throw new DomainException("This payment was confirmed by the online payment service and cannot be changed. Remove it if it is wrong.", "payment_online");
+        if (!Enum.IsDefined(r.Method) || r.Method == PaymentMethod.Online) throw RequestValidationException.For("method", "Choose how it was paid.");
+        var package = await db.StudentPackages.Include(p => p.Payments).FirstAsync(p => p.Id == payment.PackageId, ct);
+        var paidOn = r.PaidOn ?? payment.PaidOn;
+        if (paidOn > await centre.TodayAsync(ct)) throw RequestValidationException.For("paidOn", "The payment day cannot be in the future.");
+        if (r.Amount <= 0) throw RequestValidationException.For("amount", "Enter the amount received.");
+        var room = package.Price - package.Payments.Where(x => x.VoidedAtUtc == null && x.Id != payment.Id).Sum(x => x.Amount);
+        if (r.Amount > room) throw RequestValidationException.For("amount", $"At most {room:0.##} can be paid on this package with this payment.");
+
+        var before = $"{payment.Amount:0.##} on {payment.PaidOn:yyyy-MM-dd} ({payment.Method})";
+        (payment.Amount, payment.PaidOn, payment.Method, payment.Reference) = (decimal.Round(r.Amount, 2), paidOn, r.Method, Text.Optional(r.Reference, "reference", 100));
+        audit.Record("fees.payment_edited", "Student", studentId, $"{before} → {payment.Amount:0.##} on {payment.PaidOn:yyyy-MM-dd} ({payment.Method}) · {package.Name}");
+        await db.SaveChangesAsync(ct);
+        await CloseLinksAsync(package.Id, ct);
     }
 
     /// <summary>Marks a payment as a mistake. It stays on record (who, when, why) and no longer counts as paid.</summary>

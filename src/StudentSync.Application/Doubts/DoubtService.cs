@@ -26,7 +26,8 @@ public sealed class DoubtService(
     /// <summary>Doubts the current user may read.</summary>
     private async Task<IQueryable<Doubt>> VisibleAsync(CancellationToken ct)
     {
-        var q = db.Doubts.AsQueryable();
+        // A deleted student's doubts are off every list (they remain in the database with the student's record).
+        var q = db.Doubts.Where(d => d.Student!.Status != Domain.People.PersonStatus.Archived);
         if (access.IsAdmin) return q;
         if (access.IsTeacher)
         {
@@ -116,10 +117,12 @@ public sealed class DoubtService(
         if (r.RecordingTimestampSeconds is < 0) throw RequestValidationException.For("recordingTimestampSeconds", "Invalid timestamp.");
 
         // Route to the session's teacher, else a teacher assigned to the subject who already teaches this student.
+        // Never to a deleted teacher: the doubt then waits for an admin or another teacher.
         Guid? teacherId = session?.TeacherId;
+        if (teacherId is { } st && await db.Teachers.AnyAsync(t => t.Id == st && t.Status == Domain.People.PersonStatus.Archived, ct)) teacherId = null;
         if (teacherId is null && r.SubjectId is { } sid)
         {
-            var taughtBy = await db.TeacherSubjects.Where(t => t.SubjectId == sid).Select(t => t.TeacherId).ToListAsync(ct);
+            var taughtBy = await db.TeacherSubjects.Where(t => t.SubjectId == sid && t.Teacher!.Status != Domain.People.PersonStatus.Archived).Select(t => t.TeacherId).ToListAsync(ct);
             foreach (var candidate in taughtBy)
                 if (await access.TeacherTeachesStudentAsync(candidate, user.UserId, ct)) { teacherId = candidate; break; }
         }
@@ -199,7 +202,7 @@ public sealed class DoubtService(
             if (!access.IsAdmin && r.AssignedTeacherId != user.UserId) throw new ForbiddenException("Only administrators can assign doubts to other teachers.");
             if (r.AssignedTeacherId is { } tid)
             {
-                if (!await db.Teachers.AnyAsync(t => t.Id == tid, ct)) throw RequestValidationException.For("assignedTeacherId", "Teacher not found.");
+                if (!await db.Teachers.AnyAsync(t => t.Id == tid && t.Status != Domain.People.PersonStatus.Archived, ct)) throw RequestValidationException.For("assignedTeacherId", "Teacher not found.");
                 if (d.Status is DoubtStatus.New) db.DoubtStatusChanges.Add(d.TransitionTo(DoubtStatus.Assigned, user.UserId, now));
                 await notify.NotifyAsync([tid], NotificationType.DoubtAssigned, "Doubt assigned to you", d.Title, $"/doubts/{d.Id}", $"doubt-assigned:{d.Id}:{tid}", ct);
             }

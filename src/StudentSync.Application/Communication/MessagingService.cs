@@ -54,7 +54,10 @@ public sealed class MessagingService(IAppDbContext db, ICurrentUser user, Access
     public async Task<IReadOnlyList<ConversationDto>> ConversationsAsync(CancellationToken ct)
     {
         var me = user.UserId;
-        var rows = await db.Conversations.Where(c => c.Participants.Any(p => p.UserId == me)).OrderByDescending(c => c.LastMessageAtUtc).Take(100)
+        // A conversation whose other people were all deleted (their accounts are switched off) leaves the list.
+        var rows = await db.Conversations.Where(c => c.Participants.Any(p => p.UserId == me)
+                && (!c.Participants.Any(p => p.UserId != me) || c.Participants.Any(p => p.UserId != me && db.Users.Any(u => u.Id == p.UserId && u.IsActive))))
+            .OrderByDescending(c => c.LastMessageAtUtc).Take(100)
             .Select(c => new
             {
                 c.Id,
@@ -161,7 +164,7 @@ public sealed class MessagingService(IAppDbContext db, ICurrentUser user, Access
         {
             var batch = await db.Batches.FirstOrDefaultAsync(b => b.Id == r.BatchId && (access.IsAdmin || b.TeacherId == user.UserId), ct)
                         ?? throw RequestValidationException.For("batchId", "Batch not found.");
-            var students = await db.BatchEnrolments.Where(e => e.BatchId == batch.Id && e.Status == EnrolmentStatus.Active).Select(e => e.StudentId).ToListAsync(ct);
+            var students = await db.BatchEnrolments.Where(e => e.BatchId == batch.Id && e.Status == EnrolmentStatus.Active && e.Student!.Status != Domain.People.PersonStatus.Archived).Select(e => e.StudentId).ToListAsync(ct);
             recipients = await notify.WithGuardiansAsync(students, ct);
         }
         else

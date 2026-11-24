@@ -11,8 +11,8 @@ namespace StudentSync.Application.Fees;
 /// <summary>
 /// Teacher salary (owner decision 2026-11-16): each teacher has a rate per hour from a date; pay = hours of completed
 /// classes they taught × the rate in force that day (a class the student missed still counts — the teacher was there;
-/// a class cancelled because the teacher was absent does not). Salary payments are recorded, never edited, and voided
-/// with a reason. Admins manage everything; a teacher can read only their own pay. Every change is audited (no amounts
+/// a class cancelled because the teacher was absent does not). An admin can correct a salary payment or remove
+/// it with a reason (it stays on record as removed). Admins manage everything; a teacher can read only their own pay. Every change is audited (no amounts
 /// of other people in the audit summary beyond the teacher's own record).
 /// </summary>
 public sealed class TeacherPayService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, AuditService audit, CentreService centre)
@@ -105,6 +105,26 @@ public sealed class TeacherPayService(IAppDbContext db, ICurrentUser user, Acces
         audit.Record("teacher.salary_paid", "Teacher", teacherId, $"{currency} {payment.Amount} on {payment.PaidOn:yyyy-MM-dd} ({payment.Method})");
         await db.SaveChangesAsync(ct);
         return payment.Id;
+    }
+
+    /// <summary>
+    /// Corrects a salary payment entered wrongly (owner decision 2026-11-24: the admin can change every entry). Same checks
+    /// as a new payment; a removed payment cannot be edited. The audit entry keeps the figures before and after.
+    /// </summary>
+    public async Task UpdatePaymentAsync(Guid teacherId, Guid paymentId, AddTeacherPaymentRequest r, CancellationToken ct)
+    {
+        access.Require(Permissions.UsersManage);
+        var p = await db.TeacherPayments.FirstOrDefaultAsync(x => x.Id == paymentId && x.TeacherId == teacherId, ct) ?? throw new NotFoundException("Payment");
+        if (p.VoidedAtUtc is not null) throw new ConflictException("This payment was removed and cannot be changed.", "already_voided");
+        try { TeacherPayment.Validate(r.Amount, r.PeriodFrom, r.PeriodTo); }
+        catch (DomainException e) { throw RequestValidationException.For(e.Code == "invalid_period" ? "periodTo" : "amount", e.Message); }
+        if (!Enum.IsDefined(r.Method) || r.Method == PaymentMethod.Online) throw RequestValidationException.For("method", "Choose how it was paid.");
+        if (r.PaidOn > (await centre.TodayAsync(ct)).AddDays(1)) throw RequestValidationException.For("paidOn", "The payment date cannot be in the future.");
+        var before = $"{p.CurrencyCode} {p.Amount} on {p.PaidOn:yyyy-MM-dd} ({p.Method})";
+        (p.Amount, p.PaidOn, p.Method, p.PeriodFrom, p.PeriodTo) = (decimal.Round(r.Amount, 2), r.PaidOn, r.Method, r.PeriodFrom, r.PeriodTo);
+        (p.Reference, p.Note) = (Text.Optional(r.Reference, "reference", 100), Text.Optional(r.Note, "note", 300));
+        audit.Record("teacher.salary_edited", "Teacher", teacherId, $"{before} → {p.CurrencyCode} {p.Amount} on {p.PaidOn:yyyy-MM-dd} ({p.Method})");
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task VoidPaymentAsync(Guid teacherId, Guid paymentId, VoidTeacherPaymentRequest r, CancellationToken ct)

@@ -190,7 +190,7 @@ public sealed class MySubjectsService(IAppDbContext db, AccessPolicy access, ICl
     private async Task<Dictionary<Guid, List<Guid>>> AssignedTeachersAsync(List<Guid> subjectIds, CancellationToken ct)
     {
         if (subjectIds.Count == 0) return [];
-        var rows = await db.TeacherSubjects.Where(t => subjectIds.Contains(t.SubjectId)).Select(t => new { t.SubjectId, t.TeacherId }).ToListAsync(ct);
+        var rows = await db.TeacherSubjects.Where(t => subjectIds.Contains(t.SubjectId) && t.Teacher!.Status != Domain.People.PersonStatus.Archived).Select(t => new { t.SubjectId, t.TeacherId }).ToListAsync(ct);
         return rows.GroupBy(r => r.SubjectId).ToDictionary(g => g.Key, g => g.Select(r => r.TeacherId).ToList());
     }
 
@@ -224,7 +224,8 @@ public sealed class MySubjectsService(IAppDbContext db, AccessPolicy access, ICl
     private async Task<Dictionary<Guid, SubjectTeacherDto>> TeachersAsync(IEnumerable<Guid> teacherIds, CancellationToken ct)
     {
         var ids = teacherIds.Distinct().ToList();
-        var rows = await db.Teachers.Where(t => ids.Contains(t.Id))
+        // A deleted teacher is no longer shown as someone's teacher (callers skip ids that are not found).
+        var rows = await db.Teachers.Where(t => ids.Contains(t.Id) && t.Status != Domain.People.PersonStatus.Archived)
             .Select(t => new { t.Id, t.User!.FullName, t.User.PhotoFileId }).ToListAsync(ct);
         // Staff photos may be shown to anyone in the institution (same rule as the session list).
         return rows.ToDictionary(t => t.Id, t => new SubjectTeacherDto(t.Id, t.FullName, photos.For(t.PhotoFileId)));

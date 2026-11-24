@@ -222,7 +222,7 @@ public sealed class MarketingService(IAppDbContext db, ICurrentUser user, Access
     {
         access.Require(Permissions.UsersManage);
         var lead = await db.Leads.FirstOrDefaultAsync(l => l.Id == id, ct) ?? throw new NotFoundException("Lead");
-        if (!await db.Students.AnyAsync(s => s.Id == r.StudentId, ct)) throw RequestValidationException.For("studentId", "Student not found.");
+        if (!await db.Students.AnyAsync(s => s.Id == r.StudentId && s.Status != Domain.People.PersonStatus.Archived, ct)) throw RequestValidationException.For("studentId", "Student not found.");
         if (await db.Leads.AnyAsync(l => l.ConvertedStudentId == r.StudentId && l.Id != id, ct))
             throw RequestValidationException.For("studentId", "This student is already linked to another lead.");
         ApplyStatus(lead, LeadStatus.Admitted);

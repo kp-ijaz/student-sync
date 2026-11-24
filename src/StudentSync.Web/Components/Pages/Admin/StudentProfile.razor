@@ -8,6 +8,14 @@
         @* Profile header with the student's photo (initials when none), as on the mobile profile. *@
         <PageTitle>@_p.Student.FullName · Student Sync</PageTitle>
         <nav class="breadcrumbs" aria-label="Breadcrumb" style="margin-bottom:12px"><a href="@(IsAdmin ? "/admin/students" : "/teacher/students")">Students</a> /</nav>
+        @if (_p.Student.Status == PersonStatus.Archived)
+        {
+            <div class="deleted-banner" role="status">
+                <Icon Name="trash" />
+                <span><strong>This student was deleted.</strong> They cannot sign in and are not on any class, fee, exam or report screen. This record is kept under Students ▸ Deleted only.</span>
+                @if (IsAdmin) { <button type="button" class="btn btn-secondary btn-sm" @onclick="Restore" disabled="@Busy">Restore</button> }
+            </div>
+        }
         <header class="page-header t-greeting home-head person-head">
             <Avatar Name="@_p.Student.FullName" PhotoUrl="@_p.Student.PhotoUrl" Size="xl" Decorative="false" />
             <div class="grow">
@@ -16,7 +24,7 @@
             </div>
             <div class="btn-group home-head-actions">
                 @if (IsAdmin) { <a class="btn btn-secondary btn-pill" href="#fees"><Icon Name="wallet" /> Fees &amp; hours</a> }
-                <a class="btn btn-primary btn-pill" href="/sessions/new?studentId=@Id"><Icon Name="plus" /> Add classes</a>
+                @if (_p.Student.Status != PersonStatus.Archived) { <a class="btn btn-primary btn-pill" href="/sessions/new?studentId=@Id"><Icon Name="plus" /> Add classes</a> }
             </div>
         </header>
         var st = _p.Student;
@@ -97,7 +105,7 @@
             </div>
         }
         @if (IsAdmin) { <div class="card" style="margin-top:16px"><h2 style="margin-bottom:8px">Parents &amp; guardians</h2><ul>@foreach (var p in _p.Parents) { <li>@p.Name <span class="caption">@p.Detail</span></li> }</ul>@if (_p.Parents.Count == 0) { <p class="muted small">None linked.</p> }</div> }
-        <ClassAgenda Sessions="_sessions" Tz="@Tz" Title="Upcoming classes" Class="profile-agenda" LinkHref="@($"/sessions/new?studentId={Id}")" LinkLabel="Add classes"
+        <ClassAgenda Sessions="_sessions" Tz="@Tz" Title="Upcoming classes" Class="profile-agenda" LinkHref="@(_p.Student.Status == PersonStatus.Archived ? null : $"/sessions/new?studentId={Id}")" LinkLabel="Add classes"
                      EmptyTitle="No classes in the next 30 days" EmptyText="Use Add classes to book this student's week." />
     }
 </DataView>
@@ -126,6 +134,11 @@
         if (m > 0) parts.Add(m == 1 ? "1 month" : $"{m} months");
         return string.Join(" ", parts);
     }
+    private async Task Restore()
+    {
+        if (await Run(() => Api.PostAsync($"students/{Id}/restore"), "Restored: they can sign in again.")) await LoadAsync();
+    }
+
     protected override async Task LoadAsync()
     {
         (_p, _error) = await Fetch(() => Api.GetAsync<StudentProfileDto>($"students/{Id}"));

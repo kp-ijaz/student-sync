@@ -23,7 +23,9 @@ public sealed class SalaryService(IAppDbContext db, ITenantContext tenant, Acces
         month = new DateOnly(month.Year, month.Month, 1);
         var next = month.AddMonths(1);
         var tz = await db.Tenants.Where(t => t.Id == tenant.TenantId).Select(t => t.DefaultTimeZoneId).FirstOrDefaultAsync(ct) ?? "UTC";
-        var teachers = await db.Teachers.Where(t => t.Status == PersonStatus.Active || db.Sessions.Any(s => s.TeacherId == t.Id && s.Status == SessionStatus.Completed))
+        // Deleted teachers are not on the salary list; what is still open with them is on their record (Teachers ▸ Deleted).
+        var teachers = await db.Teachers.Where(t => t.Status != PersonStatus.Archived
+                && (t.Status == PersonStatus.Active || db.Sessions.Any(s => s.TeacherId == t.Id && s.Status == SessionStatus.Completed)))
             .Select(t => new { t.Id, t.User!.FullName }).ToListAsync(ct);
         var ids = teachers.Select(t => t.Id).ToList();
         var rates = (await db.TeacherPayRates.Where(r => ids.Contains(r.TeacherId)).Select(r => new { r.TeacherId, r.EffectiveFrom, r.HourlyRate }).ToListAsync(ct))

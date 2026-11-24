@@ -59,7 +59,8 @@ try {
     await page.evaluate(() => window.__offerInstall());
     s = await state(page);
     check(`login ${name}: banner shown at the top with the Install button`, s.visible && s.top === 0 && s.installVisible, JSON.stringify(s));
-    check(`login ${name}: install wording, no iOS steps`, s.text.includes("Install Student Sync") && s.text.includes("home screen") && !s.text.includes("Share"), s.text);
+    // Phones and tablets show the short title only (the second line was dropped in the phone layout pass).
+    check(`login ${name}: install wording, no iOS steps`, s.text.includes("Install Student Sync") && (name !== "desktop" || s.text.includes("home screen")) && !s.text.includes("Share"), s.text);
     check(`login ${name}: no horizontal overflow`, s.overflow <= 0, `${s.overflow}px`);
     if (vp.width < 1024) check(`login ${name}: touch targets ≥ 44 px`, s.installHeight >= 44 && s.dismissSize >= 44, `${s.installHeight}/${s.dismissSize}`);
     await shot(page, `login-${vp.width}`);

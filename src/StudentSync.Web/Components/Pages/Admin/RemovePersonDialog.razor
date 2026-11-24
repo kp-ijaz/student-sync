@@ -1,11 +1,13 @@
 @inherits AppComponent
-@* Delete a student or teacher (owner request 2026-11-23). The API deletes for good only when nothing was recorded for
-   the person; otherwise it archives them (sign-in blocked, hidden from lists, history kept) and says so. *@
+@* Delete a student or teacher (owner requests 2026-11-23, 2026-11-24). The API deletes for good only when nothing was
+   recorded for the person; otherwise they become "Deleted": off every working screen, record kept under the Deleted
+   filter of their list (where they can be restored). *@
 <Modal Open="Open" OpenChanged="OpenChanged" Title="@($"Delete {Name}?")">
-    <p style="margin-top:0">@Name will no longer be able to sign in and will disappear from the @(Kind)s list.</p>
+    <p style="margin-top:0">@Name will no longer be able to sign in and is removed from every working screen: lists, classes, @(Kind == "student" ? "fees, attendance, exams and reports" : "salaries, subjects, timetables and reports").</p>
     <ul class="small remove-person-facts">
         <li>If nothing was recorded for them yet, they are deleted for good.</li>
-        <li>If they have classes, attendance, @(Kind == "student" ? "fees or results" : "salary or students' work"), they are archived instead, so those records and reports stay correct. Find them again with the status filter <strong>Archived</strong> and set them Active to restore.</li>
+        <li>Otherwise their full record is kept in one place only: <strong>@(Kind == "student" ? "Students" : "Teachers") ▸ Deleted</strong>. You can open it there, settle any money still open, or restore them.</li>
+        <li>Money already received or paid stays in Finance, so past income and profit do not change.</li>
         <li>Cancel @(Kind == "student" ? "their" : "or hand over their") upcoming classes first.</li>
     </ul>
     <div class="form-actions">

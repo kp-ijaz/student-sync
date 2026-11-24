@@ -180,4 +180,68 @@ public sealed class FinanceTests(ApiFixture api)
         var found = Assert.Single((await admin.Get<FinanceEntriesDto>($"finance/entries?kind=Salary&search=u-{tag}")).Page.Items);
         Assert.Equal((teacher, first, 1500m), (found.PersonId, found.RecordId, found.Amount));
     }
+
+    /// <summary>Owner request 2026-11-24: the admin can correct or remove any recorded payment; nobody else can.</summary>
+    [Fact]
+    public async Task Admin_can_correct_fee_and_salary_payments_and_nobody_else_can()
+    {
+        var admin = await api.LoginAsync(Accounts.Admin);
+        var tag = Tag();
+        var day = Today.AddDays(-Random.Shared.Next(20, 300));
+        var subject = (await admin.Post<IdResponse>("academics/centre-subjects", new CentreSubjectRequest($"Edit pay {tag}"))).Id;
+        var teacher = (await admin.Post<CreatedPersonResponse>("teachers", new CreateTeacherRequest($"Edit {tag} (Demo Teacher)", $"edit-t-{tag}@horizon.example.test", null, null, null, "Asia/Dubai", [subject]))).Id;
+        var student = (await admin.Post<CreatedPersonResponse>("students", new CreateStudentRequest($"Edit {tag} (Demo Student)", $"edit-{tag}@horizon.example.test", $"ED-{tag}", null, null, "Asia/Dubai"))).Id;
+
+        // Fee payment: 2000 of 5000 by cash, corrected to 2500 by UPI on another day.
+        await admin.Post<IdResponse>($"students/{student}/packages", new SavePackageRequest(10, 5000, day, PaidNow: 2000));
+        var feeId = (await admin.Get<StudentFeesDto>($"students/{student}/fees")).Packages.Single().Payments.Single().Id;
+        await admin.Put($"students/{student}/payments/{feeId}", new RecordPaymentRequest(2500, day.AddDays(1), PaymentMethod.Upi, "UPI-EDIT"));
+        var package = (await admin.Get<StudentFeesDto>($"students/{student}/fees")).Packages.Single();
+        var fee = package.Payments.Single();
+        Assert.Equal((2500m, day.AddDays(1), PaymentMethod.Upi, "UPI-EDIT"), (fee.Amount, fee.PaidOn, fee.Method, fee.Reference));
+        Assert.Equal((2500m, 2500m), (package.Paid, package.Balance));
+        // Finance shows the corrected line once.
+        var income = (await admin.Get<FinanceEntriesDto>($"finance/entries?from={day:yyyy-MM-dd}&to={day.AddDays(1):yyyy-MM-dd}&kind=Income&pageSize=100")).Page.Items.Where(e => e.PersonId == student).ToList();
+        Assert.Equal((2500m, day.AddDays(1)), (Assert.Single(income).Amount, income[0].Date));
+
+        // Never more than the package price, never zero, never a future day, never the gateway-only method.
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutRaw($"students/{student}/payments/{feeId}", new RecordPaymentRequest(5000.01m, day))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutRaw($"students/{student}/payments/{feeId}", new RecordPaymentRequest(0, day))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutRaw($"students/{student}/payments/{feeId}", new RecordPaymentRequest(100, Today.AddDays(3)))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutRaw($"students/{student}/payments/{feeId}", new RecordPaymentRequest(100, day, PaymentMethod.Online))).StatusCode);
+        // The whole price is allowed (the payment itself does not count against the room).
+        await admin.Put($"students/{student}/payments/{feeId}", new RecordPaymentRequest(5000, day));
+        Assert.Equal(0m, (await admin.Get<StudentFeesDto>($"students/{student}/fees")).Packages.Single().Balance);
+
+        // Salary payment: 1200 cash corrected to 900 by bank transfer with a period and note.
+        var salaryId = (await admin.Post<IdResponse>($"teachers/{teacher}/pay/payments", new AddTeacherPaymentRequest(1200, day, PaymentMethod.Cash, null, "Advance", null, null))).Id;
+        await admin.Put($"teachers/{teacher}/pay/payments/{salaryId}", new AddTeacherPaymentRequest(900, day.AddDays(2), PaymentMethod.BankTransfer, "TRX-9", "Corrected", day.AddDays(-30), day));
+        var pay = await admin.Get<TeacherPayDto>($"teachers/{teacher}/pay");
+        var salary = Assert.Single(pay.Payments);
+        Assert.Equal((900m, day.AddDays(2), PaymentMethod.BankTransfer, "TRX-9", "Corrected", (DateOnly?)day.AddDays(-30)), (salary.Amount, salary.PaidOn, salary.Method, salary.Reference, salary.Note, salary.PeriodFrom));
+        Assert.Equal(900m, pay.Paid);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutRaw($"teachers/{teacher}/pay/payments/{salaryId}", new AddTeacherPaymentRequest(0, day, PaymentMethod.Cash, null, null, null, null))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutRaw($"teachers/{teacher}/pay/payments/{salaryId}", new AddTeacherPaymentRequest(10, day, PaymentMethod.Cash, null, null, day, day.AddDays(-1)))).StatusCode);
+
+        // Another teacher's id in the address does not reach this payment; teachers and students cannot edit at all.
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PutRaw($"teachers/{Guid.NewGuid()}/pay/payments/{salaryId}", new AddTeacherPaymentRequest(1, day, PaymentMethod.Cash, null, null, null, null))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PutRaw($"students/{Guid.NewGuid()}/payments/{feeId}", new RecordPaymentRequest(1, day))).StatusCode);
+        foreach (var account in new[] { Accounts.Amira, Accounts.Aisha })
+        {
+            var other = await api.LoginAsync(account);
+            Assert.Equal(HttpStatusCode.Forbidden, (await other.PutRaw($"teachers/{teacher}/pay/payments/{salaryId}", new AddTeacherPaymentRequest(1, day, PaymentMethod.Cash, null, null, null, null))).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await other.PutRaw($"students/{student}/payments/{feeId}", new RecordPaymentRequest(1, day))).StatusCode);
+        }
+
+        // Every correction is in the audit log with the figures before and after.
+        var audit = (await admin.Get<PagedResult<AuditEntryDto>>("institution/audit?pageSize=100")).Items;
+        Assert.Contains(audit, a => a.Action == "teacher.salary_edited" && a.EntityId == teacher.ToString() && a.Summary!.Contains("1200") && a.Summary.Contains("900"));
+        Assert.Contains(audit, a => a.Action == "fees.payment_edited" && a.EntityId == student.ToString() && a.Summary!.Contains("2000") && a.Summary.Contains("2500"));
+
+        // A removed payment cannot be edited afterwards.
+        await admin.Post($"teachers/{teacher}/pay/payments/{salaryId}/void", new VoidTeacherPaymentRequest("Test"));
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PutRaw($"teachers/{teacher}/pay/payments/{salaryId}", new AddTeacherPaymentRequest(1, day, PaymentMethod.Cash, null, null, null, null))).StatusCode);
+        await admin.Post($"students/{student}/payments/{feeId}/void", new VoidPaymentRequest("Test"));
+        Assert.NotEqual(HttpStatusCode.NoContent, (await admin.PutRaw($"students/{student}/payments/{feeId}", new RecordPaymentRequest(1, day))).StatusCode);
+    }
 }

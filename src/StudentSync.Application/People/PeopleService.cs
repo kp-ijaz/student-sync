@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using StudentSync.Application.Common;
 using StudentSync.Application.Reporting;
@@ -13,7 +14,7 @@ namespace StudentSync.Application.People;
 
 public sealed class PeopleService(
     IAppDbContext db, ICurrentUser user, ITenantContext tenant, AccessPolicy access, IUserAccountService accounts, IClock clock, AuditService audit, ProgressService progress, PhotoUrls photos,
-    SchoolReportService schoolReports)
+    SchoolReportService schoolReports, Fees.PaymentLinkService paymentLinks, Microsoft.Extensions.Logging.ILogger<PeopleService> logger)
 {
     private async Task<Tenant> TenantAsync(CancellationToken ct) => await db.Tenants.FirstAsync(t => t.Id == tenant.TenantId, ct);
 
@@ -40,7 +41,8 @@ public sealed class PeopleService(
     {
         access.Require(Permissions.UsersView);
         var items = db.Teachers.AsQueryable();
-        // Deleted (archived) teachers are hidden unless the admin filters for them.
+        // Deleted teachers are hidden unless an admin asks for them (Teachers ▸ Deleted); nobody else can list them.
+        if (q.Status == PersonStatus.Archived && !user.Has(Permissions.UsersManage)) throw new ForbiddenException();
         items = q.Status is { } st ? items.Where(t => t.Status == st) : items.Where(t => t.Status != PersonStatus.Archived);
         if (!string.IsNullOrWhiteSpace(q.Search)) items = items.Where(t => t.User!.FullName.ToLower().Contains(q.Search.ToLowerInvariant()) || t.User.Email!.ToLower().Contains(q.Search.ToLowerInvariant()));
         var total = await items.CountAsync(ct);
@@ -96,6 +98,7 @@ public sealed class PeopleService(
         access.Require(Permissions.UsersManage);
         var t = await db.Teachers.Include(x => x.User).FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Teacher");
         if (r.Status == PersonStatus.OnHold) throw RequestValidationException.For("status", "On hold is for students. Use Inactive for a teacher.");
+        EnsureNotDeletingByEdit(t.Status, r.Status);
         if (r.Status == PersonStatus.Active && t.Status != PersonStatus.Active) await EnsureCapacityAsync(UserRole.Teacher, ct);
         t.User!.FullName = Text.Required(r.FullName, "fullName", 150);
         t.User.TimeZoneId = TimeZoneOr(r.TimeZoneId, t.User.TimeZoneId);
@@ -184,7 +187,8 @@ public sealed class PeopleService(
         access.Require(Permissions.UsersView);
         var visible = await access.VisibleStudentIdsAsync(ct);
         var items = db.Students.Where(s => visible.Contains(s.Id));
-        // Deleted (archived) students are hidden unless the admin filters for them.
+        // Deleted students are hidden unless an admin asks for them (Students ▸ Deleted); nobody else can list them.
+        if (q.Status == PersonStatus.Archived && !user.Has(Permissions.UsersManage)) throw new ForbiddenException();
         items = q.Status is { } st ? items.Where(s => s.Status == st) : items.Where(s => s.Status != PersonStatus.Archived);
         if (!string.IsNullOrWhiteSpace(q.Search)) items = items.Where(s => s.User!.FullName.ToLower().Contains(q.Search.ToLowerInvariant()) || s.StudentCode.ToLower().Contains(q.Search.ToLowerInvariant()) || s.User.Email!.ToLower().Contains(q.Search.ToLowerInvariant()));
         var total = await items.CountAsync(ct);
@@ -283,6 +287,7 @@ public sealed class PeopleService(
         if (!string.Equals(code, s.StudentCode, StringComparison.OrdinalIgnoreCase) && await db.Students.AnyAsync(x => x.StudentCode.ToLower() == code.ToLowerInvariant() && x.Id != s.Id, ct)) throw RequestValidationException.For("studentCode", "This student code is already in use.");
         if (r.GradeLevelId is { } g && !await db.GradeLevels.AnyAsync(x => x.Id == g, ct)) throw RequestValidationException.For("gradeLevelId", "Grade not found.");
         await EnsureAcademicRefsAsync(r.CurriculumId, r.AcademicYearId, ct);
+        EnsureNotDeletingByEdit(s.Status, r.Status);
         if (r.Status == PersonStatus.Active && s.Status is not (PersonStatus.Active or PersonStatus.OnHold)) await EnsureCapacityAsync(UserRole.Student, ct);
         s.User!.FullName = Text.Required(r.FullName, "fullName", 150);
         s.User.TimeZoneId = TimeZoneOr(r.TimeZoneId, s.User.TimeZoneId);
@@ -340,9 +345,17 @@ public sealed class PeopleService(
         if (s.Status != PersonStatus.Archived)
         {
             s.Status = PersonStatus.Archived;
+            // Loose ends that would otherwise keep acting for someone who is gone.
+            await db.ClassChangeRequests.Where(x => x.StudentId == id && x.Status == ClassChangeStatus.Pending)
+                .ExecuteUpdateAsync(u => u.SetProperty(x => x.Status, ClassChangeStatus.Withdrawn).SetProperty(x => x.ResponseNote, "The student was deleted."), ct);
+            await db.OutboundMessages.Where(x => x.StudentId == id && x.Status == Domain.Platform.OutboundStatus.Pending)
+                .ExecuteUpdateAsync(u => u.SetProperty(x => x.Status, Domain.Platform.OutboundStatus.Skipped).SetProperty(x => x.Error, "The student was deleted"), ct);
             await ArchiveAccountAsync(id, "student.archived", "Student", ct);
+            // Best effort after the delete is saved: a gateway problem never undoes it (the link then stays watched).
+            try { await paymentLinks.CloseForStudentAsync(id, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { logger.LogWarning(ex, "Open payment links of deleted student {Student} could not be closed", id); }
         }
-        return new RemovePersonResponse(false, $"{name} has classes, fees or other records, so they were archived instead: they can no longer sign in and are hidden from lists. Their history is kept.");
+        return new RemovePersonResponse(false, $"{name} was deleted: they can no longer sign in and are removed from every list, class, fee and report screen. Their full record is kept under Students ▸ Deleted, where you can also restore them.");
     }
 
     public async Task<RemovePersonResponse> DeleteTeacherAsync(Guid id, CancellationToken ct)
@@ -369,9 +382,50 @@ public sealed class PeopleService(
         if (t.Status != PersonStatus.Archived)
         {
             t.Status = PersonStatus.Archived;
+            await db.ClassChangeRequests.Where(x => x.TeacherId == id && x.Status == ClassChangeStatus.Pending)
+                .ExecuteUpdateAsync(u => u.SetProperty(x => x.Status, ClassChangeStatus.Declined).SetProperty(x => x.ResponseNote, "The teacher was deleted."), ct);
+            // Open doubts go back to "nobody yet" so an admin or another teacher picks them up.
+            await db.Doubts.Where(x => x.AssignedTeacherId == id && x.Status != Domain.Doubts.DoubtStatus.Resolved)
+                .ExecuteUpdateAsync(u => u.SetProperty(x => x.AssignedTeacherId, (Guid?)null), ct);
             await ArchiveAccountAsync(id, "teacher.archived", "Teacher", ct);
         }
-        return new RemovePersonResponse(false, $"{name} has taught classes or has pay records, so they were archived instead: they can no longer sign in and are hidden from lists. Their history and salary records are kept.");
+        return new RemovePersonResponse(false, $"{name} was deleted: they can no longer sign in and are removed from every list, class, salary and report screen. Their full record is kept under Teachers ▸ Deleted, where you can also restore them.");
+    }
+
+    /// <summary>Brings a deleted student back as Active: they can sign in again and return to every list.</summary>
+    public async Task RestoreStudentAsync(Guid id, CancellationToken ct)
+    {
+        access.Require(Permissions.UsersManage);
+        var s = await db.Students.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Student");
+        if (s.Status != PersonStatus.Archived) throw new ConflictException("This student is not deleted.", "not_deleted");
+        await EnsureCapacityAsync(UserRole.Student, ct);
+        s.Status = PersonStatus.Active;
+        await accounts.SetActiveAsync(id, true, ct);
+        audit.Record("student.restored", "Student", id, "Restored by admin");
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Brings a deleted teacher back as Active: they can sign in again and return to every list.</summary>
+    public async Task RestoreTeacherAsync(Guid id, CancellationToken ct)
+    {
+        access.Require(Permissions.UsersManage);
+        var t = await db.Teachers.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Teacher");
+        if (t.Status != PersonStatus.Archived) throw new ConflictException("This teacher is not deleted.", "not_deleted");
+        await EnsureCapacityAsync(UserRole.Teacher, ct);
+        t.Status = PersonStatus.Active;
+        await accounts.SetActiveAsync(id, true, ct);
+        audit.Record("teacher.restored", "Teacher", id, "Restored by admin");
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Deleting is done with Delete only (it checks upcoming classes and closes loose ends); the edit form cannot set the
+    /// Deleted status. Setting a deleted person to another status restores them.
+    /// </summary>
+    private static void EnsureNotDeletingByEdit(PersonStatus current, PersonStatus wanted)
+    {
+        if (wanted == PersonStatus.Archived && current != PersonStatus.Archived)
+            throw RequestValidationException.For("status", "Use Delete to remove this person.");
     }
 
     /// <summary>Runs the deletes in one transaction. A foreign-key refusal (the person has history) rolls everything back and returns false.</summary>

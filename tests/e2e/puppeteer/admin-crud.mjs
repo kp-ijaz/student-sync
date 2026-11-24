@@ -1,6 +1,6 @@
 // Admin CRUD (2026-11-23) in a real browser: fee plans (add, edit, offered in "Add hours", delete), correcting a package,
-// and deleting students — one with no records (deleted for good) and one with fees (archived, then found with the
-// Archived filter). Throw-away students are created through the API with fictional data; the script leaves no fee plan
+// and deleting students — one with no records (deleted for good) and one with fees (kept under Students ▸ Deleted,
+// opened, restored and deleted again). Throw-away students are created through the API with fictional data; the script leaves no fee plan
 // behind. Screenshots at 375/768/1440; fails on overflow, console errors or failed requests.
 import { BASE_URL, launch, newPage, signIn, users, viewports, screenshot, demoPassword } from "./browser.mjs";
 
@@ -103,11 +103,28 @@ try {
   await page.waitForFunction(() => document.querySelector(".modal h2")?.textContent.startsWith("Delete"), { timeout: 5000 });
   await shots(page, "delete-dialog");
   await clickText(page, ".modal .form-actions", "Delete student");
-  await toast(page, /archived instead/);
+  await toast(page, /Students ▸ Deleted/);
   await page.waitForFunction(() => !document.querySelector(".desk-list tbody tr"), { timeout: 10000 });
-  await page.select('select[aria-label="Status"]', "Archived");
+  // The one place a deleted student is kept: the Deleted view, with what they still owe and a Restore button.
+  await page.select('select[aria-label="Show"]', "Archived");
   await page.waitForFunction((t) => document.querySelector(".desk-list tbody")?.textContent.includes(t), { timeout: 10000 }, `CR-${tag}-F`);
-  await shots(page, "students-archived");
+  await page.waitForFunction((t) => document.querySelector(".former-balances")?.textContent.includes(t), { timeout: 10000 }, `CR-${tag}-F`);
+  if (!(await page.$(".deleted-note"))) fail("The Deleted view does not explain itself");
+  await shots(page, "students-deleted");
+  // The record opens with a clear banner; Restore puts the student back on the normal list.
+  await page.$$eval(".desk-list tbody a", (as) => as.find((a) => a.textContent.trim() === "Open record")?.click());
+  await page.waitForSelector(".deleted-banner", { timeout: 10000 });
+  await shots(page, "student-deleted-record");
+  await clickText(page, ".deleted-banner", "Restore");
+  await page.waitForFunction(() => !document.querySelector(".deleted-banner"), { timeout: 10000 });
+  await page.goto(`${BASE_URL}/admin/students`, { waitUntil: "networkidle0" });
+  await fill(page, 'input[type=search]', `CR-${tag}-F`);
+  await page.waitForFunction((t) => document.querySelector(".desk-list tbody")?.textContent.includes(t), { timeout: 10000 }, `CR-${tag}-F`);
+  // Delete again so the script leaves the student out of the working lists.
+  await clickText(page, ".desk-list tbody", "Edit");
+  await clickText(page, ".modal .form-actions", "Delete");
+  await clickText(page, ".modal .form-actions", "Delete student");
+  await toast(page, /Students ▸ Deleted/);
 
   // 3. A student with no records: deleted for good.
   await newStudent("Blank");
@@ -119,10 +136,11 @@ try {
   await clickText(page, ".modal .form-actions", "Delete student");
   await toast(page, /was deleted\./);
 
-  // 4. Teachers page: status filter present (archived teachers can be found and restored).
-  await page.goto(`${BASE_URL}/admin/teachers`, { waitUntil: "networkidle0" });
-  if (!(await page.$('select[aria-label="Status"]'))) fail("Teachers page has no status filter");
-  await shots(page, "teachers");
+  // 4. Teachers page: the Deleted view is offered (deleted teachers are kept and restored there).
+  await page.goto(`${BASE_URL}/admin/teachers?status=Archived`, { waitUntil: "networkidle0" });
+  await page.waitForSelector(".deleted-note", { timeout: 10000 });
+  if ((await page.$eval('select[aria-label="Show"]', (el) => el.value)) !== "Archived") fail("Teachers page did not open on the Deleted view");
+  await shots(page, "teachers-deleted");
 
   // 5. Delete the fee plan (packages keep their copy).
   await page.goto(`${BASE_URL}/admin/fee-plans`, { waitUntil: "networkidle0" });
@@ -132,7 +150,7 @@ try {
 
   if (consoleErrors.length) fail(`Console errors:\n${consoleErrors.join("\n")}`);
   if (failedRequests.length) fail(`Failed requests:\n${failedRequests.join("\n")}`);
-  console.log("admin-crud: OK — fee plans CRUD, plan in Add hours, package edit, delete (archived + permanent), teacher filter");
+  console.log("admin-crud: OK — fee plans CRUD, plan in Add hours, package edit, delete (kept under Deleted, restored; permanent), deleted teachers view");
 } catch (e) {
   await screenshot(page, "crud-failure").catch(() => {});
   console.error(e.message);

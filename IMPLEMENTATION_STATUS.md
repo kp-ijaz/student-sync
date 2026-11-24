@@ -241,3 +241,87 @@ the 64-screen layout audit at 360/768/1024 all pass. `daily-class-planner.mjs` h
 its selector was updated but the script was not re-run. Not run: the remaining Puppeteer flows, the Playwright pixel
 baselines and an axe pass. Two earlier failed `fees.mjs` runs left a demo student owing extra in the local database only.
 
+## Edit and delete for every recorded payment (2026-11-24, owner decision)
+
+Owner decision: the admin can correct or delete every entry, including money. This replaces the earlier rule that a
+payment is never edited. New: `PUT /teachers/{id}/pay/payments/{paymentId}` and `PUT /students/{id}/payments/{paymentId}`
+(admin only; same validation as recording; a fee payment can never push a package over its price; a removed payment
+and a gateway-confirmed online payment cannot be edited; the audit entry keeps the figures before → after). "Delete"
+is still the existing remove-with-a-reason: the entry leaves every total and stays on record as removed.
+
+Web: one shared `PaymentEditor` (edit salary payment, edit fee payment, delete with reason) used on Finance (every
+income and salary line now has edit and delete, as expenses already had), Fees ▸ Salaries (new "Payments in <month>"
+list with slip, edit, delete), the teacher's Salary card and the student's Fees card. `SalaryPaymentDialog` doubles as
+the edit form.
+
+Verified locally: build 0 errors; unit 230/230; integration 144/144 (new
+`FinanceTests.Admin_can_correct_fee_and_salary_payments_and_nobody_else_can`: corrections, limits, wrong owner id,
+teacher and student refused, audit entries, removed payment not editable); format clean; Puppeteer `salaries.mjs`
+(edit in Finance, delete on Salaries), `fees.mjs` (edit a fee payment twice) and `finance.mjs` pass; layout audit clean
+at 360 and 1024. Not run: the other Puppeteer flows and an axe pass. Not committed, not deployed.
+
+## Deleted students and teachers are gone from everywhere (2026-11-24, owner decision)
+
+Rule: a deleted person (status `Archived`, shown as "Deleted") is off every working screen and figure and kept in one
+place only — Students ▸ Deleted / Teachers ▸ Deleted (admin only) — with their full record, money still open and a
+Restore button. Money already received or paid stays in Finance. A full-code audit (every query on students, teachers,
+sessions, participants, fees, salaries, assessments, doubts, messages, automations) preceded the change.
+
+What changed, by area:
+
+- **Delete / restore** (`PeopleService`): delete also withdraws pending class-change requests, skips queued SMS and
+  frees open doubts of a deleted teacher; the edit form can no longer set Deleted; new `POST /students/{id}/restore`
+  and `/teachers/{id}/restore`; only admins may list deleted people.
+- **Two choke points**: `NotificationService.NotifyAsync` skips switched-off accounts (and guardians of deleted
+  students); `SmsOutbox` neither queues nor sends for a deleted student. `AccessPolicy.StudentsTaughtBy` excludes deleted
+  students, so teachers no longer see or count them anywhere.
+- **Money**: Fees due and its totals exclude deleted students (`FeeService.StudentScope`); Salaries excludes deleted
+  teachers; `finance/former` now means deleted people only and is shown with their records; Fees and Finance show one
+  line with a link when something is still open. Finance transactions keep past payments (cash).
+- **Classes**: class lists and the calendar hide classes whose only students were deleted (still on that student's
+  record); registers and class details leave deleted students out; a class of a deleted teacher or student cannot be
+  rescheduled. Teacher hours and pay are unchanged by deleting a student.
+- **Dashboards, reports, hours**: attendance and doubt alerts, to-grade lists, teacher report rows, batch counts and
+  "their students" exclude deleted people.
+- **Learning**: doubts lists and routing, assignment recipients / submissions / counts, exam results, progress reports,
+  subject and course teacher/student lists and counts, "my teachers" and "my subjects".
+- **Messages and automations**: conversations with only deleted people, batch announcements, attendance nudges,
+  morning and month summaries, weekly parent digest.
+- **Web**: "Deleted" filter and note on Students and Teachers (with `FormerBalances`), Restore on rows and on the record
+  banner, no "Add classes" for a deleted student, reworded delete dialog.
+- Also: Finance transactions on the same day now list the newest entry first.
+
+Verified locally: build 0 errors; unit 230/230; integration 145/145 (new `DeletedPeopleTests`; two older tests updated
+to the new rule); format clean; Puppeteer `admin-crud`, `admin-crud-final`, `finance`, `salaries`, `fees`,
+`admin-dashboard`, `marketing`, `teacher-profile` pass; 64-screen layout audit clean at 360 and 1024.
+
+Follow-up the same day (owner: "sort out these issues also"), closing the limits first listed here:
+
+- **Head-count**: class lists, class details and the attendance register count and list current students only (a
+  class left with only deleted students keeps its count: it is their record).
+- **Reports**: assignment totals for a period (expected, submitted, graded, late) and students-per-subject leave out
+  deleted students.
+- **Deleted teacher's name**: on a current student's past classes, assignments and hours the teacher shows as
+  "Former teacher" without a photo (`DeletedPeople.TeacherName`); the name returns on restore.
+- **Payment links**: deleting a student closes their open links at the gateway (or cancels them locally when no
+  gateway is connected); no new link can be made for a deleted student.
+- **Tests**: `DeletedPeopleTests.Learning_records_of_deleted_people_vanish_and_come_back_on_restore` (sign-in refused,
+  doubts, assignment counts / recipients / submissions, conversations, teacher's students, "my teachers", teacher name
+  on classes and hours, no notification from a notice sent meanwhile, and all of it back after restore including
+  sign-in); the first test now also has a two-student class (head-count, student list, register);
+  `AutomationTests.Deleting_a_student_closes_their_open_payment_link_and_no_new_link_can_be_made`.
+- **Intermittent test fixed**: `LearningProfileTests.Admin_manages_curricula…` picked "the first academic year", which
+  could be a spare year another test creates and deletes in parallel; it now uses the centre's current year.
+- **Older browser flows repaired** (script faults, not app faults): `daily-class-planner` (six admin shortcuts),
+  `academics-edit` (waits for the dialog), `diagnostic` / `learning-profile` / `ui-refresh-detail` (click the on-screen
+  copy of a link, not the hidden phone/desktop twin; the right Class 10 Mathematics), `install-banner` (short wording
+  on phones).
+
+Verified locally after the follow-up: build 0 errors; unit 230/230; integration 147/147 in four consecutive runs;
+format clean; all 29 Puppeteer flows pass; 64-screen layout audit clean at 360, 768, 1024 and 1280.
+
+Still open (reviewed, left): a lead keeps its link to a deleted student's record (admin only; it opens the Deleted
+record); Finance transactions keep the names of deleted people on past payments (cash ledger, admin only); exam
+results of deleted students are hidden from result lists but an exam's question statistics were not reviewed. Not
+committed, not deployed.
+

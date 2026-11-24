@@ -60,21 +60,23 @@ public sealed class AdminCrudTests(ApiFixture api)
 
         var result = await (await admin.DeleteRaw($"students/{id}")).Content.ReadFromJsonAsync<RemovePersonResponse>(ApiFixture.Json);
         Assert.False(result!.Deleted);
-        Assert.Contains("archived", result.Message);
+        Assert.Contains("Students ▸ Deleted", result.Message);
 
-        // Hidden from the normal list, findable with the Archived filter; fees and payments are untouched.
+        // Hidden from the normal list, findable in the Deleted view; fees and payments are untouched.
         Assert.DoesNotContain((await admin.Get<PagedResult<StudentDto>>("students?pageSize=100&search=DL-")).Items, s => s.Id == id);
         Assert.Contains((await admin.Get<PagedResult<StudentDto>>("students?status=Archived&pageSize=100")).Items, s => s.Id == id);
         var fees = await admin.Get<StudentFeesDto>($"students/{id}/fees");
         Assert.Equal((10m, 1000m), (fees.HoursBought, fees.Paid));
 
-        // Deleting again is harmless; restoring is "set Active" through the normal edit.
+        // Deleting again is harmless; the edit form cannot delete; Restore brings the student back.
         Assert.False((await (await admin.DeleteRaw($"students/{id}")).Content.ReadFromJsonAsync<RemovePersonResponse>(ApiFixture.Json))!.Deleted);
         var profile = await admin.Get<StudentProfileDto>($"students/{id}");
         Assert.Equal(PersonStatus.Archived, profile.Student.Status);
         var s = profile.Student;
-        await admin.Put($"students/{id}", new UpdateStudentRequest(s.FullName, s.StudentCode, s.GradeLevelId, s.SchoolName, PersonStatus.Active, s.TimeZoneId));
+        await admin.Post($"students/{id}/restore", null);
         Assert.Contains((await admin.Get<PagedResult<StudentDto>>("students?pageSize=100&search=DL-")).Items, x => x.Id == id);
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostRaw($"students/{id}/restore", null)).StatusCode); // not deleted any more
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutRaw($"students/{id}", new UpdateStudentRequest(s.FullName, s.StudentCode, s.GradeLevelId, s.SchoolName, PersonStatus.Archived, s.TimeZoneId))).StatusCode);
     }
 
     [Fact]
@@ -386,7 +388,7 @@ public sealed class AdminCrudFinalTests(ApiFixture api)
     private static string Tag() => Guid.NewGuid().ToString("N")[..8];
 
     [Fact]
-    public async Task An_archived_student_who_still_owes_money_stays_on_fees_due()
+    public async Task A_deleted_student_who_still_owes_money_leaves_fees_due_and_is_kept_with_the_deleted_records()
     {
         var admin = await api.LoginAsync(Accounts.Admin);
         var tag = Tag();
@@ -397,10 +399,12 @@ public sealed class AdminCrudFinalTests(ApiFixture api)
         Assert.False((await (await admin.DeleteRaw($"students/{owing}")).Content.ReadFromJsonAsync<RemovePersonResponse>(ApiFixture.Json))!.Deleted);
         Assert.False((await (await admin.DeleteRaw($"students/{paid}")).Content.ReadFromJsonAsync<RemovePersonResponse>(ApiFixture.Json))!.Deleted);
 
+        // Owner decision 2026-11-24: a deleted student is off Fees due; the debt is kept with the deleted records only.
         var due = await admin.Get<FeesDueDto>("fees/due?take=200");
-        var row = Assert.Single(due.Items, i => i.StudentId == owing);
-        Assert.Equal((4000m, PersonStatus.Archived), (row.Due, row.Status));
-        Assert.DoesNotContain(due.Items, i => i.StudentId == paid); // a removed student is never "running out of hours"
+        Assert.DoesNotContain(due.Items, i => i.StudentId == owing || i.StudentId == paid);
+        var former = await admin.Get<FormerBalancesDto>("finance/former");
+        Assert.Equal((4000m, PersonStatus.Archived), (Assert.Single(former.Students, x => x.StudentId == owing).Due, former.Students.Single(x => x.StudentId == owing).Status));
+        Assert.DoesNotContain(former.Students, x => x.StudentId == paid);
     }
 
     [Fact]

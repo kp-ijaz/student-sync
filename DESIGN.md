@@ -241,6 +241,17 @@ package** (only with no payments), and a collapsed list of the classes that used
 pills or a number, price, hours count from, pay by, paid now + `MethodPicker` pills), **Take payment**, **Remove payment**
 (reason required; the payment stays, struck through). Money reads "AED 4,000" (`Money.Format`, tenant currency).
 
+### Deleted people (2026-11-24)
+
+- The word on screen is **Deleted** (never "archived"). Students and Teachers have a "Show" filter: Current, each
+  status, and Deleted (admins only). The Deleted view starts with a grey note (`.deleted-note`) saying what it is, its
+  rows offer "Open record" and "Restore", and `FormerBalances` below lists money still open.
+- A deleted person's record opens with `.deleted-banner` (what it means + Restore) and offers no "Add classes".
+- Fees and Finance never list deleted people; when money is still open they show one orange line (`.former-note`)
+  linking to the Deleted view. Nothing is shown when everything is settled.
+- Payments: every recorded payment has Edit (pencil) and Delete (bin) through the shared `PaymentEditor`; delete asks
+  for a reason.
+
 ### Admin home with charts (2026-11-24, owner requests: "see everything here, quickly, kept simple", then "more responsive and professional")
 
 Supersedes the row list of "Admin home — the front desk" where they differ. Greeting + two actions + shortcuts, then

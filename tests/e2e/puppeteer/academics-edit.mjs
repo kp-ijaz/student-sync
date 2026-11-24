@@ -4,7 +4,11 @@ import { launch, newPage, signIn, users, viewports, BASE_URL, SCREENSHOT_DIR } f
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const toast = (page, re) => page.waitForFunction((src) => new RegExp(src).test(document.body.innerText), { timeout: 15000 }, re.source);
-const clickIn = (page, sel, text) => page.$$eval(sel, (els, t) => { const e = els.find((x) => x.innerText.trim().startsWith(t)); if (!e) throw new Error(`no "${t}" (${els.length} candidates)`); e.click(); }, text);
+// Waits for the control (a dialog may still be opening), then clicks it.
+const clickIn = async (page, sel, text) => {
+  await page.waitForFunction((s, t) => [...document.querySelectorAll(s)].some((x) => x.innerText.trim().startsWith(t)), { timeout: 10000 }, sel, text);
+  return page.$$eval(sel, (els, t) => { const e = els.find((x) => x.innerText.trim().startsWith(t)); if (!e) throw new Error(`no "${t}" (${els.length} candidates)`); e.click(); }, text);
+};
 // Clicks a tab until it is selected (the first click can land before the page is interactive).
 const openTab = async (page, name) => {
   for (let i = 0; i < 10; i++) {

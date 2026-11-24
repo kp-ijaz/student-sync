@@ -85,9 +85,35 @@ try {
   await fill(page, 'input[aria-label="Search transactions"]', `Advance ${tag}`);
   await page.waitForFunction((n) => document.querySelector(".finance-ledger")?.textContent.includes(n), { timeout: 10000 }, name);
 
+  // Edit it from Finance (owner request 2026-11-24: every entry can be corrected): 2,750 → 3,000.
+  await page.evaluate((n) => [...document.querySelectorAll(".finance-ledger > li")].find((li) => li.textContent.includes(n)).querySelector('button[title="Edit"]').click(), name);
+  await page.waitForFunction(() => parseFloat(document.querySelector(".modal #spa")?.value) === 2750, { timeout: 10000 });
+  await fill(page, "#spa", 3000);
+  await shots(page, "edit-dialog");
+  await clickText(page, ".modal .form-actions", "Save changes");
+  await page.waitForFunction((n) => { const li = [...document.querySelectorAll(".finance-ledger > li")].find((l) => l.textContent.includes(n)); return li && /3,000/.test(li.textContent); }, { timeout: 10000 }, name);
+
+  // Fees ▸ Salaries lists the month's payments with edit and delete; delete it there with a reason.
+  await page.goto(`${BASE_URL}/admin/salaries?month=${m}`, { waitUntil: "networkidle0" });
+  await page.waitForFunction((n) => [...document.querySelectorAll(".salary-payments > li")].some((li) => li.textContent.includes(n) && /3,000/.test(li.textContent)), { timeout: 10000 }, name);
+  await page.evaluate((n) => [...document.querySelectorAll(".salary-payments > li")].find((li) => li.textContent.includes(n)).scrollIntoView({ block: "center" }), name);
+  await shots(page, "payments");
+  await page.evaluate((n) => [...document.querySelectorAll(".salary-payments > li")].find((li) => li.textContent.includes(n)).querySelector('button[title="Delete"]').click(), name);
+  await page.waitForSelector(".modal #vr");
+  await fill(page, "#vr", "E2E clean-up");
+  await shots(page, "delete-dialog");
+  await clickText(page, ".modal .form-actions", "Remove payment");
+  await page.waitForFunction((n) => !document.querySelector(".modal") && ![...document.querySelectorAll(".salary-payments > li")].some((li) => li.textContent.includes(n)), { timeout: 10000 }, name);
+  const pay = await api(`teachers/${teacher}/pay`);
+  if (pay.paid !== 0 || !pay.payments[0].voided) fail(`Payment should be removed and count as 0 paid: ${JSON.stringify(pay.payments[0])}`);
+
+  // The teacher's page offers the same edit and delete on a live payment (none left here: the removed one is struck out).
+  await page.goto(`${BASE_URL}/teachers/${teacher}`, { waitUntil: "networkidle0" });
+  await page.waitForFunction(() => /Removed: E2E clean-up/.test(document.querySelector("#pay")?.textContent ?? ""), { timeout: 10000 });
+
   if (consoleErrors.length) fail(`Console errors:\n${consoleErrors.join("\n")}`);
   if (failedRequests.length) fail(`Failed requests:\n${failedRequests.join("\n")}`);
-  console.log("salaries: OK — list visible on desktop, search, add salary payment, shown on teacher page and in Finance");
+  console.log("salaries: OK — list, search, add salary payment, shown on teacher page and Finance, edited in Finance, deleted on Salaries");
 } catch (e) {
   await screenshot(page, "salaries-failure").catch(() => {});
   console.error(e.message);

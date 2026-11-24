@@ -30,7 +30,7 @@ public sealed class DashboardService(IAppDbContext db, ICurrentUser user, Access
         var batches = await db.Batches.CountAsync(b => b.Status == CatalogStatus.Active, ct);
         var arrangements = await db.Arrangements.CountAsync(a => a.Status == CatalogStatus.Active, ct);
         var week = await db.Sessions.CountAsync(s => s.Status != SessionStatus.Cancelled && s.StartUtc >= now && s.StartUtc < now.AddDays(7), ct);
-        var openDoubts = await db.Doubts.CountAsync(d => d.Status != DoubtStatus.Resolved, ct);
+        var openDoubts = await OpenDoubts().CountAsync(ct);
 
         var upcoming = await photos.WithTeacherPhotosAsync(await SchedulingService.Project(db.Sessions.Where(s => s.Status == SessionStatus.Scheduled && s.EndUtc >= now).OrderBy(s => s.StartUtc).Take(8)).ToListAsync(ct), ct);
         var attendance = await AttendanceSummaryAsync(db.Sessions.Where(s => s.StartUtc >= from30 && s.StartUtc <= now), ct);
@@ -38,9 +38,10 @@ public sealed class DashboardService(IAppDbContext db, ICurrentUser user, Access
 
         var alerts = new List<AlertDto>();
         var unmarked = await db.Sessions.CountAsync(s => s.Status != SessionStatus.Cancelled && s.EndUtc < now && s.EndUtc >= from30
-            && s.Participants.Any(p => p.Status == ParticipantStatus.Active && !db.Attendance.Any(a => a.SessionId == s.Id && a.StudentId == p.StudentId)), ct);
+            && s.Participants.Any(p => p.Status == ParticipantStatus.Active && p.Student!.Status != PersonStatus.Archived
+                                       && !db.Attendance.Any(a => a.SessionId == s.Id && a.StudentId == p.StudentId)), ct);
         if (unmarked > 0) alerts.Add(new AlertDto("warning", $"{unmarked} past session(s) in the last 30 days have incomplete attendance.", "/sessions?filter=attendance"));
-        var stale = await db.Doubts.CountAsync(d => d.Status != DoubtStatus.Resolved && d.LastActivityAtUtc < now.AddDays(-3), ct);
+        var stale = await OpenDoubts().CountAsync(d => d.LastActivityAtUtc < now.AddDays(-3), ct);
         if (stale > 0) alerts.Add(new AlertDto("warning", $"{stale} doubt(s) have had no activity for 3+ days.", "/doubts"));
         var sub = await db.Subscriptions.Include(s => s.Plan).FirstOrDefaultAsync(ct);
         if (sub?.Plan is { } plan && students >= plan.MaxStudents * 0.9)
@@ -75,6 +76,10 @@ public sealed class DashboardService(IAppDbContext db, ICurrentUser user, Access
         return new AdminDashboardDto(stats, upcoming, attendance, byType, alerts, activity);
     }
 
+    /// <summary>Doubts still to be dealt with. A deleted student's doubts are not counted or listed anywhere.</summary>
+    private IQueryable<Doubt> OpenDoubts() =>
+        db.Doubts.Where(d => d.Status != DoubtStatus.Resolved && !db.Students.Any(s => s.Id == d.StudentId && s.Status == PersonStatus.Archived));
+
     public async Task<TeacherDashboardDto> TeacherAsync(CancellationToken ct)
     {
         if (!access.IsTeacher) throw new ForbiddenException();
@@ -89,12 +94,13 @@ public sealed class DashboardService(IAppDbContext db, ICurrentUser user, Access
         var today = await photos.WithTeacherPhotosAsync(await SchedulingService.Project(mine.Where(s => s.StartUtc >= dayStart && s.StartUtc < dayEnd).OrderBy(s => s.StartUtc)).ToListAsync(ct), ct);
         var upcoming = await photos.WithTeacherPhotosAsync(await SchedulingService.Project(mine.Where(s => s.StartUtc >= dayEnd && s.StartUtc < now.AddDays(7)).OrderBy(s => s.StartUtc).Take(10)).ToListAsync(ct), ct);
         var pendingAttendance = await photos.WithTeacherPhotosAsync(await SchedulingService.Project(mine.Where(s => s.EndUtc < now && s.EndUtc >= now.AddDays(-14)
-            && s.Participants.Any(p => p.Status == ParticipantStatus.Active && !db.Attendance.Any(a => a.SessionId == s.Id && a.StudentId == p.StudentId)))
+            && s.Participants.Any(p => p.Status == ParticipantStatus.Active && p.Student!.Status != PersonStatus.Archived
+                                       && !db.Attendance.Any(a => a.SessionId == s.Id && a.StudentId == p.StudentId)))
             .OrderByDescending(s => s.StartUtc).Take(10)).ToListAsync(ct), ct);
 
-        var doubts = await db.Doubts.Where(d => d.AssignedTeacherId == me && d.Status != DoubtStatus.Resolved && d.Status != DoubtStatus.PendingConfirmation)
+        var doubts = await OpenDoubts().Where(d => d.AssignedTeacherId == me && d.Status != DoubtStatus.PendingConfirmation)
             .OrderByDescending(d => d.Priority).ThenBy(d => d.CreatedAtUtc).Take(8).Select(DoubtService.ListProjection(db)).ToListAsync(ct);
-        var toGrade = await db.Submissions.Where(s => s.Status == SubmissionStatus.Submitted && s.Assignment!.TeacherId == me).OrderBy(s => s.SubmittedAtUtc).Take(10)
+        var toGrade = await db.Submissions.Where(s => s.Status == SubmissionStatus.Submitted && s.Assignment!.TeacherId == me && s.Student!.Status != PersonStatus.Archived).OrderBy(s => s.SubmittedAtUtc).Take(10)
             .Select(s => new SubmissionToGradeDto(s.Id, s.AssignmentId, s.Assignment!.Title, s.Student!.User!.FullName, s.SubmittedAtUtc, s.IsLate)).ToListAsync(ct);
         var drafts = await db.AiDrafts.Where(d => d.Status == AiDraftStatus.AwaitingTeacherReview && db.Sessions.Any(s => s.Id == d.SessionId && s.TeacherId == me))
             .OrderBy(d => d.CreatedAtUtc).Take(10)

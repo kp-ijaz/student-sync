@@ -6,6 +6,7 @@ using StudentSync.Domain.Fees;
 using StudentSync.Domain.Identity;
 using StudentSync.Domain.Scheduling;
 
+using StudentSync.Domain.People;
 namespace StudentSync.Application.Reporting;
 
 /// <summary>
@@ -44,10 +45,12 @@ public sealed class HoursService(IAppDbContext db, ICurrentUser user, AccessPoli
         var chosen = await db.StudentSubjects.Where(x => x.StudentId == studentId).Select(x => x.SubjectId).ToListAsync(ct);
         var subjectIds = chosen.Concat(rows.Where(r => r.SubjectId != null && r.Status != SessionStatus.Cancelled).Select(r => r.SubjectId!.Value)).Distinct().ToList();
         var subjects = await db.Subjects.Where(s => subjectIds.Contains(s.Id)).Select(s => new { s.Id, s.Name, Course = s.Course!.Name }).ToListAsync(ct);
-        var assigned = await db.TeacherSubjects.Where(t => subjectIds.Contains(t.SubjectId))
+        var assigned = await db.TeacherSubjects.Where(t => subjectIds.Contains(t.SubjectId) && t.Teacher!.Status != PersonStatus.Archived)
             .Select(t => new { t.SubjectId, t.TeacherId, t.Teacher!.User!.FullName }).ToListAsync(ct);
         var teacherIds = rows.Select(r => r.TeacherId).Distinct().ToList();
-        var teacherNames = await db.Users.Where(u => teacherIds.Contains(u.Id)).Select(u => new { u.Id, u.FullName }).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        // A teacher who was deleted since is shown as "Former teacher" on the classes they taught this student.
+        var teacherNames = await db.Teachers.Where(t => teacherIds.Contains(t.Id))
+            .Select(t => new { t.Id, Name = t.Status == PersonStatus.Archived ? DeletedPeople.TeacherName : t.User!.FullName }).ToDictionaryAsync(t => t.Id, t => t.Name, ct);
         var bySubject = subjects.Select(s =>
         {
             var done = rows.Where(r => r.SubjectId == s.Id && Attended(r)).ToList();
@@ -88,7 +91,7 @@ public sealed class HoursService(IAppDbContext db, ICurrentUser user, AccessPoli
                               select new { p.StudentId, s.Id, s.StartUtc, s.EndUtc, s.Status, Subject = s.SubjectId != null ? db.Subjects.Where(x => x.Id == s.SubjectId).Select(x => x.Name).FirstOrDefault() : null })
             .Take(10000).ToListAsync(ct);
         var ids = students.Select(x => x.StudentId).Distinct().ToList();
-        var info = await db.Students.Where(s => ids.Contains(s.Id))
+        var info = await db.Students.Where(s => ids.Contains(s.Id) && s.Status != PersonStatus.Archived) // a deleted student is no longer "their student"
             .Select(s => new { s.Id, s.User!.FullName, s.User.PhotoFileId, Grade = db.GradeLevels.Where(g => g.Id == s.GradeLevelId).Select(g => g.Name).FirstOrDefault() })
             .ToListAsync(ct);
         var list = info.Select(s =>

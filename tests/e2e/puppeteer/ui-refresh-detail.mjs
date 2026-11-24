@@ -21,9 +21,13 @@ try {
     // Edit-student dialog (a bottom sheet on phones), opened through the app's own Modal — no browser dialogs.
     await page.goto(`${BASE_URL}/admin/students`, { waitUntil: "networkidle0" });
     await wait(400);
-    const edit = await page.$$("table.table tbody button.btn-ghost");
-    if (edit[0]) {
-      await edit[0].click();
+    // The list is a table on wide screens and a compact list on phones; click whichever Edit is on screen.
+    const opened = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('table.table tbody button.btn-ghost, .plist button[aria-label^="Edit"]')].find((x) => x.getClientRects().length > 0);
+      b?.click();
+      return !!b;
+    });
+    if (opened) {
       await wait(600);
       await page.screenshot({ path: path.join(dir, `admin-student-edit-dialog-${vpName}.png`) });
     }

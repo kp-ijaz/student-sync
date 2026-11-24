@@ -22,6 +22,9 @@ public sealed class AttendanceService(IAppDbContext db, ICurrentUser user, Acces
             var own = access.IsParent ? await access.ChildIdsAsync(ct) : [user.UserId];
             participants = participants.Where(p => own.Contains(p.StudentId));
         }
+        // Deleted students are not on the register, unless the class has nobody else (it is then part of their record).
+        if (await db.SessionParticipants.AnyAsync(p => p.SessionId == s.Id && p.Status == ParticipantStatus.Active && p.Student!.Status != Domain.People.PersonStatus.Archived, ct))
+            participants = participants.Where(p => p.Student!.Status != Domain.People.PersonStatus.Archived);
         var rows = await participants.OrderBy(p => p.Student!.User!.FullName)
             .Select(p => new
             {

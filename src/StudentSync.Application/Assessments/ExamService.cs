@@ -384,7 +384,7 @@ public sealed class ExamService(IAppDbContext db, ICurrentUser user, AccessPolic
     public async Task<ExamResultsDto> ResultsAsync(Guid examId, CancellationToken ct)
     {
         var e = await GetManageableExamAsync(examId, ct);
-        var attempts = await db.ExamAttempts.Where(a => a.ExamId == examId).OrderBy(a => a.Student!.User!.FullName).ThenBy(a => a.AttemptNumber)
+        var attempts = await db.ExamAttempts.Where(a => a.ExamId == examId && a.Student!.Status != Domain.People.PersonStatus.Archived).OrderBy(a => a.Student!.User!.FullName).ThenBy(a => a.AttemptNumber)
             .Select(a => new AttemptSummaryDto(a.Id, a.StudentId, a.Student!.User!.FullName, a.AttemptNumber, a.Status, a.SubmittedAtUtc, a.Score, a.RequiresManualGrading, a.EntryMode))
             .ToListAsync(ct);
         var scored = attempts.Where(a => a.Score is not null).Select(a => a.Score!.Value).ToList();

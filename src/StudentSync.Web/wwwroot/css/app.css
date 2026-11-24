@@ -2172,3 +2172,15 @@ a.finance-bar-btn { text-decoration: none; }
   .donut-legend a, .dash-grid .home-needs a, .dash-grid .fee-more { display: inline-flex; align-items: center; min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) { .kpi, .mbars-pair > span, .donut-ring circle { transition: none; } .kpi:hover { transform: none; } }
+
+/* ---------- Deleted people (2026-11-24): the Deleted view note, the record banner, the one-line money note ---------- */
+.deleted-note, .former-note, .deleted-banner { display: flex; align-items: flex-start; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-control);
+  background: var(--ss-slate-50); color: var(--ss-text); font-size: 14px; line-height: 20px; }
+.deleted-note { margin: 0 0 var(--sp-4); }
+.former-note { margin: var(--sp-4) 0 0; background: var(--ss-orange-50); }
+.deleted-banner { margin-bottom: var(--sp-4); align-items: center; flex-wrap: wrap; border: 1px solid var(--ss-border); }
+.deleted-banner > span { flex: 1 1 260px; min-width: 0; }
+.deleted-note svg, .former-note svg, .deleted-banner svg { flex: none; width: 18px; height: 18px; margin-top: 1px; color: var(--ss-text-2); }
+.former-note svg { color: var(--ss-orange-deep); }
+.former-note a { font-weight: 600; }
+

@@ -3,7 +3,8 @@
 @inherits AppPage
 @* Fees ▸ Salaries (owner requests 2026-11-17, 2026-11-24): every teacher's hours and earnings for a month and what is owed
    today. "Mark paid" records what is owed in one tap (a slip opens); "Pay" and "Add salary payment" record any amount
-   (advance, part payment, fixed salary) with the shared salary dialog. Every payment shows on the teacher's page and in
+   (advance, part payment, fixed salary) with the shared salary dialog. "Payments in <month>" lists each payment made in
+   the month with edit and delete (PaymentEditor). Every payment shows on the teacher's page and in
    Finance. Search and sort work on the loaded month. *@
 <PageTitle>Salaries · Student Sync</PageTitle>
 <PageHeader Title="Salaries" Subtitle="Hours taught × each teacher's rate. Pay what is owed in one tap, or record any amount: an advance, a part payment or a fixed salary.">
@@ -68,6 +69,35 @@
                 </ul>
             }
         </section>
+
+        <section class="card" aria-labelledby="salp-h">
+            <div class="card-head"><div><h2 id="salp-h">Payments in @_month.ToString("MMMM yyyy")</h2><div class="caption">Every salary payment made this month. Edit one to correct it, or delete it.</div></div>
+                <span class="count-pill">@(_payments?.Page.TotalCount ?? 0)</span></div>
+            @if (_payments is null) { <div class="sk sk-line" aria-hidden="true"></div> }
+            else if (_payments.Page.Items.Count == 0) { <InlineEmpty Icon="wallet" Text="No salary payments were made this month." /> }
+            else
+            {
+                <ul class="finance-ledger salary-payments">
+                    @foreach (var x in _payments.Page.Items)
+                    {
+                        <li>
+                            <span class="finance-date">@x.Date.ToString("d MMM")</span>
+                            <span class="grow">
+                                <a href="/teachers/@x.PersonId#pay"><strong>@x.Title</strong></a>
+                                <span class="caption">@(x.Detail is { } det ? $"{det} · " : "")@(x.Method is { } mt ? FinanceLabels.Method(mt) : "")@(x.Reference is { } rf ? $" · {rf}" : "")</span>
+                            </span>
+                            <span class="finance-amount out">@Money.Format(x.Amount, d.CurrencyCode)</span>
+                            <span class="finance-act">
+                                <a class="icon-btn icon-btn-sm" href="/salary-slips/@x.PersonId/@x.RecordId" title="Salary slip" aria-label="@($"Salary slip for {x.Title}, {x.Date:d MMM}")"><Icon Name="file" /></a>
+                                <button type="button" class="icon-btn icon-btn-sm" title="Edit" aria-label="@($"Edit salary payment to {x.Title}, {x.Date:d MMM}")" @onclick="() => _editor?.Edit(x, d.CurrencyCode)"><Icon Name="pencil" /></button>
+                                <button type="button" class="icon-btn icon-btn-sm" title="Delete" aria-label="@($"Delete salary payment to {x.Title}, {x.Date:d MMM}")" @onclick="() => _editor?.Remove(x, d.CurrencyCode)"><Icon Name="trash" /></button>
+                            </span>
+                        </li>
+                    }
+                </ul>
+                @if (_payments.Page.TotalCount > _payments.Page.Items.Count) { <a class="fee-more" href="@FinanceLink">See all @_payments.Page.TotalCount in Finance</a> }
+            }
+        </section>
     }
 </DataView>
 
@@ -84,6 +114,7 @@
 @if (Me is not null)
 {
     <SalaryPaymentDialog Me="Me" @bind-Open="_payOpen" TeacherId="_payFor?.TeacherId" TeacherName="@_payFor?.TeacherName" Teachers="TeacherChoices" Month="_month" OnSaved="Saved" />
+    <PaymentEditor @ref="_editor" Me="Me" OnChanged="Load" />
 }
 
 @code {
@@ -91,6 +122,8 @@
     private static DateOnly ThisMonth => new(DateTime.Today.Year, DateTime.Today.Month, 1);
     private DateOnly _month = ThisMonth.AddMonths(-1);
     private SalaryMonthDto? _d;
+    private FinanceEntriesDto? _payments;
+    private PaymentEditor? _editor;
     private ApiException? _error;
     private SalaryRowDto? _mark, _payFor;
     private bool _markOpen, _payOpen, _owedOnly;
@@ -125,7 +158,13 @@
         await Load();
     }
 
-    private async Task Load() { _d = null; (_d, _error) = await Fetch(() => Api.GetAsync<SalaryMonthDto>($"salaries?month={_month:yyyy-MM-dd}")); }
+    private async Task Load()
+    {
+        (_d, _payments) = (null, null);
+        (_d, _error) = await Fetch(() => Api.GetAsync<SalaryMonthDto>($"salaries?month={_month:yyyy-MM-dd}"));
+        // The month's salary payments are the same lines Finance shows (one source), newest first.
+        _payments = (await Fetch(() => Api.GetAsync<FinanceEntriesDto>($"finance/entries?kind=Salary&from={_month:yyyy-MM-dd}&to={_month.AddMonths(1).AddDays(-1):yyyy-MM-dd}&pageSize=50"))).Value;
+    }
     private async Task Move(int months) { _month = _month.AddMonths(months); await Load(); }
     private void Ask(SalaryRowDto t) { (_mark, _ref, _method, _markOpen) = (t, null, PaymentMethod.BankTransfer, true); }
     private void OpenPay(SalaryRowDto? t) => (_payFor, _payOpen) = (t, true);

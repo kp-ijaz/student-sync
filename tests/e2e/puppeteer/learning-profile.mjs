@@ -23,7 +23,8 @@ async function step(name, vp, fn) {
 }
 const settle = (page) => page.waitForNetworkIdle({ idleTime: 500, timeout: 15_000 }).catch(() => {});
 async function clickText(page, selector, text) {
-  const handle = await page.evaluateHandle((sel, t) => [...document.querySelectorAll(sel)].find((el) => el.textContent.trim().includes(t)) ?? null, selector, text);
+  // The first match that is actually on screen: lists are rendered twice (phone list and desktop table), one hidden.
+  const handle = await page.evaluateHandle((sel, t) => [...document.querySelectorAll(sel)].find((el) => el.textContent.trim().includes(t) && el.getClientRects().length > 0) ?? null, selector, text);
   const el = handle.asElement();
   if (!el) throw new Error(`No ${selector} containing "${text}"`);
   await el.click();

@@ -12,6 +12,14 @@
         var t = o.Teacher;
         <PageTitle>@t.FullName · Student Sync</PageTitle>
         @if (IsAdmin) { <nav class="breadcrumbs" aria-label="Breadcrumb" style="margin-bottom:12px"><a href="/admin/teachers">Teachers</a> /</nav> }
+        @if (t.Status == PersonStatus.Archived)
+        {
+            <div class="deleted-banner" role="status">
+                <Icon Name="trash" />
+                <span><strong>This teacher was deleted.</strong> They cannot sign in and are not on any class, salary, subject or report screen. This record is kept under Teachers ▸ Deleted only.</span>
+                @if (IsAdmin) { <button type="button" class="btn btn-secondary btn-sm" @onclick="Restore" disabled="@Busy">Restore</button> }
+            </div>
+        }
         <header class="page-header t-greeting home-head person-head">
             <Avatar Name="@t.FullName" PhotoUrl="@t.PhotoUrl" Size="xl" Decorative="false" />
             <div class="grow">
@@ -76,4 +84,9 @@
     private static string SubjectsLine(TeacherDto t) => t.Subjects.Count == 0 ? "No subjects yet" : string.Join(", ", t.Subjects.Select(s => s.Name).Distinct().Take(4));
 
     protected override async Task LoadAsync() => (_o, _error) = await Fetch(() => Api.GetAsync<TeacherOverviewDto>($"teachers/{TeacherId}/overview"));
+
+    private async Task Restore()
+    {
+        if (await Run(() => Api.PostAsync($"teachers/{TeacherId}/restore"), "Restored: they can sign in again.")) await LoadAsync();
+    }
 }

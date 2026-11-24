@@ -9,6 +9,7 @@ using StudentSync.Domain.Doubts;
 using StudentSync.Domain.Identity;
 using StudentSync.Domain.Scheduling;
 
+using StudentSync.Domain.People;
 namespace StudentSync.Application.Reporting;
 
 public sealed class ReportService(IAppDbContext db, ICurrentUser user, AccessPolicy access, IClock clock, DashboardService dashboards, Fees.FeeService fees, Fees.SalaryService salaries, CentreService centre)
@@ -64,7 +65,8 @@ public sealed class ReportService(IAppDbContext db, ICurrentUser user, AccessPol
             .Select(s => new { s.TeacherId, s.StartUtc, s.EndUtc }).ToListAsync(ct)).Select(s => (s.TeacherId, Hours: Domain.Fees.TeacherPayRules.Hours(s.StartUtc, s.EndUtc))).ToList();
         var allRates = seeMoney ? await db.TeacherPayRates.Select(r => new { r.TeacherId, r.EffectiveFrom, r.HourlyRate }).ToListAsync(ct) : [];
 
-        var teacherRows = await db.Teachers.Select(x => new { x.Id, x.User!.FullName }).OrderBy(x => x.FullName).ToListAsync(ct);
+        // Deleted teachers have no row in the report (their name still shows against subjects they taught in the period).
+        var teacherRows = await db.Teachers.Where(x => x.Status != PersonStatus.Archived).Select(x => new { x.Id, x.User!.FullName }).OrderBy(x => x.FullName).ToListAsync(ct);
         var teachers = new List<TeacherReportRowDto>();
         foreach (var tr in teacherRows.Where(x => q.TeacherId is null || x.Id == q.TeacherId))
         {
@@ -84,7 +86,7 @@ public sealed class ReportService(IAppDbContext db, ICurrentUser user, AccessPol
         }
 
         var batchRows = await db.Batches.Where(x => x.Status != CatalogStatus.Archived && (q.BatchId == null || x.Id == q.BatchId))
-            .Select(x => new { x.Id, x.Name, Students = x.Enrolments.Count(e => e.Status == EnrolmentStatus.Active) }).ToListAsync(ct);
+            .Select(x => new { x.Id, x.Name, Students = x.Enrolments.Count(e => e.Status == EnrolmentStatus.Active && e.Student!.Status != PersonStatus.Archived) }).ToListAsync(ct);
         var batches = new List<BatchReportRowDto>();
         foreach (var br in batchRows)
         {
@@ -94,12 +96,13 @@ public sealed class ReportService(IAppDbContext db, ICurrentUser user, AccessPol
 
         var raised = await db.Doubts.CountAsync(d => d.CreatedAtUtc >= fromUtc && d.CreatedAtUtc < toUtc, ct);
         var resolvedAll = await db.Doubts.Where(d => d.ResolvedAtUtc >= fromUtc && d.ResolvedAtUtc < toUtc).Select(d => new { d.CreatedAtUtc, d.ResolvedAtUtc }).ToListAsync(ct);
-        var open = await db.Doubts.CountAsync(d => d.Status != DoubtStatus.Resolved, ct);
+        var open = await db.Doubts.CountAsync(d => d.Status != DoubtStatus.Resolved && !db.Students.Any(s => s.Id == d.StudentId && s.Status == PersonStatus.Archived), ct);
         var doubts = new DoubtReportDto(raised, resolvedAll.Count, open, resolvedAll.Count == 0 ? null : Math.Round(resolvedAll.Average(r => (r.ResolvedAtUtc!.Value - r.CreatedAtUtc).TotalHours), 1));
 
         var published = db.Assignments.Where(a => a.Status != AssignmentStatus.Draft && a.DueAtUtc >= fromUtc && a.DueAtUtc < toUtc);
-        var expected = await db.AssignmentRecipients.CountAsync(r => published.Any(a => a.Id == r.AssignmentId), ct);
-        var subs = db.Submissions.Where(s => published.Any(a => a.Id == s.AssignmentId) && s.Status != SubmissionStatus.Draft);
+        // Deleted students' work is not counted (expected, submitted, graded or late).
+        var expected = await db.AssignmentRecipients.CountAsync(r => published.Any(a => a.Id == r.AssignmentId) && r.Student!.Status != PersonStatus.Archived, ct);
+        var subs = db.Submissions.Where(s => published.Any(a => a.Id == s.AssignmentId) && s.Status != SubmissionStatus.Draft && s.Student!.Status != PersonStatus.Archived);
         var assignments = new AssignmentReportDto(await published.CountAsync(ct), expected, await subs.CountAsync(ct),
             await subs.CountAsync(s => s.Status == SubmissionStatus.Graded, ct), await subs.CountAsync(s => s.IsLate, ct));
 
@@ -107,7 +110,7 @@ public sealed class ReportService(IAppDbContext db, ICurrentUser user, AccessPol
         var subjectIds = completed.Where(c => c.SubjectId != null).Select(c => c.SubjectId!.Value).Distinct().ToList();
         var subjectInfo = await db.Subjects.Where(x => subjectIds.Contains(x.Id)).Select(x => new { x.Id, x.Name, Course = x.Course!.Name }).ToListAsync(ct);
         var sessionIds = completed.Select(c => c.Id).ToList();
-        var participants = await db.SessionParticipants.Where(p => sessionIds.Contains(p.SessionId) && p.Status == ParticipantStatus.Active)
+        var participants = await db.SessionParticipants.Where(p => sessionIds.Contains(p.SessionId) && p.Status == ParticipantStatus.Active && p.Student!.Status != PersonStatus.Archived)
             .Select(p => new { p.SessionId, p.StudentId }).ToListAsync(ct);
         var names = teacherRows.ToDictionary(x => x.Id, x => x.FullName);
         var subjects = subjectInfo.Select(sub =>

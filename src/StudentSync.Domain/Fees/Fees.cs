@@ -61,7 +61,7 @@ public class FeePlan : TenantEntity
     public static decimal PerHour(decimal hours, decimal price) => hours <= 0 ? 0 : decimal.Round(price / hours, 2, MidpointRounding.AwayFromZero);
 }
 
-/// <summary>Money received for a package. Never edited: a mistake is voided (kept, with who and why) and recorded again.</summary>
+/// <summary>Money received for a package. An admin can correct it (audited before → after) or void it (kept, with who and why).</summary>
 public class FeePayment : TenantEntity
 {
     public Guid PackageId { get; set; }

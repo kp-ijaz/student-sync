@@ -1,9 +1,9 @@
 @inherits AppComponent
 @* One "record a salary payment" dialog for every screen (owner request 2026-11-24): Fees ▸ Salaries ("Add salary
    payment" and each teacher's "Pay"), the teacher's page (Salary ▸ Record payment) and Finance ("Record salary").
-   Any amount: the full amount owed, a part, or an advance. Shows what is still owed and fills it in; the API records it
+   The same dialog corrects a payment already recorded (PaymentId). Any amount: the full amount owed, a part, or an advance. Shows what is still owed and fills it in; the API records it
    (retries are safe through the idempotency key) and it appears on the teacher's page, Salaries and Finance. *@
-<Modal Open="Open" OpenChanged="OpenChanged" Title="@(TeacherName is { } n ? $"Pay {n}" : "Add salary payment")">
+<Modal Open="Open" OpenChanged="OpenChanged" Title="@(Editing ? (TeacherName is { } en ? $"Edit payment to {en}" : "Edit salary payment") : TeacherName is { } n ? $"Pay {n}" : "Add salary payment")">
     <div class="form-grid">
         @if (TeacherId is null)
         {
@@ -15,7 +15,7 @@
         }
         <div class="field"><label for="spa">Amount (@_currency) *</label>
             <input id="spa" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_amount" />
-            @if (_pay is { } p)
+            @if (_pay is { } p && !Editing)
             {
                 <span class="help">@(p.Due > 0 ? $"Still to pay: {Money.Format(p.Due, p.CurrencyCode)}" : p.Due < 0 ? $"Paid {Money.Format(-p.Due, p.CurrencyCode)} in advance" : "Nothing owed right now (an advance is fine).")
                     @if (p.CurrentRate is null) { <text> · no rate per hour set</text> }</span>
@@ -29,7 +29,7 @@
     <MethodPicker @bind-Method="_method" @bind-Reference="_reference" />
     <div class="form-actions">
         <button class="btn btn-secondary" @onclick="() => OpenChanged.InvokeAsync(false)">Cancel</button>
-        <button class="btn btn-primary" @onclick="Save" disabled="@(Busy || _amount is not > 0 || Chosen is null)">Record payment</button>
+        <button class="btn btn-primary" @onclick="Save" disabled="@(Busy || _amount is not > 0 || Chosen is null)">@(Editing ? "Save changes" : "Record payment")</button>
     </div>
 </Modal>
 
@@ -42,7 +42,9 @@
     [Parameter] public IReadOnlyList<LookupItem> Teachers { get; set; } = [];
     /// <summary>The month the payment is for (fills the period and the note). Empty: no period.</summary>
     [Parameter] public DateOnly? Month { get; set; }
-    /// <summary>Called with the new payment's id after it is saved.</summary>
+    /// <summary>Set to correct a payment that is already recorded (needs <see cref="TeacherId"/>); empty records a new one.</summary>
+    [Parameter] public Guid? PaymentId { get; set; }
+    /// <summary>Called with the payment's id after it is saved.</summary>
     [Parameter] public EventCallback<(Guid TeacherId, Guid PaymentId)> OnSaved { get; set; }
 
     private bool _wasOpen;
@@ -55,6 +57,7 @@
     private PaymentMethod _method = PaymentMethod.BankTransfer;
     private string _key = "", _currency = "";
     private Guid? Chosen => TeacherId ?? _teacher;
+    private bool Editing => PaymentId is not null;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -69,6 +72,15 @@
         (_teacher, _pay, _amount, _reference, _method, _key) = (null, null, null, null, PaymentMethod.BankTransfer, Guid.NewGuid().ToString("N"));
         (_from, _to, _note) = Month is { } m ? (m, m.AddMonths(1).AddDays(-1), $"Salary for {m:MMMM yyyy}") : ((DateOnly?)null, (DateOnly?)null, (string?)null);
         if (TeacherId is { } id) await LoadPayAsync(id);
+        if (PaymentId is not { } paymentId) return;
+        // Editing: start from what was recorded.
+        if (_pay?.Payments.FirstOrDefault(x => x.Id == paymentId && !x.Voided) is not { } old)
+        {
+            Toasts.Show("This payment can no longer be changed.", ToastKind.Error);
+            await OpenChanged.InvokeAsync(false);
+            return;
+        }
+        (_amount, _paidOn, _method, _reference, _note, _from, _to) = (old.Amount, old.PaidOn, old.Method, old.Reference, old.Note, old.PeriodFrom, old.PeriodTo);
     }
 
     private async Task PickTeacher(ChangeEventArgs e)
@@ -90,10 +102,14 @@
     private async Task Save()
     {
         if (Chosen is not { } id) return;
-        IdResponse? done = null;
         var request = new AddTeacherPaymentRequest(_amount ?? 0, _paidOn, _method, _reference, _note, _from, _to);
-        if (!await Run(async () => done = await Api.PostAsync<IdResponse>($"teachers/{id}/pay/payments", request, _key), "Salary payment recorded.")) return;
+        var paymentId = PaymentId ?? Guid.Empty;
+        if (!await Run(async () =>
+            {
+                if (PaymentId is { } existing) await Api.PutAsync($"teachers/{id}/pay/payments/{existing}", request);
+                else paymentId = (await Api.PostAsync<IdResponse>($"teachers/{id}/pay/payments", request, _key)).Id;
+            }, Editing ? "Salary payment saved." : "Salary payment recorded.")) return;
         await OpenChanged.InvokeAsync(false);
-        await OnSaved.InvokeAsync((id, done!.Id));
+        await OnSaved.InvokeAsync((id, paymentId));
     }
 }

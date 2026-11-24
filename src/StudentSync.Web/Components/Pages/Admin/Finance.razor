@@ -6,7 +6,7 @@
 @* Fees ▸ Finance (owner requests 2026-11-24): the centre's money in one place, cash basis (money counts on the day it was
    received or paid). Top to bottom: the period → totals with the change from the period before → where the money went
    and the last 12 months → every transaction (search, type, category, sort, pages, CSV) → money still open with people
-   who left. Expenses are added/edited/deleted here; salaries use the same dialog as Fees ▸ Salaries and the teacher's
+   who left. Every line can be edited or deleted here (expenses with their form, fee and salary payments with PaymentEditor); salaries use the same dialog as Fees ▸ Salaries and the teacher's
    page; fee receipts and salary slips open from each line. Links can preset the view: ?kind=Salary&from=…&to=… *@
 <PageTitle>Finance · Student Sync</PageTitle>
 <PageHeader Title="Finance" Subtitle="Money in and out: fees received, salaries paid and running costs, and what is left as profit.">
@@ -130,9 +130,13 @@
                                     {
                                         case FinanceEntryKind.Income:
                                             <a class="icon-btn icon-btn-sm" href="/receipts/@x.RecordId" title="Receipt" aria-label="@($"Receipt for {x.Title}, {x.Date:d MMM}")"><Icon Name="file" /></a>
+                                            @if (PaymentEditor.CanEdit(x.Method)) { <button type="button" class="icon-btn icon-btn-sm" title="Edit" aria-label="@($"Edit payment from {x.Title}, {x.Date:d MMM}")" @onclick="() => _editor?.Edit(x, Currency)"><Icon Name="pencil" /></button> }
+                                            <button type="button" class="icon-btn icon-btn-sm" title="Delete" aria-label="@($"Delete payment from {x.Title}, {x.Date:d MMM}")" @onclick="() => _editor?.Remove(x, Currency)"><Icon Name="trash" /></button>
                                             break;
                                         case FinanceEntryKind.Salary:
                                             <a class="icon-btn icon-btn-sm" href="/salary-slips/@x.PersonId/@x.RecordId" title="Salary slip" aria-label="@($"Salary slip for {x.Title}, {x.Date:d MMM}")"><Icon Name="file" /></a>
+                                            <button type="button" class="icon-btn icon-btn-sm" title="Edit" aria-label="@($"Edit salary payment to {x.Title}, {x.Date:d MMM}")" @onclick="() => _editor?.Edit(x, Currency)"><Icon Name="pencil" /></button>
+                                            <button type="button" class="icon-btn icon-btn-sm" title="Delete" aria-label="@($"Delete salary payment to {x.Title}, {x.Date:d MMM}")" @onclick="() => _editor?.Remove(x, Currency)"><Icon Name="trash" /></button>
                                             break;
                                         default:
                                             <button type="button" class="icon-btn icon-btn-sm" title="Edit" aria-label="@($"Edit expense {x.Title}")" @onclick="() => EditExpense(x.RecordId)"><Icon Name="pencil" /></button>
@@ -150,8 +154,8 @@
     </PillTabs>
 </section>
 
-@* 5. Money still open with people who left *@
-@if (Me is not null) { <FormerBalances Me="Me" /> }
+@* 5. One line when money is still open with deleted people (their records are under Students / Teachers ▸ Deleted) *@
+@if (Me is not null) { <FormerBalances Me="Me" Show="summary" /> }
 
 <Modal @bind-Open="_open" Title="@(_editId is null ? "Add expense" : "Edit expense")">
     <Choice TValue="ExpenseCategory" Label="Category *" Options="Categories" @bind-Value="_category" />
@@ -173,6 +177,7 @@
 @if (Me is not null)
 {
     <SalaryPaymentDialog Me="Me" @bind-Open="_salaryOpen" Teachers="_teachers" Month="@(_period == "month" ? _from : null)" OnSaved="_ => LoadAll()" />
+    <PaymentEditor @ref="_editor" Me="Me" OnChanged="LoadAll" />
 }
 
 @code {
@@ -182,6 +187,7 @@
     [SupplyParameterFromQuery(Name = "from")] public string? FromParam { get; set; }
     [SupplyParameterFromQuery(Name = "to")] public string? ToParam { get; set; }
 
+    private PaymentEditor? _editor;
     private FinanceSummaryDto? _s;
     private FinanceEntriesDto? _e;
     private ApiException? _error, _entriesError;

@@ -76,13 +76,17 @@ try {
   await hasText(page, "section[aria-labelledby=notes-h] ul", `Goal ${tag} edited`);
   await shots(page, "profile");
 
-  // 3. Archived student who still owes money: on Fees with the Archived badge.
+  // 3. Deleted student who still owes money: off Fees (one line points to Students ▸ Deleted), listed there with the debt.
   await api(users.admin, `students/${student}/packages`, "POST", { hours: 1, price: 3000, paidNow: 1000 });
   await api(users.admin, `students/${student}`, "DELETE");
   await page.goto(`${BASE_URL}/admin/fees`, { waitUntil: "networkidle0" });
-  const row = await page.waitForFunction((t) => [...document.querySelectorAll(".fee-list li")].find((li) => li.textContent.includes(t)), { timeout: 10000 }, `Edit ${tag}`);
-  if (!/Archived/.test(await row.evaluate((li) => li.textContent))) fail("Archived badge missing on Fees due");
-  await shots(page, "fees-archived");
+  await page.waitForSelector(".former-note a[href='/admin/students?status=Archived']", { timeout: 10000 });
+  if (await page.$$eval(".fee-list li", (lis, t) => lis.some((li) => li.textContent.includes(t)), `Edit ${tag}`)) fail("A deleted student is still on Fees");
+  await shots(page, "fees-deleted-note");
+  await page.click(".former-note a[href='/admin/students?status=Archived']");
+  const row = await page.waitForFunction((t) => [...document.querySelectorAll(".former-balances .fee-list li")].find((li) => li.textContent.includes(t)), { timeout: 10000 }, `Edit ${tag}`);
+  if (!/2,000/.test(await row.evaluate((li) => li.textContent))) fail("The deleted student's debt is missing from Students ▸ Deleted");
+  await shots(page, "students-deleted-owing");
 
   // 4. Class material: rename it in the class hub.
   const sessions = await api(users.privateTeacher, "sessions?limit=50");
@@ -102,7 +106,7 @@ try {
 
   if (consoleErrors.length) fail(`Console errors:\n${consoleErrors.join("\n")}`);
   if (failedRequests.length) fail(`Failed requests:\n${failedRequests.join("\n")}`);
-  console.log("admin-crud-final: OK — school result edit, goal edit, archived debt on Fees, material edit");
+  console.log("admin-crud-final: OK — school result edit, goal edit, deleted student off Fees and listed under Deleted, material edit");
 } catch (e) {
   await screenshot(page, "crud3-failure").catch(() => {});
   console.error(e.message);

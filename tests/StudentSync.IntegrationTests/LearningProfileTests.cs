@@ -35,7 +35,8 @@ public sealed class LearningProfileTests(ApiFixture api)
         Assert.Equal(HttpStatusCode.BadRequest, dup.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await (await api.LoginAsync(Accounts.Amira)).PostRaw("academics/curricula", new SaveCurriculumRequest("X1", "Teachers cannot", CatalogStatus.Active))).StatusCode);
 
-        var year = (await admin.Get<List<AcademicYearDto>>("academics/years")).First();
+        // The centre's current year: other tests add and delete spare years at the same time, so "the first one" is not stable.
+        var year = (await admin.Get<List<AcademicYearDto>>("academics/years")).First(y => y.IsCurrent);
         var student = await admin.Post<CreatedPersonResponse>("students",
             new CreateStudentRequest("Profile Test (Demo Student)", $"profile{Guid.NewGuid():N}@horizon.example.test", $"P-{Guid.NewGuid():N}"[..12], null, "Example School", "Asia/Kolkata", created.Id, year.Id));
         var profile = await admin.Get<StudentProfileDto>($"students/{student.Id}");

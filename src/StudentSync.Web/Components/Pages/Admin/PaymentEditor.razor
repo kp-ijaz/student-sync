@@ -1,0 +1,101 @@
+@inherits AppComponent
+@* Edit or remove a payment that is already recorded (owner request 2026-11-24: "full CRUD for the admin on every
+   entry"). One component for fee payments and salary payments, used on Finance, Fees ▸ Salaries, the teacher's Salary
+   card and the student's Fees card. Edit corrects the entry in place; Remove takes it out of every total but keeps it on
+   record with the reason (so the books can always be explained). The parent calls Edit… / Remove… through @ref. *@
+<SalaryPaymentDialog Me="Me" @bind-Open="_salaryOpen" TeacherId="_personId" TeacherName="@_name" PaymentId="_paymentId" OnSaved="_ => Changed()" />
+
+<Modal @bind-Open="_feeOpen" Title="Edit payment">
+    <p class="small" style="margin-top:0">Fix a mistake in this payment@(_name is { } n ? $" from {n}" : ""). The receipt shows the corrected figures.</p>
+    <div class="form-grid">
+        <div class="field"><label for="pea">Amount (@_currency) *</label><input id="pea" class="input" type="number" min="0.01" step="0.01" inputmode="decimal" @bind="_amount" /></div>
+        <div class="field"><label for="ped">Paid on *</label><input id="ped" class="input" type="date" @bind="_paidOn" /></div>
+    </div>
+    <MethodPicker @bind-Method="_method" @bind-Reference="_reference" />
+    <div class="form-actions">
+        <button class="btn btn-secondary" @onclick="() => _feeOpen = false">Cancel</button>
+        <button class="btn btn-primary" @onclick="SaveFee" disabled="@(Busy || _amount is not > 0 || _paidOn is null)">Save changes</button>
+    </div>
+</Modal>
+
+<Modal @bind-Open="_removeOpen" Title="Delete payment">
+    <p class="small" style="margin-top:0">@_what will no longer count anywhere: not as paid, not in Finance, not in the totals. It stays on record as removed, with your reason.</p>
+    <div class="field"><label for="vr">Why? *</label><input id="vr" class="input" placeholder="e.g. Entered twice" maxlength="300" @bind="_reason" @bind:event="oninput" /></div>
+    <div class="form-actions">
+        <button class="btn btn-secondary" @onclick="() => _removeOpen = false">Keep it</button>
+        <button class="btn btn-danger" @onclick="Remove" disabled="@(Busy || string.IsNullOrWhiteSpace(_reason))"><Icon Name="trash" /> Remove payment</button>
+    </div>
+</Modal>
+
+@code {
+    /// <summary>Called after a payment was changed or removed, so the parent reloads its figures.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private bool _salaryOpen, _feeOpen, _removeOpen;
+    private Guid? _personId, _paymentId;
+    private string? _name, _reference, _reason, _what, _removeUrl;
+    private string _currency = "";
+    private decimal? _amount;
+    private DateOnly? _paidOn;
+    private PaymentMethod _method;
+
+    /// <summary>A payment the online payment service confirmed cannot be edited (it can be removed).</summary>
+    public static bool CanEdit(PaymentMethod? method) => method != PaymentMethod.Online;
+
+    public void EditSalary(Guid teacherId, Guid paymentId, string? teacherName = null)
+    {
+        (_personId, _paymentId, _name, _salaryOpen) = (teacherId, paymentId, teacherName, true);
+        StateHasChanged();
+    }
+
+    public void EditFee(Guid studentId, Guid paymentId, decimal amount, DateOnly paidOn, PaymentMethod method, string? reference, string currency, string? studentName = null)
+    {
+        (_personId, _paymentId, _name, _currency) = (studentId, paymentId, studentName, currency);
+        (_amount, _paidOn, _method, _reference, _feeOpen) = (amount, paidOn, method, reference, true);
+        StateHasChanged();
+    }
+
+    public void RemoveSalary(Guid teacherId, Guid paymentId, string what) => AskRemove($"teachers/{teacherId}/pay/payments/{paymentId}/void", what);
+    public void RemoveFee(Guid studentId, Guid paymentId, string what) => AskRemove($"students/{studentId}/payments/{paymentId}/void", what);
+
+    /// <summary>Edit a Finance line (a fee payment or a salary payment; expenses have their own form).</summary>
+    public void Edit(FinanceEntryDto x, string currency)
+    {
+        if (x.PersonId is not { } person) return;
+        if (x.Kind == FinanceEntryKind.Salary) EditSalary(person, x.RecordId, x.Title);
+        else if (x.Kind == FinanceEntryKind.Income) EditFee(person, x.RecordId, x.Amount, x.Date, x.Method ?? PaymentMethod.Cash, x.Reference, currency, x.Title);
+    }
+
+    public void Remove(FinanceEntryDto x, string currency)
+    {
+        if (x.PersonId is not { } person) return;
+        var what = $"{Money.Format(x.Amount, currency)} {(x.Kind == FinanceEntryKind.Salary ? "paid to" : "received from")} {x.Title} on {x.Date:d MMM yyyy}";
+        if (x.Kind == FinanceEntryKind.Salary) RemoveSalary(person, x.RecordId, what);
+        else if (x.Kind == FinanceEntryKind.Income) RemoveFee(person, x.RecordId, what);
+    }
+
+    private void AskRemove(string url, string what)
+    {
+        (_removeUrl, _what, _reason, _removeOpen) = (url, what, null, true);
+        StateHasChanged();
+    }
+
+    private Task Changed() => OnChanged.InvokeAsync();
+
+    private async Task SaveFee()
+    {
+        if (_personId is not { } student || _paymentId is not { } id) return;
+        var request = new RecordPaymentRequest(_amount ?? 0, _paidOn, _method, _reference);
+        if (!await Run(() => Api.PutAsync($"students/{student}/payments/{id}", request), "Payment saved.")) return;
+        _feeOpen = false;
+        await Changed();
+    }
+
+    private async Task Remove()
+    {
+        if (_removeUrl is not { } url) return;
+        if (!await Run(() => Api.PostAsync(url, new VoidPaymentRequest(_reason ?? "")), "Payment removed.")) return;
+        _removeOpen = false;
+        await Changed();
+    }
+}

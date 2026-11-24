@@ -2,23 +2,35 @@
 @attribute [Authorize(Roles = "InstitutionAdmin")]
 @inherits AppPage
 
-@* Teachers come first in the centre's flow: their subjects decide who is offered in "Add classes". *@
+@* Teachers come first in the centre's flow: their subjects decide who is offered in "Add classes". The "Deleted" view
+   is the one place a deleted teacher's record is kept, with salary still open and a Restore button. *@
 <PageHeader Title="Teachers" Subtitle="Add each teacher with the subjects they teach. They are then offered for those subjects when you add classes.">
     <Actions><button class="btn btn-primary" @onclick="New"><Icon Name="plus" /> Add teacher</button></Actions>
 </PageHeader>
 <div class="card">
     <div class="list-tools">
         <input class="input" type="search" placeholder="Search teachers" aria-label="Search teachers" @bind="_search" @bind:after="() => Load(1)" />
-        <select class="select" @bind="_statusFilter" @bind:after="() => Load(1)" aria-label="Status"><option value="">Current (not archived)</option>@foreach (var s in Enum.GetValues<PersonStatus>().Where(x => x != PersonStatus.OnHold)) { <option value="@s">@StatusStyles.For(s).Label</option> }</select>
+        <select class="select" @bind="_statusFilter" @bind:after="() => Load(1)" aria-label="Show">
+            <option value="">Current teachers</option>
+            @foreach (var s in Enum.GetValues<PersonStatus>().Where(x => x is not (PersonStatus.OnHold or PersonStatus.Archived))) { <option value="@s">@StatusStyles.For(s).Label</option> }
+            <option value="@PersonStatus.Archived">Deleted</option>
+        </select>
     </div>
-    <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0" EmptyTitle="No teachers yet" EmptyText="Add your first teacher with the subjects they teach." EmptyIcon="user-check">
+    @if (Deleted)
+    {
+        <p class="deleted-note" role="note"><Icon Name="trash" /> <span>Deleted teachers are kept here only. They cannot sign in and are not on any class, salary, subject or report screen. Open one to see their full record, or restore them.</span></p>
+    }
+    <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0" EmptyTitle="@(Deleted ? "No deleted teachers" : "No teachers yet")" EmptyText="@(Deleted ? "Teachers you delete are kept here with their full record." : "Add your first teacher with the subjects they teach.")" EmptyIcon="user-check">
         @* Phones: a compact list (the row opens the teacher); larger screens: the table. *@
         <ul class="plist" aria-label="Teachers">@foreach (var t in _page?.Items ?? [])
         {
             <PersonRow Name="@t.FullName" PhotoUrl="@t.PhotoUrl" Href="@($"/teachers/{t.Id}")" Meta="@SubjectsLine(t)">
                 <Detail>@BackgroundLine(t)</Detail>
                 <Status>@if (t.Status != PersonStatus.Active) { <Badge Style="StatusStyles.For(t.Status)" /> }</Status>
-                <Actions><button type="button" class="icon-btn" aria-label="@($"Edit {t.FullName}")" title="Edit" @onclick="() => Edit(t)"><Icon Name="pencil" /></button></Actions>
+                <Actions>
+                    @if (t.Status == PersonStatus.Archived) { <button type="button" class="btn btn-secondary btn-sm" @onclick="() => Restore(t)" disabled="@Busy">Restore<span class="sr-only"> @t.FullName</span></button> }
+                    else { <button type="button" class="icon-btn" aria-label="@($"Edit {t.FullName}")" title="Edit" @onclick="() => Edit(t)"><Icon Name="pencil" /></button> }
+                </Actions>
             </PersonRow>
         }</ul>
         <div class="table-wrap desk-list"><table class="table">
@@ -30,12 +42,15 @@
                     <td data-label="Qualifications" class="small">@string.Join(", ", (t.Qualifications ?? []).Select(q => q.Title))</td>
                     <td data-label="Experience" class="small">@ExperienceLabel(t)</td>
                     <td data-label="Status"><Badge Style="StatusStyles.For(t.Status)" /></td>
-                    <td><button class="btn btn-ghost btn-sm" @onclick="() => Edit(t)">Edit<span class="sr-only"> @t.FullName</span></button><a class="btn btn-ghost btn-sm" href="/teacher/availability?teacherId=@t.Id">Availability</a></td></tr>
+                    <td>@if (t.Status == PersonStatus.Archived) { <a class="btn btn-ghost btn-sm" href="/teachers/@t.Id">Open record</a><button class="btn btn-secondary btn-sm" @onclick="() => Restore(t)" disabled="@Busy">Restore<span class="sr-only"> @t.FullName</span></button> }
+                        else { <button class="btn btn-ghost btn-sm" @onclick="() => Edit(t)">Edit<span class="sr-only"> @t.FullName</span></button><a class="btn btn-ghost btn-sm" href="/teacher/availability?teacherId=@t.Id">Availability</a> }</td></tr>
             }</tbody>
         </table></div>
         @if (_page is not null) { <Pager Page="_page.Page" TotalPages="_page.TotalPages" Total="_page.TotalCount" OnPage="Load" /> }
     </DataView>
 </div>
+
+@if (Deleted && Me is not null) { <FormerBalances @key="_restored" Me="Me" Show="teachers" /> }
 
 <Modal @bind-Open="_open" Title="@(_editId is null ? "Add teacher" : "Edit teacher")" Wide="true">
     @* Adding a teacher needs only name, email and subjects; everything else sits under "More details". *@
@@ -56,7 +71,7 @@
                     <div class="field"><label for="trate">Pay per hour</label><input id="trate" class="input" type="number" min="0" step="1" inputmode="decimal" placeholder="Optional, e.g. 300" @bind="_rate" />
                         <span class="help">Used for salary: completed class hours × this rate. You can change it later on the teacher's page.</span></div>
                 }
-                else { <div class="field"><label for="tst">Status</label><select id="tst" class="select" @bind="_status">@foreach (var s in Enum.GetValues<PersonStatus>().Where(x => x != PersonStatus.OnHold)) { <option value="@s">@StatusStyles.For(s).Label</option> }</select></div> }
+                else { <div class="field"><label for="tst">Status</label><select id="tst" class="select" @bind="_status">@foreach (var s in Enum.GetValues<PersonStatus>().Where(x => x is not (PersonStatus.OnHold or PersonStatus.Archived))) { <option value="@s">@StatusStyles.For(s).Label</option> }</select></div> }
             </div>
         </section>
 
@@ -170,6 +185,14 @@
     private bool _open;
     private Guid? _editId;
     private string _statusFilter = "";
+    private int _restored;
+    [SupplyParameterFromQuery(Name = "status")] public string? StatusParam { get; set; }
+    private bool Deleted => _statusFilter == nameof(PersonStatus.Archived);
+
+    private async Task Restore(TeacherDto t)
+    {
+        if (await Run(() => Api.PostAsync($"teachers/{t.Id}/restore"), $"{t.FullName} is restored and can sign in again.")) { _restored++; await Load(_page?.Page ?? 1); }
+    }
     private bool _deleteOpen;
     private string _search = "", _name = "", _email = "", _tz = "UTC";
     private string? _code, _spec, _bio, _tempPassword, _photoUrl, _phone, _languages;
@@ -188,6 +211,8 @@
     protected override async Task LoadAsync()
     {
         _subjects = (await Fetch(() => Api.GetAsync<List<SubjectDto>>("academics/subjects"))).Value?.Where(s => s.Status == CatalogStatus.Active).ToList() ?? [];
+        // Links from Fees and Finance open the Deleted view directly (?status=Archived).
+        if (Enum.TryParse<PersonStatus>(StatusParam, out var wanted)) _statusFilter = wanted.ToString();
         await Load(1);
         // Opened from a teacher's profile ("Edit"): open that teacher's form straight away.
         if (EditId is { } id)

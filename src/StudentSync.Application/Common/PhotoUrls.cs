@@ -33,7 +33,7 @@ public sealed class PhotoUrls(IAppDbContext db, ICurrentUser user, IFileAccessTo
         var list = sessions.ToList();
         var teacherIds = list.Select(s => s.TeacherId).Distinct().ToList();
         if (teacherIds.Count == 0) return list;
-        var photos = await db.Teachers.Where(t => teacherIds.Contains(t.Id) && t.User!.PhotoFileId != null)
+        var photos = await db.Teachers.Where(t => teacherIds.Contains(t.Id) && t.User!.PhotoFileId != null && t.Status != Domain.People.PersonStatus.Archived) // no photo of a deleted teacher
             .Select(t => new { t.Id, t.User!.PhotoFileId }).ToDictionaryAsync(t => t.Id, t => t.PhotoFileId, ct);
         return list.Select(s => s with { TeacherPhotoUrl = For(photos.GetValueOrDefault(s.TeacherId)) }).ToList();
     }

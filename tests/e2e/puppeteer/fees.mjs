@@ -56,6 +56,17 @@ try {
   const pkg = await page.waitForFunction(() => [...document.querySelectorAll(".fee-packages > li")].find((li) => li.textContent.includes("E2E-UPI-1")), { timeout: 10000 });
   const pkgText = await pkg.evaluate((li) => li.textContent);
   if (!/3,000 due/.test(pkgText)) fail(`Package should show 3,000 due: ${pkgText}`);
+
+  // Correct the payment (owner request 2026-11-24: every entry can be edited): 2,000 → 2,500 leaves 2,500 due; then back.
+  for (const [amount, due] of [[2500, "2,500 due"], [2000, "3,000 due"]]) {
+    await page.evaluate(() => [...document.querySelectorAll(".fee-packages > li")].find((li) => li.textContent.includes("E2E-UPI-1"))?.setAttribute("data-e2e", "pkg"));
+    await clickText(page, '[data-e2e="pkg"] .fee-payments', "Edit");
+    await page.waitForSelector(".modal #pea");
+    await fill(page, "#pea", amount);
+    if (amount === 2500) await screenshot(page, "fees-edit-payment-desktop");
+    await clickText(page, ".modal", "Save changes");
+    await page.waitForFunction((d) => !document.querySelector(".modal") && [...document.querySelectorAll(".fee-packages > li")].some((li) => li.textContent.includes("E2E-UPI-1") && li.textContent.includes(d)), { timeout: 10000 }, due);
+  }
   await overflowCheck(page, "profile");
 
   // The student is on the dashboard card and the Fees page.

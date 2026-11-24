@@ -67,8 +67,9 @@ try {
     const opened = await newPage(browser);
     page = opened.page;
     await signIn(page, users[role]);
-    // Every home uses the shared pattern: five shortcut pills, a metric strip and the class agenda.
-    const [links, count] = ['.quick-links a', 5];
+    // Every home uses the shared pattern: shortcut pills (six for the admin since Finance was added, five otherwise),
+    // the numbers and the class agenda.
+    const [links, count] = ['.quick-links a', role === 'admin' ? 6 : 5];
     await page.waitForSelector(links);
     assert.equal(await page.$$eval(links, (l) => l.length), count);
     if (role === 'admin') assert.equal(await page.$$eval('.dash-kpis .kpi', (m) => m.length), 6); // six number tiles (2026-11-24)

@@ -1,5 +1,5 @@
 // Finance (2026-11-24) in a real browser: the Finance page (income, salaries, expenses, profit, 12 months, money in & out),
-// adding, editing and deleting an expense, switching to the year view, and "People who left" on Fees and Finance for an
+// adding, editing and deleting an expense, switching to the year view, and the one-line pointer to deleted people on Fees and Finance for an
 // archived student who still owes money. Test records are created through the API with fictional data. Screenshots at
 // 375/768/1440; fails on overflow, console errors or failed requests.
 import { BASE_URL, launch, newPage, signIn, users, viewports, screenshot, demoPassword } from "./browser.mjs";
@@ -93,8 +93,9 @@ try {
   await wait(600);
   await clickText(page, ".finance-filtered", "Clear filters");
   await page.waitForFunction(() => document.querySelectorAll(".finance-ledger li").length >= 1, { timeout: 10000 });
-  // People who left, on the Finance page.
-  await hasText(page, ".former-balances", `Leaver ${tag}`);
+  // Deleted people are not listed in Finance; one line points to where their records are kept.
+  await page.waitForSelector(".former-note a[href='/admin/students?status=Archived']", { timeout: 10000 });
+  if (await page.$(".former-balances")) fail("Finance still lists people who were deleted");
 
   // Year view, then back to the month.
   await page.$$eval(".finance-period label", (ls) => ls.find((l) => l.textContent.trim() === "Year")?.click());
@@ -109,16 +110,18 @@ try {
   await clickText(page, ".modal .form-actions", "Delete expense");
   await gone(page, "main", `Power bill ${tag}`);
 
-  // 2. Fees page: the leaver is not in the main list, but in "People who left".
+  // 2. Fees page: the deleted student is not listed; their debt is under Students ▸ Deleted.
   await page.goto(`${BASE_URL}/admin/fees`, { waitUntil: "networkidle0" });
+  await page.waitForSelector(".former-note", { timeout: 10000 });
+  if (await page.$$eval(".fee-list li", (lis, t) => lis.some((li) => li.textContent.includes(t)), `Leaver ${tag}`)) fail("A deleted student is still on the Fees page");
+  await shots(page, "fees-deleted-note");
+  await page.goto(`${BASE_URL}/admin/students?status=Archived`, { waitUntil: "networkidle0" });
   await hasText(page, ".former-balances", `Leaver ${tag}`);
-  const inMain = await page.$$eval("section[aria-labelledby=due-h] .fee-list li", (lis, t) => lis.some((li) => li.textContent.includes(t)), `Leaver ${tag}`);
-  if (inMain) fail("A student who left is still in the main Fees list");
-  await shots(page, "fees-people-who-left");
+  await shots(page, "students-deleted");
 
   if (consoleErrors.length) fail(`Console errors:\n${consoleErrors.join("\n")}`);
   if (failedRequests.length) fail(`Failed requests:\n${failedRequests.join("\n")}`);
-  console.log("finance: OK — totals, expense add/edit/delete, year view, people who left on Finance and Fees");
+  console.log("finance: OK — totals, expense add/edit/delete, year view, deleted people only under Students ▸ Deleted");
 } catch (e) {
   await screenshot(page, "finance-failure").catch(() => {});
   console.error(e.message);

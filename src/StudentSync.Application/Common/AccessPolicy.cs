@@ -82,7 +82,14 @@ public sealed class AccessPolicy(IAppDbContext db, ICurrentUser user)
         => user.Has(Permissions.SessionsManageAll) || (user.Has(Permissions.SessionsManageOwn) && s.TeacherId == user.UserId);
 
     /// <summary>Students taught by a teacher through any session, batch or private arrangement, or assessed by them in a published exam/diagnostic.</summary>
-    public IQueryable<Guid> StudentsTaughtBy(Guid teacherId) =>
+    /// <remarks>Deleted students are never included: a teacher no longer sees or counts a student who was deleted.</remarks>
+    public IQueryable<Guid> StudentsTaughtBy(Guid teacherId)
+    {
+        var taught = EverTaughtBy(teacherId);
+        return db.Students.Where(s => s.Status != Domain.People.PersonStatus.Archived && taught.Contains(s.Id)).Select(s => s.Id);
+    }
+
+    private IQueryable<Guid> EverTaughtBy(Guid teacherId) =>
         db.SessionParticipants.Where(p => p.Session!.TeacherId == teacherId && p.Status == ParticipantStatus.Active).Select(p => p.StudentId)
             .Union(db.ExamRecipients.Where(r => db.Exams.Any(e => e.Id == r.ExamId && e.TeacherId == teacherId && e.Status != Domain.Assessments.ExamStatus.Draft)).Select(r => r.StudentId))
             .Union(db.BatchEnrolments.Where(e => e.Batch!.TeacherId == teacherId && e.Status == Domain.Academics.EnrolmentStatus.Active).Select(e => e.StudentId))

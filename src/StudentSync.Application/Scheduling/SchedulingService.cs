@@ -466,22 +466,38 @@ public sealed class SchedulingService(
             await access.EnsureCanViewStudentAsync(studentId, ct);
             sessions = sessions.Where(s => s.Participants.Any(p => p.StudentId == studentId && p.Status == ParticipantStatus.Active));
         }
+        else
+        {
+            // A deleted student's classes leave the calendar and every class list; they stay on the student's own record
+            // (the branch above), and the teacher's taught hours and pay are not changed by it.
+            sessions = sessions.Where(CurrentClass);
+        }
         var ordered = q.FromUtc is null && q.ToUtc is not null ? sessions.OrderByDescending(s => s.StartUtc) : sessions.OrderBy(s => s.StartUtc);
         return await photos.WithTeacherPhotosAsync(await Project(ordered.Take(Math.Clamp(q.Limit ?? 200, 1, 500))).ToListAsync(ct), ct);
     }
 
+    /// <summary>A class that still belongs to someone: it has no students yet, or at least one who was not deleted.</summary>
+    public static readonly System.Linq.Expressions.Expression<Func<LearningSession, bool>> CurrentClass = s =>
+        !s.Participants.Any(p => p.Status == ParticipantStatus.Active)
+        || s.Participants.Any(p => p.Status == ParticipantStatus.Active && p.Student!.Status != PersonStatus.Archived);
+
     public static IQueryable<SessionListItemDto> Project(IQueryable<LearningSession> q) => q.Select(s => new SessionListItemDto(
-        s.Id, s.Title, s.SessionType, s.Status, s.StartUtc, s.EndUtc, s.TimeZoneId, s.TeacherId, s.Teacher!.User!.FullName,
+        s.Id, s.Title, s.SessionType, s.Status, s.StartUtc, s.EndUtc, s.TimeZoneId, s.TeacherId,
+        s.Teacher!.Status == PersonStatus.Archived ? DeletedPeople.TeacherName : s.Teacher.User!.FullName,
         s.BatchId, s.Batch != null ? s.Batch.Name : null, s.Subject != null ? s.Subject.Name : null,
-        s.Participants.Count(p => p.Status == ParticipantStatus.Active), s.DeliveryMode, s.MeetingUrl != null, s.SeriesId != null, null));
+        // Head-count without deleted students (a class left with only deleted students keeps its count: it is their record).
+        s.Participants.Any(p => p.Status == ParticipantStatus.Active && p.Student!.Status != PersonStatus.Archived)
+            ? s.Participants.Count(p => p.Status == ParticipantStatus.Active && p.Student!.Status != PersonStatus.Archived)
+            : s.Participants.Count(p => p.Status == ParticipantStatus.Active),
+        s.DeliveryMode, s.MeetingUrl != null, s.SeriesId != null, null));
 
     public async Task<SessionDetailDto> GetAsync(Guid id, CancellationToken ct)
     {
         var s = await access.GetVisibleSessionAsync(id, ct);
         var detail = await db.Sessions.Where(x => x.Id == s.Id).Select(x => new
         {
-            TeacherName = x.Teacher!.User!.FullName,
-            TeacherPhotoFileId = x.Teacher.User.PhotoFileId,
+            TeacherName = x.Teacher!.Status == PersonStatus.Archived ? DeletedPeople.TeacherName : x.Teacher.User!.FullName,
+            TeacherPhotoFileId = x.Teacher.Status == PersonStatus.Archived ? null : x.Teacher.User!.PhotoFileId,
             BatchName = x.Batch != null ? x.Batch.Name : null,
             ArrangementTitle = x.Arrangement != null ? x.Arrangement.Title : null,
             CourseName = x.Course != null ? x.Course.Name : null,
@@ -497,12 +513,15 @@ public sealed class SchedulingService(
             var own = access.IsParent ? await access.ChildIdsAsync(ct) : [user.UserId];
             participants = participants.Where(p => own.Contains(p.StudentId));
         }
+        // Deleted students are left out of the list, unless the class has nobody else (it is then part of their record).
+        var anyCurrent = await db.SessionParticipants.AnyAsync(p => p.SessionId == id && p.Status == ParticipantStatus.Active && p.Student!.Status != PersonStatus.Archived, ct);
+        if (anyCurrent) participants = participants.Where(p => p.Student!.Status != PersonStatus.Archived);
         var participantDtos = await participants
             .OrderBy(p => p.Student!.User!.FullName)
             .Select(p => new ParticipantDto(p.StudentId, p.Student!.User!.FullName, p.Status,
                 db.Attendance.Where(a => a.SessionId == id && a.StudentId == p.StudentId).Select(a => (AttendanceStatus?)a.Status).FirstOrDefault()))
             .ToListAsync(ct);
-        var count = await db.SessionParticipants.CountAsync(p => p.SessionId == id && p.Status == ParticipantStatus.Active, ct);
+        var count = await db.SessionParticipants.CountAsync(p => p.SessionId == id && p.Status == ParticipantStatus.Active && (!anyCurrent || p.Student!.Status != PersonStatus.Archived), ct);
 
         return new SessionDetailDto(s.Id, s.Title, s.SessionType, s.Status, s.StartUtc, s.EndUtc, s.TimeZoneId, s.TeacherId, detail.TeacherName,
             s.BatchId, detail.BatchName, s.ArrangementId, detail.ArrangementTitle, s.SeriesId, s.CourseId, detail.CourseName,
@@ -557,6 +576,11 @@ public sealed class SchedulingService(
         var zoned = ZonedTime.ToUtc(r.LocalDate, r.LocalStartTime, r.TimeZoneId);
         var end = zoned.Utc.AddMinutes(r.DurationMinutes);
         var studentIds = s.Participants.Where(p => p.Status == ParticipantStatus.Active).Select(p => p.StudentId).ToList();
+        // A class cannot be moved for someone who was deleted (that would put them back on the calendar).
+        if (await db.Teachers.AnyAsync(t => t.Id == s.TeacherId && t.Status == PersonStatus.Archived, ct))
+            throw new DomainException("This class's teacher was deleted. It cannot be moved.", "person_deleted");
+        if (studentIds.Count > 0 && !await db.Students.AnyAsync(x => studentIds.Contains(x.Id) && x.Status != PersonStatus.Archived, ct))
+            throw new DomainException("This class's student was deleted. It cannot be moved.", "person_deleted");
         var conflicts = await FindConflictsAsync(s.TeacherId, studentIds, [(zoned.Utc, end)], s.Id, ct);
         ThrowIfConflicts(conflicts, r.AcknowledgeConflicts);
         if (end - zoned.Utc > s.EndUtc - s.StartUtc) await hours.EnsureFitsAsync(studentIds, [(zoned.Utc, end)], s.Id, ct);
@@ -734,7 +758,7 @@ public sealed class SchedulingService(
         var sessions = await (await access.VisibleSessionsAsync(ct))
             .Where(s => s.EndUtc >= clock.UtcNow.AddDays(-30) && s.StartUtc <= clock.UtcNow.AddDays(180))
             .OrderBy(s => s.StartUtc).Take(1000)
-            .Select(s => new { s.Id, s.Title, s.StartUtc, s.EndUtc, s.Status, s.Location, s.MeetingUrl, Teacher = s.Teacher!.User!.FullName })
+            .Select(s => new { s.Id, s.Title, s.StartUtc, s.EndUtc, s.Status, s.Location, s.MeetingUrl, Teacher = s.Teacher!.Status == PersonStatus.Archived ? DeletedPeople.TeacherName : s.Teacher.User!.FullName })
             .ToListAsync(ct);
         var sb = new StringBuilder();
         sb.Append("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Student Sync//Calendar//EN\r\nCALSCALE:GREGORIAN\r\n");

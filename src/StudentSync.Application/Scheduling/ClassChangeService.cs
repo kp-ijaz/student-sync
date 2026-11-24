@@ -40,7 +40,9 @@ public sealed class ClassChangeService(IAppDbContext db, ICurrentUser user, Acce
                           }).ToListAsync(ct);
         if (rows.Count == 0) return [];
         var teacherIds = rows.Select(r => r.TeacherId).Distinct().ToList();
-        var teachers = await db.Users.Where(u => teacherIds.Contains(u.Id)).Select(u => new { u.Id, u.FullName, u.PhotoFileId }).ToListAsync(ct);
+        // A deleted teacher is no longer one of "my teachers".
+        var teachers = await db.Users.Where(u => teacherIds.Contains(u.Id) && !db.Teachers.Any(t => t.Id == u.Id && t.Status == Domain.People.PersonStatus.Archived))
+            .Select(u => new { u.Id, u.FullName, u.PhotoFileId }).ToListAsync(ct);
         var upcomingIds = rows.Where(r => r.Status == SessionStatus.Scheduled && r.EndUtc > now).Select(r => r.Id).ToList();
         var requests = (await Query(db.ClassChangeRequests.Where(r => r.StudentId == me && upcomingIds.Contains(r.SessionId) && r.Status == ClassChangeStatus.Pending))
             .ToListAsync(ct)).ToDictionary(r => r.SessionId);
@@ -111,7 +113,9 @@ public sealed class ClassChangeService(IAppDbContext db, ICurrentUser user, Acce
 
     public async Task<List<ClassChangeRequestDto>> ListAsync(string? status, CancellationToken ct)
     {
-        var q = db.ClassChangeRequests.AsQueryable();
+        // Requests of a deleted student, or to a deleted teacher, are off the list.
+        var q = db.ClassChangeRequests.Where(r => !db.Students.Any(s => s.Id == r.StudentId && s.Status == Domain.People.PersonStatus.Archived)
+                                                  && !db.Teachers.Any(t => t.Id == r.TeacherId && t.Status == Domain.People.PersonStatus.Archived));
         if (access.IsStudent) q = q.Where(r => r.StudentId == user.UserId);
         else if (access.IsTeacher) q = q.Where(r => r.TeacherId == user.UserId);
         else if (!access.IsAdmin) throw new ForbiddenException();

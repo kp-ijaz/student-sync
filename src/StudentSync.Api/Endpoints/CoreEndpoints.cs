@@ -98,6 +98,7 @@ public static class CoreEndpoints
         t.MapGet("/{id:guid}/pay", (Guid id, TeacherPayService s, CancellationToken ct) => s.PayAsync(id, ct));
         t.MapPut("/{id:guid}/pay/rate", async (Guid id, SetTeacherRateRequest r, TeacherPayService s, CancellationToken ct) => { await s.SetRateAsync(id, r, ct); return Results.NoContent(); });
         t.MapPost("/{id:guid}/pay/payments", async (Guid id, AddTeacherPaymentRequest r, TeacherPayService s, CancellationToken ct) => new IdResponse(await s.AddPaymentAsync(id, r, ct))).AddEndpointFilter<IdempotencyFilter>();
+        t.MapPut("/{id:guid}/pay/payments/{paymentId:guid}", async (Guid id, Guid paymentId, AddTeacherPaymentRequest r, TeacherPayService s, CancellationToken ct) => { await s.UpdatePaymentAsync(id, paymentId, r, ct); return Results.NoContent(); });
         t.MapPost("/{id:guid}/pay/payments/{paymentId:guid}/void", async (Guid id, Guid paymentId, VoidTeacherPaymentRequest r, TeacherPayService s, CancellationToken ct) => { await s.VoidPaymentAsync(id, paymentId, r, ct); return Results.NoContent(); });
         t.MapGet("/", ([AsParameters] PersonQuery q, PeopleService s, CancellationToken ct) => s.TeachersAsync(q, ct));
         t.MapPost("/", (CreateTeacherRequest r, PeopleService s, CancellationToken ct) => s.CreateTeacherAsync(r, ct));
@@ -105,6 +106,7 @@ public static class CoreEndpoints
         t.MapPost("/{id:guid}/password-reset", (Guid id, PeopleService s, CancellationToken ct) => s.ResetTeacherPasswordAsync(id, ct));
         // Delete: permanent when nothing is recorded for the teacher, otherwise archived (history kept). Admin only.
         t.MapDelete("/{id:guid}", (Guid id, PeopleService s, CancellationToken ct) => s.DeleteTeacherAsync(id, ct));
+        t.MapPost("/{id:guid}/restore", async (Guid id, PeopleService s, CancellationToken ct) => { await s.RestoreTeacherAsync(id, ct); return Results.NoContent(); });
         t.MapDelete("/{id:guid}/pay/rates/{rateId:guid}", async (Guid id, Guid rateId, TeacherPayService s, CancellationToken ct) => { await s.RemoveRateAsync(id, rateId, ct); return Results.NoContent(); });
         t.MapPut("/{id:guid}/photo", async (Guid id, IFormFile? file, ProfilePhotoService s, CancellationToken ct) =>
         {
@@ -124,6 +126,7 @@ public static class CoreEndpoints
         st.MapPost("/{id:guid}/password-reset", (Guid id, PeopleService s, CancellationToken ct) => s.ResetStudentPasswordAsync(id, ct));
         // Delete: permanent when nothing is recorded for the student, otherwise archived (history kept). Admin only.
         st.MapDelete("/{id:guid}", (Guid id, PeopleService s, CancellationToken ct) => s.DeleteStudentAsync(id, ct));
+        st.MapPost("/{id:guid}/restore", async (Guid id, PeopleService s, CancellationToken ct) => { await s.RestoreStudentAsync(id, ct); return Results.NoContent(); });
         st.MapPut("/{id:guid}/photo", async (Guid id, IFormFile? file, ProfilePhotoService s, CancellationToken ct) =>
         {
             var (stream, name, type, length) = PhotoFile(file);
@@ -143,6 +146,7 @@ public static class CoreEndpoints
         st.MapPut("/{id:guid}/packages/{packageId:guid}", async (Guid id, Guid packageId, UpdatePackageRequest r, FeeService s, CancellationToken ct) => { await s.UpdatePackageAsync(id, packageId, r, ct); return Results.NoContent(); });
         st.MapPost("/{id:guid}/packages/{packageId:guid}/cancel", async (Guid id, Guid packageId, FeeService s, CancellationToken ct) => { await s.CancelPackageAsync(id, packageId, ct); return Results.NoContent(); });
         st.MapPost("/{id:guid}/packages/{packageId:guid}/payments", async (Guid id, Guid packageId, RecordPaymentRequest r, FeeService s, CancellationToken ct) => new IdResponse(await s.RecordPaymentAsync(id, packageId, r, ct))).AddEndpointFilter<IdempotencyFilter>();
+        st.MapPut("/{id:guid}/payments/{paymentId:guid}", async (Guid id, Guid paymentId, RecordPaymentRequest r, FeeService s, CancellationToken ct) => { await s.UpdatePaymentAsync(id, paymentId, r, ct); return Results.NoContent(); });
         st.MapPost("/{id:guid}/payments/{paymentId:guid}/void", async (Guid id, Guid paymentId, VoidPaymentRequest r, FeeService s, CancellationToken ct) => { await s.VoidPaymentAsync(id, paymentId, r, ct); return Results.NoContent(); });
         st.MapPut("/{id:guid}/rate", async (Guid id, SetStudentRateRequest r, FeeService s, CancellationToken ct) => { await s.SetRateAsync(id, r, ct); return Results.NoContent(); });
         // Attendance and hours (attended / missed, this month and all time) and the teacher of each subject; scope in the service.

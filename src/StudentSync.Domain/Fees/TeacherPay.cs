@@ -19,7 +19,7 @@ public class TeacherPayRate : TenantEntity
     }
 }
 
-/// <summary>Salary paid to a teacher. Never edited: a mistake is voided (kept, with who and why) and recorded again.</summary>
+/// <summary>Salary paid to a teacher. An admin can correct it (audited before → after) or void it (kept, with who and why).</summary>
 public class TeacherPayment : TenantEntity
 {
     public Guid TeacherId { get; set; }

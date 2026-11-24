@@ -55,7 +55,7 @@ public static class StatusStyles
         PersonStatus.Active => new("Active", "green"),
         PersonStatus.Suspended => new("Suspended", "red"),
         PersonStatus.OnHold => new("On hold", "amber"),
-        PersonStatus.Archived => new("Archived", "slate"),
+        PersonStatus.Archived => new("Deleted", "slate"),
         _ => new("Inactive", "slate"),
     };
 

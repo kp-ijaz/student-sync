@@ -25,6 +25,8 @@ public sealed class SmsOutbox(IAppDbContext db, ITenantContext tenant, IClock cl
     {
         var key = dedupeKey.Length > 200 ? dedupeKey[..200] : dedupeKey;
         if (db.OutboundMessages.Local.Any(m => m.DedupeKey == key) || await db.OutboundMessages.AnyAsync(m => m.DedupeKey == key, ct)) return false;
+        // A deleted student's family is never messaged (one rule for every automation).
+        if (await db.Students.AnyAsync(s => s.Id == studentId && s.Status == Domain.People.PersonStatus.Archived, ct)) return false;
 
         var centre = await db.Tenants.Where(t => t.Id == tenant.TenantId).Select(t => new { t.Name, t.CountryCode, t.DefaultTimeZoneId }).FirstAsync(ct);
         var phone = await PhoneAsync(studentId, to, centre.CountryCode, ct);
@@ -80,6 +82,7 @@ public sealed class SmsOutbox(IAppDbContext db, ITenantContext tenant, IClock cl
         var country = await db.Tenants.Where(t => t.Id == tenant.TenantId).Select(t => t.CountryCode).FirstAsync(ct);
         var ids = due.Select(m => m.StudentId).ToList();
         var demo = await db.Students.Where(s => ids.Contains(s.Id) && s.User!.IsDemo).Select(s => s.Id).ToListAsync(ct);
+        var deleted = await db.Students.Where(s => ids.Contains(s.Id) && s.Status == Domain.People.PersonStatus.Archived).Select(s => s.Id).ToListAsync(ct);
         var sent = 0;
         foreach (var m in due)
         {
@@ -89,6 +92,7 @@ public sealed class SmsOutbox(IAppDbContext db, ITenantContext tenant, IClock cl
 
             string? skip = settings is null ? "SMS is not switched on (Settings ▸ Integrations)"
                 : demo.Contains(m.StudentId) ? "Demo account"
+                : deleted.Contains(m.StudentId) ? "The student was deleted"
                 : m.Kind == "absence" && !await StillAbsentAsync(m.DedupeKey, m.StudentId, ct) ? "Attendance was corrected before sending"
                 : null;
             var phone = skip is null ? await PhoneAsync(m.StudentId, m.Recipient, country, ct) : null;

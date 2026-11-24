@@ -174,7 +174,7 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
     {
         View();
         return await db.Curricula.OrderBy(c => c.Name)
-            .Select(c => new CurriculumDto(c.Id, c.Code, c.Name, c.Status, db.Students.Count(s => s.CurriculumId == c.Id)))
+            .Select(c => new CurriculumDto(c.Id, c.Code, c.Name, c.Status, db.Students.Count(s => s.CurriculumId == c.Id && s.Status != Domain.People.PersonStatus.Archived)))
             .ToListAsync(ct);
     }
 
@@ -205,7 +205,7 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
         if (access.IsStudent) q = q.Where(c => db.CourseEnrolments.Any(e => e.CourseId == c.Id && e.StudentId == user.UserId && e.Status == EnrolmentStatus.Active));
         // Classes in order (Class 1 … Class 12), then by name; each with its syllabus.
         return await q.OrderBy(c => c.GradeLevel != null ? c.GradeLevel.SortOrder : int.MaxValue).ThenBy(c => c.Name).Select(c => new CourseDto(c.Id, c.Code, c.Name, c.Description, c.GradeLevelId, c.GradeLevel != null ? c.GradeLevel.Name : null, c.Status,
-            c.Subjects.Count, db.CourseEnrolments.Count(e => e.CourseId == c.Id && e.Status == EnrolmentStatus.Active),
+            c.Subjects.Count, db.CourseEnrolments.Count(e => e.CourseId == c.Id && e.Status == EnrolmentStatus.Active && e.Student!.Status != Domain.People.PersonStatus.Archived),
             c.CurriculumId, db.Curricula.Where(x => x.Id == c.CurriculumId).Select(x => x.Name).FirstOrDefault())).ToListAsync(ct);
     }
 
@@ -250,7 +250,7 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
         }
         return await q.OrderBy(s => s.Course!.Name).ThenBy(s => s.Name).Select(s => new SubjectDto(s.Id, s.CourseId, s.Course!.Name, s.Code, s.Name, s.Description, s.Status,
             s.Chapters.OrderBy(c => c.SortOrder).Select(c => new ChapterDto(c.Id, c.Title, c.SortOrder, c.Topics.OrderBy(t => t.SortOrder).Select(t => new TopicDto(t.Id, t.Title, t.SortOrder)).ToList())).ToList(),
-            db.TeacherSubjects.Where(t => t.SubjectId == s.Id).Select(t => new LookupItem(t.TeacherId, t.Teacher!.User!.FullName, null)).ToList(),
+            db.TeacherSubjects.Where(t => t.SubjectId == s.Id && t.Teacher!.Status != Domain.People.PersonStatus.Archived).Select(t => new LookupItem(t.TeacherId, t.Teacher!.User!.FullName, null)).ToList(),
             s.Kind, s.ChoiceGroup, s.Course.Code == CentreCourseCode)).ToListAsync(ct);
     }
 
@@ -274,7 +274,7 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
                 Grade = s.Course.GradeLevel != null ? s.Course.GradeLevel.Name : null,
                 Order = s.Course.GradeLevel != null ? s.Course.GradeLevel.SortOrder : 999,
             }).ToListAsync(ct);
-        var teachers = await db.TeacherSubjects.Select(t => new { t.SubjectId, t.TeacherId, t.Teacher!.User!.FullName }).ToListAsync(ct);
+        var teachers = await db.TeacherSubjects.Where(t => t.Teacher!.Status != Domain.People.PersonStatus.Archived).Select(t => new { t.SubjectId, t.TeacherId, t.Teacher!.User!.FullName }).ToListAsync(ct);
         var students = await db.StudentSubjects.Where(x => x.Student!.Status == Domain.People.PersonStatus.Active)
             .GroupBy(x => x.SubjectId).Select(g => new { g.Key, Count = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.Count, ct);
         var done = (await db.Sessions.Where(s => s.Status == Domain.Scheduling.SessionStatus.Completed && s.SubjectId != null)
@@ -460,7 +460,7 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
     public async Task<IReadOnlyList<CourseEnrolmentDto>> CourseEnrolmentsAsync(Guid courseId, CancellationToken ct)
     {
         Manage();
-        return await db.CourseEnrolments.Where(e => e.CourseId == courseId).OrderBy(e => e.Student!.User!.FullName)
+        return await db.CourseEnrolments.Where(e => e.CourseId == courseId && e.Student!.Status != Domain.People.PersonStatus.Archived).OrderBy(e => e.Student!.User!.FullName)
             .Select(e => new CourseEnrolmentDto(e.Id, e.StudentId, e.Student!.User!.FullName, e.CourseId, e.Course!.Name, e.Status, e.EnrolledAtUtc)).ToListAsync(ct);
     }
 
@@ -496,7 +496,7 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
         if (access.IsTeacher) q = q.Where(b => b.TeacherId == user.UserId);
         if (access.IsStudent) q = q.Where(b => b.Enrolments.Any(e => e.StudentId == user.UserId && e.Status == EnrolmentStatus.Active));
         return await q.OrderBy(b => b.Name).Select(b => new BatchDto(b.Id, b.Code, b.Name, b.CourseId, b.Course!.Name, b.SubjectId, b.Subject != null ? b.Subject.Name : null,
-            b.TeacherId, b.Teacher!.User!.FullName, b.Capacity, b.Enrolments.Count(e => e.Status == EnrolmentStatus.Active), b.StartDate, b.EndDate, b.Status)).ToListAsync(ct);
+            b.TeacherId, b.Teacher!.User!.FullName, b.Capacity, b.Enrolments.Count(e => e.Status == EnrolmentStatus.Active && e.Student!.Status != Domain.People.PersonStatus.Archived), b.StartDate, b.EndDate, b.Status)).ToListAsync(ct);
     }
 
     public async Task<Guid> SaveBatchAsync(Guid? id, SaveBatchRequest r, CancellationToken ct)
@@ -522,7 +522,7 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
     {
         View();
         if (!await db.Batches.AnyAsync(b => b.Id == batchId && (access.IsAdmin || b.TeacherId == user.UserId), ct)) throw new NotFoundException("Batch");
-        return await db.BatchEnrolments.Where(e => e.BatchId == batchId).OrderBy(e => e.Student!.User!.FullName)
+        return await db.BatchEnrolments.Where(e => e.BatchId == batchId && e.Student!.Status != Domain.People.PersonStatus.Archived).OrderBy(e => e.Student!.User!.FullName)
             .Select(e => new BatchStudentDto(e.Id, e.StudentId, e.Student!.User!.FullName, e.Student.StudentCode, e.Status, e.JoinedAtUtc)).ToListAsync(ct);
     }
 
@@ -567,7 +567,7 @@ public sealed class AcademicsService(IAppDbContext db, ICurrentUser user, Access
         if (access.IsStudent) q = q.Where(a => a.Students.Any(s => s.StudentId == user.UserId && s.Status == EnrolmentStatus.Active));
         return await q.OrderBy(a => a.Title).Select(a => new ArrangementDto(a.Id, a.Type, a.Title, a.TeacherId, a.Teacher!.User!.FullName, a.SubjectId,
             a.Subject != null ? a.Subject.Name : null, a.Status, a.StartDate, a.Notes,
-            a.Students.Where(s => s.Status == EnrolmentStatus.Active).Select(s => new LookupItem(s.StudentId, s.Student!.User!.FullName, null)).ToList())).ToListAsync(ct);
+            a.Students.Where(s => s.Status == EnrolmentStatus.Active && s.Student!.Status != Domain.People.PersonStatus.Archived).Select(s => new LookupItem(s.StudentId, s.Student!.User!.FullName, null)).ToList())).ToListAsync(ct);
     }
 
     /// <summary>Creates or updates a one-to-one or private-group arrangement. Teachers may create their own.</summary>

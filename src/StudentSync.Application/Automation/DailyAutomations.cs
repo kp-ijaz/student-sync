@@ -325,8 +325,8 @@ public sealed class DailyAutomations(IAppDbContext db, ITenantContext tenant, IC
             .ToListAsync(ct);
         var (balances, _) = await fees.BalancesAsync(today, ct);
         var low = balances.Count(b => b.Left <= s.LowHoursAt);
-        var toGrade = await db.Submissions.CountAsync(x => x.Status == SubmissionStatus.Submitted, ct);
-        var doubts = await db.Doubts.CountAsync(d => Doubt.Unresolved.Contains(d.Status), ct);
+        var toGrade = await db.Submissions.CountAsync(x => x.Status == SubmissionStatus.Submitted && x.Student!.Status != Domain.People.PersonStatus.Archived, ct);
+        var doubts = await db.Doubts.CountAsync(d => Doubt.Unresolved.Contains(d.Status) && d.Student!.Status != Domain.People.PersonStatus.Archived, ct);
 
         var lines = new List<string> { classes.Count == 0 ? "No classes today." : $"{classes.Count} class{(classes.Count == 1 ? "" : "es")} today:" };
         lines.AddRange(classes.Take(6).Select(x => $"• {Fmt.Time(ZonedTime.ToLocal(x.StartUtc, c.Tz))} {x.Title}{(x.Teacher is null ? "" : $" — {Fmt.FirstName(x.Teacher)}")}"));
@@ -353,7 +353,7 @@ public sealed class DailyAutomations(IAppDbContext db, ITenantContext tenant, IC
         var salariesPaid = await db.TeacherPayments.Where(p => p.VoidedAtUtc == null && p.PaidOn >= month && p.PaidOn < next).SumAsync(p => (decimal?)p.Amount, ct) ?? 0;
         var sessions = await db.Sessions.Where(x => x.StartUtc >= from && x.StartUtc < to).Select(x => new { x.Status, x.StartUtc, x.EndUtc }).ToListAsync(ct);
         var done = sessions.Where(x => x.Status == SessionStatus.Completed).ToList();
-        var newStudents = await db.Students.CountAsync(x => x.JoinedOn >= month && x.JoinedOn < next, ct);
+        var newStudents = await db.Students.CountAsync(x => x.JoinedOn >= month && x.JoinedOn < next && x.Status != Domain.People.PersonStatus.Archived, ct);
         var (balances, _) = await fees.BalancesAsync(today, ct);
         var owed = (await salaries.MonthAsync(month, ct)).Sum(r => r.DueNow);
 
@@ -378,7 +378,7 @@ public sealed class DailyAutomations(IAppDbContext db, ITenantContext tenant, IC
     private IQueryable<LearningSession> Unmarked(DateTime endedAfter, DateTime endedBefore) =>
         db.Sessions.Where(x => (x.Status == SessionStatus.Scheduled || x.Status == SessionStatus.Live)
                                && x.EndUtc >= endedAfter && x.EndUtc <= endedBefore
-                               && x.Participants.Any(p => p.Status == ParticipantStatus.Active)
+                               && x.Participants.Any(p => p.Status == ParticipantStatus.Active && p.Student!.Status != Domain.People.PersonStatus.Archived) // not a deleted student's class
                                && !db.Attendance.Any(a => a.SessionId == x.Id));
 
     /// <summary>Does <paramref name="work"/> once per task and period. The run row is saved with the work's own changes, so

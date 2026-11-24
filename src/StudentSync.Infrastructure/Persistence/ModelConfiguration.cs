@@ -311,7 +311,7 @@ internal static class ModelConfiguration
             e.Property(x => x.VoidReason).HasMaxLength(300);
             e.ToTable(t => t.HasCheckConstraint("CK_FeePayments_Amount", "\"Amount\" > 0"));
         });
-        // ---------- Teacher pay (rate per hour from a date; salary payments, voided never edited) ----------
+        // ---------- Teacher pay (rate per hour from a date; salary payments: corrected by an admin, or voided and kept) ----------
         b.Entity<TeacherPayRate>(e =>
         {
             e.HasIndex(x => new { x.TeacherId, x.EffectiveFrom }).IsUnique();

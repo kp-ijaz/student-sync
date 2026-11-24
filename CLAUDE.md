@@ -91,6 +91,15 @@ First verify compatibility with the existing repository and the master specifica
   change the rule that students never self-register.
 - **Student status "On hold" (owner decision 2026-11-24):** a paused student keeps their sign-in and stays on the fee
   lists, but cannot be booked into new classes until set Active again.
+- **Deleted students and teachers (owner decision 2026-11-24):** deleting someone with records sets them to "Deleted"
+  (`PersonStatus.Archived`). A deleted person is off **every** working screen and figure — lists, pickers, calendar and
+  class lists, attendance registers, fees due, salaries, dashboards, reports, doubts, assignments, exams, subjects,
+  messages, reminders and SMS — and is kept in **one place only**: Students ▸ Deleted / Teachers ▸ Deleted (admin only),
+  where the full record opens, open money is settled and the person can be restored. Money already received or paid
+  stays in Finance (it was real cash). Any new query that lists or counts people must exclude `Archived`; covered by
+  `DeletedPeopleTests`. Deleting is done with Delete only (the edit form cannot set Deleted).
+- **Payments can be corrected (owner decision 2026-11-24):** an admin can edit or remove any fee or salary payment;
+  edits are audited before → after, removal keeps the entry on record with a reason. This replaces "never edited".
 - The institute sells **prepaid learning-hour packages** usable across subjects (see addendum section A).
 - **Student accounts are admin-created only** (owner decision 2026-11-04, replaces the earlier self-registration
   decision). There is no student self-registration, public registration page, or student account approval queue.

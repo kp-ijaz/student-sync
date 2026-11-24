@@ -157,7 +157,7 @@ public sealed class MaintenanceJobs(TenantJobRunner runner)
         var now = sp.GetRequiredService<IClock>().UtcNow;
         var weekAgo = now.AddDays(-7);
         var week = $"{ISOWeek.GetYear(now)}-W{ISOWeek.GetWeekOfYear(now):00}";
-        var links = await db.ParentLinks.Where(l => l.IsVerified).Select(l => new { l.ParentId, l.StudentId, Name = l.Student!.User!.FullName }).ToListAsync(c);
+        var links = await db.ParentLinks.Where(l => l.IsVerified && l.Student!.Status != Domain.People.PersonStatus.Archived).Select(l => new { l.ParentId, l.StudentId, Name = l.Student!.User!.FullName }).ToListAsync(c);
         foreach (var link in links)
         {
             var att = await db.Attendance.Where(a => a.StudentId == link.StudentId && a.Session!.StartUtc >= weekAgo).GroupBy(a => a.Status).Select(g => new { g.Key, Count = g.Count() }).ToListAsync(c);

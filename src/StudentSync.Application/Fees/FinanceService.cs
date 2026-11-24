@@ -141,7 +141,7 @@ public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPo
                 inc = inc.Where(p => db.Students.Any(s => s.Id == p.StudentId && (s.User!.FullName.ToLower().Contains(term) || s.StudentCode.ToLower().Contains(term)))
                     || (p.Reference != null && p.Reference.ToLower().Contains(term))
                     || db.StudentPackages.Any(k => k.Id == p.PackageId && k.Name.ToLower().Contains(term)));
-            rows.AddRange(await inc.OrderByDescending(p => p.PaidOn).Take(MaxRowsPerKind)
+            rows.AddRange(await inc.OrderByDescending(p => p.PaidOn).ThenByDescending(p => p.Id).Take(MaxRowsPerKind)
                 .Select(p => new FinanceEntryDto(p.PaidOn, FinanceEntryKind.Income,
                     db.Students.Where(s => s.Id == p.StudentId).Select(s => s.User!.FullName).FirstOrDefault() ?? "Student",
                     db.StudentPackages.Where(k => k.Id == p.PackageId).Select(k => k.Name).FirstOrDefault(), p.Amount, p.StudentId, null,
@@ -151,7 +151,7 @@ public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPo
             if (term is not null)
                 sal = sal.Where(p => db.Teachers.Any(t => t.Id == p.TeacherId && t.User!.FullName.ToLower().Contains(term))
                     || (p.Note != null && p.Note.ToLower().Contains(term)) || (p.Reference != null && p.Reference.ToLower().Contains(term)));
-            rows.AddRange(await sal.OrderByDescending(p => p.PaidOn).Take(MaxRowsPerKind)
+            rows.AddRange(await sal.OrderByDescending(p => p.PaidOn).ThenByDescending(p => p.Id).Take(MaxRowsPerKind)
                 .Select(p => new FinanceEntryDto(p.PaidOn, FinanceEntryKind.Salary,
                     db.Teachers.Where(t => t.Id == p.TeacherId).Select(t => t.User!.FullName).FirstOrDefault() ?? "Teacher",
                     p.Note, p.Amount, p.TeacherId, null, p.Id, p.Method, p.Reference, null)).ToListAsync(ct));
@@ -162,7 +162,7 @@ public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPo
         if (term is not null)
             exp = exp.Where(e => e.Description.ToLower().Contains(term) || (e.PaidTo != null && e.PaidTo.ToLower().Contains(term))
                 || (e.Reference != null && e.Reference.ToLower().Contains(term)));
-        var expenses = await exp.OrderByDescending(e => e.SpentOn).Take(MaxRowsPerKind)
+        var expenses = await exp.OrderByDescending(e => e.SpentOn).ThenByDescending(e => e.Id).Take(MaxRowsPerKind)
             .Select(e => new { e.Id, e.SpentOn, e.Category, e.Description, e.PaidTo, e.Amount, e.Method, e.Reference }).ToListAsync(ct);
         rows.AddRange(expenses.Select(e => new FinanceEntryDto(e.SpentOn, FinanceEntryKind.Expense, e.Description,
             FinanceLabels.Category(e.Category) + (e.PaidTo is { } paidTo ? $" · {paidTo}" : ""), e.Amount, null, e.Id, e.Id, e.Method, e.Reference, e.Category)));
@@ -171,10 +171,11 @@ public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPo
         IEnumerable<FinanceEntryDto> shown = q.Kind is { } kind ? rows.Where(r => r.Kind == kind) : rows;
         shown = (q.Sort ?? FinanceSort.Newest) switch
         {
-            FinanceSort.Oldest => shown.OrderBy(r => r.Date).ThenBy(r => r.Kind),
+            FinanceSort.Oldest => shown.OrderBy(r => r.Date).ThenBy(r => r.RecordId),
             FinanceSort.Largest => shown.OrderByDescending(r => r.Amount).ThenByDescending(r => r.Date),
             FinanceSort.Smallest => shown.OrderBy(r => r.Amount).ThenByDescending(r => r.Date),
-            _ => shown.OrderByDescending(r => r.Date).ThenBy(r => r.Kind),
+            // Same day: the entry recorded last comes first (ids are time-ordered), so a line just added is at the top.
+            _ => shown.OrderByDescending(r => r.Date).ThenByDescending(r => r.RecordId),
         };
         return (shown.ToList(), kinds);
     }
@@ -182,8 +183,9 @@ public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPo
     // ---------------- Balances of people who left ----------------
 
     /// <summary>
-    /// Students who are no longer active but still owe fees, and teachers who are no longer active with salary still owed
-    /// to them (or paid in advance). Shown apart from the current lists so these amounts are never forgotten.
+    /// Deleted students who still owe fees, and deleted teachers with salary still owed to them (or paid in advance).
+    /// Owner decision 2026-11-24: deleted people are off every working list; this is shown with their records only
+    /// (Students ▸ Deleted, Teachers ▸ Deleted) so the amounts are never forgotten.
     /// </summary>
     public async Task<FormerBalancesDto> FormerAsync(CancellationToken ct)
     {
@@ -191,15 +193,15 @@ public sealed class FinanceService(IAppDbContext db, ICurrentUser user, AccessPo
         var (currency, tz) = await centre.GetAsync(ct);
         var today = DateOnly.FromDateTime(ZonedTime.ToLocal(clock.UtcNow, tz));
 
-        var (balances, _) = await fees.BalancesAsync(today, includeInactive: true, ct);
-        var owing = balances.Where(b => !b.Active && b.Due > 0).ToList();
+        var (balances, _) = await fees.BalancesAsync(today, FeeService.StudentScope.Deleted, ct);
+        var owing = balances.Where(b => b.Due > 0).ToList();
         var ids = owing.Select(b => b.StudentId).ToList();
         var people = await db.Students.Where(s => ids.Contains(s.Id)).Select(s => new { s.Id, s.User!.FullName, s.StudentCode, s.Status }).ToDictionaryAsync(s => s.Id, ct);
         var students = owing.Where(b => people.ContainsKey(b.StudentId))
             .Select(b => { var p = people[b.StudentId]; return new FormerStudentBalanceDto(b.StudentId, p.FullName, p.StudentCode, p.Status, b.Due, b.DueOn, b.OverdueDays); })
             .OrderByDescending(x => x.DaysOverdue).ThenByDescending(x => x.Due).ToList();
 
-        var former = await db.Teachers.Where(t => t.Status != PersonStatus.Active).Select(t => new { t.Id, t.User!.FullName, t.Status }).ToListAsync(ct);
+        var former = await db.Teachers.Where(t => t.Status == PersonStatus.Archived).Select(t => new { t.Id, t.User!.FullName, t.Status }).ToListAsync(ct);
         var tids = former.Select(t => t.Id).ToList();
         var rates = (await db.TeacherPayRates.Where(r => tids.Contains(r.TeacherId)).Select(r => new { r.TeacherId, r.EffectiveFrom, r.HourlyRate }).ToListAsync(ct))
             .GroupBy(r => r.TeacherId).ToDictionary(g => g.Key, g => (IReadOnlyList<TeacherPayRules.Rate>)g.Select(r => new TeacherPayRules.Rate(r.EffectiveFrom, r.HourlyRate)).ToList());

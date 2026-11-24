@@ -224,6 +224,30 @@ public sealed class AutomationTests(ApiFixture api)
         Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostRaw("institution/holiday-classes", new HolidayClassesRequest(day, "delete"))).StatusCode);
     }
 
+    /// <summary>Owner decision 2026-11-24: nothing keeps acting for a deleted student, including a payment link already sent.</summary>
+    [Fact]
+    public async Task Deleting_a_student_closes_their_open_payment_link_and_no_new_link_can_be_made()
+    {
+        var stub = new Gateway();
+        await using var factory = Stubbed(stub);
+        var admin = await Login(factory, Accounts.OtherAdmin);
+        await admin.Put("institution/connections/payments", new SavePaymentIntegrationRequest(true, PaymentProvider.Razorpay, "rzp_test_demo", "rzp-secret", "hook-secret"));
+        var student = await NewStudentAsync(admin, null, null);
+        var package = (await admin.Post<IdResponse>($"students/{student}/packages", new SavePackageRequest(10, 1000))).Id;
+        await admin.Post<PaymentLinkDto>($"students/{student}/packages/{package}/payment-link", null);
+
+        var removed = await (await admin.DeleteRaw($"students/{student}")).Content.ReadFromJsonAsync<RemovePersonResponse>(ApiFixture.Json);
+        Assert.False(removed!.Deleted); // has a package: kept under Students ▸ Deleted
+        Assert.Contains(stub.Requests, r => r.Uri.AbsolutePath == $"/v1/payment_links/{stub.LinkId(1)}/cancel");
+        var again = await admin.PostRaw($"students/{student}/packages/{package}/payment-link", null);
+        Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
+        Assert.Contains("person_deleted", await again.Content.ReadAsStringAsync());
+
+        // Restored: a link can be made again.
+        await admin.Post($"students/{student}/restore", null);
+        Assert.Equal(1000m, (await admin.Post<PaymentLinkDto>($"students/{student}/packages/{package}/payment-link", null)).Amount);
+    }
+
     [Fact]
     public async Task A_payment_by_hand_closes_the_old_link_and_a_late_online_payment_is_kept_and_flagged()
     {

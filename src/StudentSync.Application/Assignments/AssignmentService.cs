@@ -42,11 +42,11 @@ public sealed class AssignmentService(
     }
 
     public IQueryable<AssignmentListItemDto> Project(IQueryable<Assignment> q, Guid? studentId) => q.Select(a => new AssignmentListItemDto(
-        a.Id, a.Title, a.Status, a.DueAtUtc, a.MaxMarks, a.Teacher!.User!.FullName,
+        a.Id, a.Title, a.Status, a.DueAtUtc, a.MaxMarks, a.Teacher!.Status == Domain.People.PersonStatus.Archived ? DeletedPeople.TeacherName : a.Teacher.User!.FullName,
         db.Sessions.Where(s => s.Id == a.SessionId).Select(s => s.Title).FirstOrDefault(),
-        a.Recipients.Count,
-        db.Submissions.Count(s => s.AssignmentId == a.Id && s.Status != SubmissionStatus.Draft),
-        db.Submissions.Count(s => s.AssignmentId == a.Id && s.Status == SubmissionStatus.Graded),
+        a.Recipients.Count(r => r.Student!.Status != Domain.People.PersonStatus.Archived), // deleted students are not counted or listed
+        db.Submissions.Count(s => s.AssignmentId == a.Id && s.Status != SubmissionStatus.Draft && s.Student!.Status != Domain.People.PersonStatus.Archived),
+        db.Submissions.Count(s => s.AssignmentId == a.Id && s.Status == SubmissionStatus.Graded && s.Student!.Status != Domain.People.PersonStatus.Archived),
         studentId == null ? null : db.Submissions.Where(s => s.AssignmentId == a.Id && s.StudentId == studentId).Select(s => (SubmissionStatus?)s.Status).FirstOrDefault(),
         studentId == null ? null : db.Submissions.Where(s => s.AssignmentId == a.Id && s.StudentId == studentId && s.Status == SubmissionStatus.Graded).Select(s => s.Marks).FirstOrDefault()));
 
@@ -56,11 +56,11 @@ public sealed class AssignmentService(
         var attachments = await db.AssignmentAttachments.Where(x => x.AssignmentId == id).Join(db.Files, x => x.FileId, f => f.Id, (x, f) => new FileDto(f.Id, f.FileName, f.ContentType, f.SizeBytes)).ToListAsync(ct);
         var canManage = access.IsAdmin || a.TeacherId == user.UserId;
         var recipients = canManage
-            ? await db.AssignmentRecipients.Where(r => r.AssignmentId == id).Select(r => new LookupItem(r.StudentId, r.Student!.User!.FullName, null)).ToListAsync(ct)
+            ? await db.AssignmentRecipients.Where(r => r.AssignmentId == id && r.Student!.Status != Domain.People.PersonStatus.Archived).Select(r => new LookupItem(r.StudentId, r.Student!.User!.FullName, null)).ToListAsync(ct)
             : [];
         var sessionTitle = a.SessionId is null ? null : await db.Sessions.Where(s => s.Id == a.SessionId).Select(s => s.Title).FirstOrDefaultAsync(ct);
         return new AssignmentDetailDto(a.Id, a.Title, a.InstructionsMarkdown, a.Status, a.DueAtUtc, a.MaxMarks, a.AllowLateSubmission, a.AllowResubmission,
-            a.TeacherId, a.Teacher!.User!.FullName, a.SessionId, sessionTitle, a.BatchId, a.SubjectId, attachments, recipients, canManage, RowVersions.Encode(a.RowVersion));
+            a.TeacherId, a.Teacher!.Status == Domain.People.PersonStatus.Archived ? DeletedPeople.TeacherName : a.Teacher.User!.FullName, a.SessionId, sessionTitle, a.BatchId, a.SubjectId, attachments, recipients, canManage, RowVersions.Encode(a.RowVersion));
     }
 
     /// <summary>Resolves recipients: explicit students, else the linked session's participants, else the batch roster.</summary>
@@ -206,7 +206,7 @@ public sealed class AssignmentService(
     public async Task<IReadOnlyList<SubmissionDto>> SubmissionsAsync(Guid assignmentId, CancellationToken ct)
     {
         var a = await GetManageableAsync(assignmentId, ct);
-        return await ProjectSubmissions(db.Submissions.Where(s => s.AssignmentId == a.Id && s.Status != SubmissionStatus.Draft).OrderBy(s => s.SubmittedAtUtc)).ToListAsync(ct);
+        return await ProjectSubmissions(db.Submissions.Where(s => s.AssignmentId == a.Id && s.Status != SubmissionStatus.Draft && s.Student!.Status != Domain.People.PersonStatus.Archived).OrderBy(s => s.SubmittedAtUtc)).ToListAsync(ct);
     }
 
     /// <summary>The current student's own submission (or a parent's view of a child's).</summary>

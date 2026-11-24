@@ -1,6 +1,6 @@
 @inherits AppComponent
 @* Teacher pay (owner decision 2026-11-16): rate per hour from a date; earned = completed classes × the rate on each
-   class's day; payments are recorded, never edited, and removed with a reason. Admins manage; a teacher sees their own. *@
+   class's day; an admin can correct a payment or remove it with a reason (PaymentEditor). Admins manage; a teacher sees their own. *@
 <section class="card fee-panel" id="pay" aria-labelledby="pay-h">
     <div class="card-head">
         <div><h2 id="pay-h">Salary</h2><div class="caption">Rate per hour × hours of completed classes (a class the student missed still counts).</div></div>
@@ -49,7 +49,11 @@
                                 @if (x.Voided) { <div class="caption">Removed: @x.VoidReason</div> }
                             </div>
                             <a class="icon-btn" href="/salary-slips/@TeacherId/@x.Id" title="Salary slip" aria-label="@($"Salary slip for {Money.Format(x.Amount, p.CurrencyCode)} on {x.PaidOn:d MMM}")"><Icon Name="file" /></a>
-                            @if (CanManage && !x.Voided) { <button type="button" class="icon-btn" title="Remove" aria-label="@($"Remove the payment of {Money.Format(x.Amount, p.CurrencyCode)} on {x.PaidOn:d MMM}")" @onclick="() => AskVoid(x)"><Icon Name="x" /></button> }
+                            @if (CanManage && !x.Voided)
+                            {
+                                <button type="button" class="icon-btn" title="Edit" aria-label="@($"Edit the payment of {Money.Format(x.Amount, p.CurrencyCode)} on {x.PaidOn:d MMM}")" @onclick="() => _editor?.EditSalary(TeacherId, x.Id)"><Icon Name="pencil" /></button>
+                                <button type="button" class="icon-btn" title="Delete" aria-label="@($"Remove the payment of {Money.Format(x.Amount, p.CurrencyCode)} on {x.PaidOn:d MMM}")" @onclick="@(() => _editor?.RemoveSalary(TeacherId, x.Id, $"{Money.Format(x.Amount, p.CurrencyCode)} paid on {x.PaidOn:d MMM yyyy}"))"><Icon Name="trash" /></button>
+                            }
                         </li>
                     }
                 </ul>
@@ -68,22 +72,17 @@
 
 <SalaryPaymentDialog Me="Me" @bind-Open="_payOpen" TeacherId="TeacherId" OnSaved="_ => Load()" />
 
-<Modal @bind-Open="_voidOpen" Title="Remove payment">
-    <p>The payment stays on record, crossed out, with your reason. It no longer counts as paid.</p>
-    <div class="field"><label for="vr">Reason *</label><input id="vr" class="input" @bind="_voidReason" /></div>
-    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _voidOpen = false">Keep it</button><button class="btn btn-danger" @onclick="Void" disabled="@(Busy || string.IsNullOrWhiteSpace(_voidReason))">Remove payment</button></div>
-</Modal>
+@if (CanManage) { <PaymentEditor @ref="_editor" Me="Me" OnChanged="Load" /> }
 
 @code {
     [Parameter, EditorRequired] public Guid TeacherId { get; set; }
     [Parameter] public bool CanManage { get; set; }
     private TeacherPayDto? _p;
     private ApiException? _error;
-    private bool _rateOpen, _payOpen, _voidOpen;
+    private bool _rateOpen, _payOpen;
+    private PaymentEditor? _editor;
     private decimal? _rate;
     private DateOnly? _rateFrom;
-    private string? _voidReason;
-    private TeacherPaymentDto? _voiding;
     private string Currency => _p?.CurrencyCode ?? "";
 
     protected override Task OnInitializedAsync() => Load();
@@ -94,8 +93,6 @@
     // The shared salary dialog (also on Fees ▸ Salaries and Finance) fills in what is still owed.
     private void NewPayment() => _payOpen = true;
 
-    private void AskVoid(TeacherPaymentDto x) => (_voiding, _voidReason, _voidOpen) = (x, null, true);
-
     private async Task SaveRate()
     {
         if (await Run(() => Api.PutAsync($"teachers/{TeacherId}/pay/rate", new SetTeacherRateRequest(_rate ?? 0, _rateFrom)), "Rate saved.")) { _rateOpen = false; await Load(); }
@@ -104,11 +101,5 @@
     private async Task RemoveRate(TeacherPayRateDto r)
     {
         if (await Run(() => Api.DeleteAsync($"teachers/{TeacherId}/pay/rates/{r.Id}"), $"Rate from {r.EffectiveFrom:d MMM yyyy} removed.")) await Load();
-    }
-
-    private async Task Void()
-    {
-        if (_voiding is { } v && await Run(() => Api.PostAsync($"teachers/{TeacherId}/pay/payments/{v.Id}/void", new VoidTeacherPaymentRequest(_voidReason ?? "")), "Payment removed."))
-        { _voidOpen = false; await Load(); }
     }
 }

@@ -80,7 +80,8 @@ public sealed class ProgressReportService(IAppDbContext db, ITenantContext tenan
     public async Task<List<ProgressReportDto>> ListAsync(string? status, CancellationToken ct)
     {
         if (!access.IsAdmin && !access.IsTeacher) throw new ForbiddenException();
-        var q = db.ProgressReports.AsQueryable();
+        // Reports for a deleted student are off the list.
+        var q = db.ProgressReports.Where(r => !db.Students.Any(s => s.Id == r.StudentId && s.Status == PersonStatus.Archived));
         if (!access.IsAdmin) q = q.Where(r => r.TeacherId == user.UserId);
         if (Enum.TryParse<ProgressReportStatus>(status, true, out var st)) q = q.Where(r => r.Status == st);
         return await q.OrderByDescending(r => r.Month).ThenBy(r => r.Status).Take(200)

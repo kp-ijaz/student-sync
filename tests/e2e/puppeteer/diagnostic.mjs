@@ -21,10 +21,21 @@ async function step(name, vp, fn) {
   } finally { await page.close(); }
 }
 async function clickText(page, selector, text) {
-  const handle = await page.evaluateHandle((sel, t) => [...document.querySelectorAll(sel)].find((el) => el.textContent.trim().includes(t)) ?? null, selector, text);
+  // The first match that is actually on screen: lists are rendered twice (phone list and desktop table), one hidden.
+  const handle = await page.evaluateHandle((sel, t) => [...document.querySelectorAll(sel)].find((el) => el.textContent.trim().includes(t) && el.getClientRects().length > 0) ?? null, selector, text);
   const el = handle.asElement();
   if (!el) throw new Error(`No ${selector} containing "${text}"`);
   await el.click();
+}
+// The centre's own Class 10 (CBSE) Mathematics: the default catalogue also has Class 10 Mathematics for ICSE, Kerala
+// and NCERT, which have no demo questions, so "starts with Mathematics (Class 10" is no longer one subject.
+async function selectMaths(page, id) {
+  const ok = await page.evaluate((i) => {
+    const s = document.getElementById(i); if (!s) return false;
+    const o = [...s.options].find((x) => /Mathematics/.test(x.textContent) && /Class 10 \(CBSE\)/.test(x.textContent)); if (!o) return false;
+    s.value = o.value; s.dispatchEvent(new Event("change", { bubbles: true })); return true;
+  }, id);
+  if (!ok) throw new Error(`No Class 10 (CBSE) Mathematics in #${id}`);
 }
 async function select(page, id, optionText) {
   const ok = await page.evaluate((i, ot) => {
@@ -80,9 +91,9 @@ try {
     if (purpose !== "Diagnostic") throw new Error(`Purpose not prefilled: ${purpose}`);
     await page.evaluate((v) => { const i = document.getElementById("et"); i.value = v; i.dispatchEvent(new Event("change", { bubbles: true })); }, `Puppeteer diagnostic ${stamp} (demo)`);
     await settle(page);
-    await select(page, "es", "Mathematics (Class 10");
+    await selectMaths(page, "es");
     await select(page, "etc", "Amira");
-    await select(page, "ebs", "Mathematics (Class 10");
+    await selectMaths(page, "ebs");
     await page.waitForSelector(".list input[type=checkbox]", { timeout: 15_000 });
     // Pick the first two bank questions.
     await page.evaluate(() => { const boxes = [...document.querySelectorAll(".list input[type=checkbox]")].slice(0, 2); for (const b of boxes) b.click(); });

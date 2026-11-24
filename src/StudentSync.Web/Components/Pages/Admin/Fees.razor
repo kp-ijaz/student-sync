@@ -33,7 +33,7 @@
             </PillTabs>
             @if (d.TotalItems > d.Items.Count) { <p class="caption" style="margin-top:12px">Showing the @d.Items.Count most urgent of @d.TotalItems students.</p> }
         </section>
-        @if (Me is not null) { <FormerBalances Me="Me" /> }
+        @if (Me is not null) { <FormerBalances Me="Me" Show="summary" /> }
     }
 </DataView>
 
@@ -53,8 +53,8 @@
         _ => true,
     };
 
-    // People who left are listed apart, in "People who left" below (owner request 2026-11-24).
-    private List<FeeDueItemDto> Shown => (_d?.Items ?? []).Where(i => i.Status is PersonStatus.Active or PersonStatus.OnHold && Matches(i, _filter)).ToList();
+    // The API never returns deleted students here; they are kept under Students ▸ Deleted only.
+    private List<FeeDueItemDto> Shown => (_d?.Items ?? []).Where(i => Matches(i, _filter)).ToList();
 
     private static string Plural(int n, string word) => n == 1 ? $"1 {word}" : $"{n} {word}s";
 

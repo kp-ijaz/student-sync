@@ -36,6 +36,8 @@ public sealed class PaymentLinkService(IAppDbContext db, ITenantContext tenant, 
                 .ToListAsync(ct))
             .Where(p => p.Price > p.Paid).Select(p => new FeeService.OpenPackage(p.Id, p.StudentId, p.Name, p.Price, p.Paid, p.CurrencyCode, p.Due)).FirstOrDefault()
             ?? throw new ConflictException("Nothing is owed on this package.", "nothing_due");
+        if (await db.Students.AnyAsync(s => s.Id == studentId && s.Status == Domain.People.PersonStatus.Archived, ct))
+            throw new ConflictException("This student was deleted. Restore them to send a payment link, or record the payment by hand.", "person_deleted");
         if (await integrations.ActivePaymentsAsync(ct) is null)
             throw new ConflictException("Online payments are not switched on. Connect Razorpay or Stripe in Settings ▸ Integrations.", "payments_off");
         var link = await EnsureLinkEntityAsync(package, ct) ?? throw new ConflictException("The payment gateway did not create the link. Please try again in a minute.", "gateway_failed");
@@ -66,6 +68,24 @@ public sealed class PaymentLinkService(IAppDbContext db, ITenantContext tenant, 
     /// are closed at the gateway. A link that cannot be closed stays Open, so the 15-minute check still records (and
     /// flags) any payment made on it.
     /// </summary>
+    /// <summary>
+    /// A deleted student's open payment links stop being payable: each is closed at the gateway; when no gateway is
+    /// connected any more the link cannot be paid anyway and is marked cancelled here. A link the gateway refuses to
+    /// close stays open and keeps being checked, so a payment that still arrives is never lost.
+    /// </summary>
+    public async Task CloseForStudentAsync(Guid studentId, CancellationToken ct)
+    {
+        var packages = await db.PaymentLinks.Where(l => l.StudentId == studentId && l.Status == PaymentLinkStatus.Open).Select(l => l.PackageId).Distinct().ToListAsync(ct);
+        if (packages.Count == 0) return;
+        if (await integrations.ActivePaymentsAsync(ct) is null)
+        {
+            await db.PaymentLinks.Where(l => l.StudentId == studentId && l.Status == PaymentLinkStatus.Open)
+                .ExecuteUpdateAsync(u => u.SetProperty(l => l.Status, PaymentLinkStatus.Cancelled), ct);
+            return;
+        }
+        foreach (var packageId in packages) await CloseOpenLinksAsync(packageId, ct);
+    }
+
     public async Task CloseOpenLinksAsync(Guid packageId, CancellationToken ct)
     {
         var open = await db.PaymentLinks.Where(l => l.PackageId == packageId && l.Status == PaymentLinkStatus.Open).ToListAsync(ct);

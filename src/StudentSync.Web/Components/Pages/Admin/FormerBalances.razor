@@ -1,27 +1,51 @@
 @inherits AppComponent
-@* Owner request 2026-11-24: money still open with people who were deleted (archived) or made inactive, kept apart from
-   the current fee and salary lists so it is never forgotten. Students: fees they still owe. Teachers: salary still owed
-   to them, or paid in advance (they owe the centre). Each row opens the person's page to settle it. *@
+@* Money still open with deleted people (owner decisions 2026-11-24). Deleted students and teachers are off every
+   working screen; what they still owe (or are owed) is listed only with their records: Show="students" on
+   Students ▸ Deleted and Show="teachers" on Teachers ▸ Deleted. Fees and Finance use Show="summary": one line with a
+   link, and nothing at all when everything is settled. *@
+@if (Show == "summary")
+{
+    @* Fees and Finance: one line, only when something is open, pointing to the one place deleted people are kept. *@
+    @if (_d is { } sum && (sum.Students.Count > 0 || sum.Teachers.Count > 0))
+    {
+        <p class="former-note" role="note">
+            <Icon Name="alert" />
+            <span>Money still open with deleted people (not in the figures above):
+                @if (sum.Students.Count > 0) { <a href="/admin/students?status=Archived">@Money.Format(sum.StudentsOwe, sum.CurrencyCode) owed by @sum.Students.Count deleted student@(sum.Students.Count == 1 ? "" : "s")</a> }
+                @if (sum.Students.Count > 0 && sum.Teachers.Count > 0) { <text> · </text> }
+                @if (sum.Teachers.Count > 0) { <a href="/admin/teachers?status=Archived">@sum.Teachers.Count deleted teacher@(sum.Teachers.Count == 1 ? "" : "s") with salary open</a> }
+            </span>
+        </p>
+    }
+}
+else
+{
 <section class="card former-balances" aria-labelledby="former-h">
     <div class="card-head">
-        <div><h2 id="former-h">People who left</h2>
-            <div class="caption">Deleted or inactive students and teachers with money still open. Settle it on their page.</div></div>
+        <div><h2 id="former-h">Money still open</h2>
+            <div class="caption">@(Show == "teachers" ? "Deleted teachers with salary still to pay, or paid in advance." : "Deleted students who still owe fees.") Settle it on their record.</div></div>
     </div>
     <DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync" Compact="true">
         @if (_d is { } d)
         {
-            @if (d.Students.Count == 0 && d.Teachers.Count == 0)
+            @if ((Show == "teachers" ? d.Teachers.Count : d.Students.Count) == 0)
             {
-                <InlineEmpty Icon="check-circle" Text="Nothing open: everyone who left is settled." />
+                <InlineEmpty Icon="check-circle" Text="Nothing open: everyone here is settled." />
             }
             else
             {
                 <dl class="former-totals">
-                    <div><dt>Students owe</dt><dd class="@(d.StudentsOwe > 0 ? "due" : "")">@Money.Format(d.StudentsOwe, d.CurrencyCode)</dd></div>
-                    <div><dt>Owed to teachers</dt><dd class="@(d.OwedToTeachers > 0 ? "due" : "")">@Money.Format(d.OwedToTeachers, d.CurrencyCode)</dd></div>
-                    <div><dt>Teachers owe (paid in advance)</dt><dd>@Money.Format(d.TeachersOwe, d.CurrencyCode)</dd></div>
+                    @if (Show == "teachers")
+                    {
+                        <div><dt>Owed to teachers</dt><dd class="@(d.OwedToTeachers > 0 ? "due" : "")">@Money.Format(d.OwedToTeachers, d.CurrencyCode)</dd></div>
+                        <div><dt>Teachers owe (paid in advance)</dt><dd>@Money.Format(d.TeachersOwe, d.CurrencyCode)</dd></div>
+                    }
+                    else
+                    {
+                        <div><dt>Students owe</dt><dd class="@(d.StudentsOwe > 0 ? "due" : "")">@Money.Format(d.StudentsOwe, d.CurrencyCode)</dd></div>
+                    }
                 </dl>
-                @if (d.Students.Count > 0)
+                @if (Show != "teachers" && d.Students.Count > 0)
                 {
                     <h3 class="former-h3">Students who still owe fees</h3>
                     <ul class="fee-list">
@@ -37,7 +61,7 @@
                         }
                     </ul>
                 }
-                @if (d.Teachers.Count > 0)
+                @if (Show == "teachers" && d.Teachers.Count > 0)
                 {
                     <h3 class="former-h3">Teachers with salary open</h3>
                     <ul class="fee-list">
@@ -57,8 +81,11 @@
         }
     </DataView>
 </section>
+}
 
 @code {
+    /// <summary>"students", "teachers" or "summary".</summary>
+    [Parameter] public string Show { get; set; } = "students";
     private FormerBalancesDto? _d;
     private ApiException? _error;
 

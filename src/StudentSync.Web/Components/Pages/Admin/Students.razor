@@ -4,24 +4,40 @@
 @inherits AppPage
 
 @* One students page for admins and teachers (owner request 2026-11-13: the same screen everywhere). The API returns
-   only the students a teacher teaches; editing and admitting are admin-only. *@
+   only the students a teacher teaches; editing and admitting are admin-only. Admins also have the "Deleted" view: the
+   one place a deleted student's record is kept, with what they still owe and a Restore button. *@
 <PageHeader Title="Students" Subtitle="@(IsAdmin ? "Find a student, plan their classes, and follow their progress." : "The students you teach. Open one to see their profile, results and classes.")">
     <Actions>@if (IsAdmin) { <a class="btn btn-primary" href="/admin/students/new"><Icon Name="plus" /> Admit student</a> }</Actions>
 </PageHeader>
 <div class="card">
     <div class="list-tools">
         <input class="input" type="search" placeholder="Search name, email or code" aria-label="Search students" @bind="_search" @bind:after="() => Load(1)" />
-        <select class="select" @bind="_status" @bind:after="() => Load(1)" aria-label="Status"><option value="">Current (not archived)</option>@foreach (var s in Enum.GetValues<PersonStatus>()) { <option value="@s">@StatusStyles.For(s).Label</option> }</select>
+        <select class="select" @bind="_status" @bind:after="() => Load(1)" aria-label="Show">
+            <option value="">Current students</option>
+            @foreach (var s in Enum.GetValues<PersonStatus>().Where(x => x != PersonStatus.Archived)) { <option value="@s">@StatusStyles.For(s).Label</option> }
+            @if (IsAdmin) { <option value="@PersonStatus.Archived">Deleted</option> }
+        </select>
     </div>
-    <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0" EmptyTitle="No students found" EmptyText="Try a different name or status. Add a student to start their learning journey." EmptyIcon="users">
+    @if (Deleted)
+    {
+        <p class="deleted-note" role="note"><Icon Name="trash" /> <span>Deleted students are kept here only. They cannot sign in and are not on any class, fee, exam or report screen. Open one to see their full record, or restore them.</span></p>
+    }
+    <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0" EmptyTitle="@(Deleted ? "No deleted students" : "No students found")" EmptyText="@(Deleted ? "Students you delete are kept here with their full record." : "Try a different name or status. Add a student to start their learning journey.")" EmptyIcon="users">
         @* Phones: a compact list (the row opens the profile); larger screens: the table. *@
         <ul class="plist" aria-label="Students">@foreach (var s in _page?.Items ?? [])
         {
             <PersonRow Name="@s.FullName" PhotoUrl="@s.PhotoUrl" Href="@($"/students/{s.Id}")" Meta="@Facts(s)">
                 <Status>@if (s.Status != PersonStatus.Active) { <Badge Style="StatusStyles.For(s.Status)" /> }</Status>
                 <Actions>
-                    @if (IsAdmin) { <button type="button" class="icon-btn" aria-label="@($"Edit {s.FullName}")" title="Edit" @onclick="() => Edit(s)"><Icon Name="pencil" /></button> }
-                    <a class="icon-btn" href="/sessions/new?studentId=@s.Id" aria-label="@($"Add classes for {s.FullName}")" title="Add classes"><Icon Name="calendar-plus" /></a>
+                    @if (s.Status == PersonStatus.Archived)
+                    {
+                        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => Restore(s)" disabled="@Busy">Restore<span class="sr-only"> @s.FullName</span></button>
+                    }
+                    else
+                    {
+                        @if (IsAdmin) { <button type="button" class="icon-btn" aria-label="@($"Edit {s.FullName}")" title="Edit" @onclick="() => Edit(s)"><Icon Name="pencil" /></button> }
+                        <a class="icon-btn" href="/sessions/new?studentId=@s.Id" aria-label="@($"Add classes for {s.FullName}")" title="Add classes"><Icon Name="calendar-plus" /></a>
+                    }
                 </Actions>
             </PersonRow>
         }</ul>
@@ -31,12 +47,15 @@
             {
                 <tr><td data-label="Name"><div class="student-directory-name"><Avatar Name="@s.FullName" Size="sm" Decorative="true" /><div><a href="/students/@s.Id"><strong>@s.FullName</strong></a><div class="caption">@s.Email</div></div></div></td><td data-label="Code">@s.StudentCode</td><td data-label="Class">@(s.GradeLevelName ?? "—")</td>
                     <td data-label="Syllabus" class="small">@(s.CurriculumName ?? "—")</td><td data-label="Status"><Badge Style="StatusStyles.For(s.Status)" /></td>
-                    <td>@if (IsAdmin) { <button class="btn btn-ghost btn-sm" @onclick="() => Edit(s)">Edit</button> }<a class="btn btn-ghost btn-sm" href="/sessions/new?studentId=@s.Id">Add classes</a></td></tr>
+                    <td>@if (s.Status == PersonStatus.Archived) { <a class="btn btn-ghost btn-sm" href="/students/@s.Id">Open record</a><button class="btn btn-secondary btn-sm" @onclick="() => Restore(s)" disabled="@Busy">Restore<span class="sr-only"> @s.FullName</span></button> }
+                        else { @if (IsAdmin) { <button class="btn btn-ghost btn-sm" @onclick="() => Edit(s)">Edit</button> }<a class="btn btn-ghost btn-sm" href="/sessions/new?studentId=@s.Id">Add classes</a> }</td></tr>
             }</tbody>
         </table></div>
         @if (_page is not null) { <Pager Page="_page.Page" TotalPages="_page.TotalPages" Total="_page.TotalCount" OnPage="Load" /> }
     </DataView>
 </div>
+
+@if (Deleted && IsAdmin && Me is not null) { <FormerBalances @key="_restored" Me="Me" Show="students" /> }
 
 <Modal @bind-Open="_open" Title="Edit student">
     <div class="form-grid">
@@ -56,7 +75,7 @@
         <div class="field"><label for="sjo">Joined the centre on</label><input id="sjo" type="date" class="input" @bind="_joined" /></div>
         <div class="field"><label for="sgn">Parent / guardian name</label><input id="sgn" class="input" @bind="_guardianName" /></div>
         <div class="field"><label for="sgp">Parent / guardian phone</label><input id="sgp" type="tel" class="input" @bind="_guardianPhone" /></div>
-        @if (_editId is not null) { <div class="field"><label for="sst">Status</label><select id="sst" class="select" @bind="_pstatus">@foreach (var s in Enum.GetValues<PersonStatus>()) { <option value="@s">@StatusStyles.For(s).Label</option> }</select></div> }
+        @if (_editId is not null) { <div class="field"><label for="sst">Status</label><select id="sst" class="select" @bind="_pstatus">@foreach (var s in Enum.GetValues<PersonStatus>().Where(x => x != PersonStatus.Archived)) { <option value="@s">@StatusStyles.For(s).Label</option> }</select></div> }
         <div class="field full"><span class="help">Collect only what tuition needs. No date of birth or home address is stored.</span></div>
     </div>
     <div class="form-actions">
@@ -85,6 +104,9 @@
     private string _tempTitle = "Account created";
     private Guid? _editId, _grade, _curriculum, _year;
     private PersonStatus _pstatus;
+    private int _restored;
+    [SupplyParameterFromQuery(Name = "status")] public string? StatusParam { get; set; }
+    private bool Deleted => _status == nameof(PersonStatus.Archived);
     private bool _open, _deleteOpen;
 
     protected override async Task LoadAsync()
@@ -92,6 +114,8 @@
         _grades = (await Fetch(() => Api.GetAsync<List<GradeLevelDto>>("academics/grades"))).Value ?? [];
         _curricula = (await Fetch(() => Api.GetAsync<List<CurriculumDto>>("academics/curricula"))).Value ?? [];
         _years = (await Fetch(() => Api.GetAsync<List<AcademicYearDto>>("academics/years"))).Value ?? [];
+        // Links from Fees and Finance open the Deleted view directly (?status=Archived); admins only.
+        if (Enum.TryParse<PersonStatus>(StatusParam, out var wanted) && (wanted != PersonStatus.Archived || IsAdmin)) _status = wanted.ToString();
         await Load(1);
     }
     private static string Facts(StudentDto s) => string.Join(" · ", new[] { s.StudentCode, s.GradeLevelName, s.CurriculumName }.Where(x => !string.IsNullOrWhiteSpace(x)));
@@ -111,6 +135,10 @@
         if (await Run(async () => { _tempTitle = "Temporary password issued"; _tempPassword = (await Api.PostAsync<TemporaryPasswordResponse>($"students/{_editId}/password-reset", null)).TemporaryPassword; })) _open = false;
     }
     private void AskDelete() => (_open, _deleteOpen) = (false, true);
+    private async Task Restore(StudentDto s)
+    {
+        if (await Run(() => Api.PostAsync($"students/{s.Id}/restore"), $"{s.FullName} is restored and can sign in again.")) { _restored++; await Load(_page?.Page ?? 1); }
+    }
     private async Task Save()
     {
         var ok = await Run(async () =>

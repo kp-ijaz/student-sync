@@ -33,7 +33,10 @@ public sealed class NotificationService(IAppDbContext db, ITenantContext tenant,
 {
     public async Task NotifyAsync(IEnumerable<Guid> userIds, NotificationType type, string title, string body, string? link, string dedupeKey, CancellationToken ct)
     {
-        var targets = userIds.Distinct().ToList();
+        var asked = userIds.Distinct().ToList();
+        if (asked.Count == 0) return;
+        // One rule for every sender: a deleted person (or any account that is switched off) gets no notification.
+        var targets = await db.Users.Where(u => asked.Contains(u.Id) && u.IsActive).Select(u => u.Id).ToListAsync(ct);
         if (targets.Count == 0) return;
         var key = dedupeKey.Length > 200 ? dedupeKey[..200] : dedupeKey;
         var existing = await db.Notifications.Where(n => targets.Contains(n.UserId) && n.DedupeKey == key).Select(n => n.UserId).ToListAsync(ct);
@@ -58,7 +61,9 @@ public sealed class NotificationService(IAppDbContext db, ITenantContext tenant,
     public async Task<List<Guid>> WithGuardiansAsync(IEnumerable<Guid> studentIds, CancellationToken ct)
     {
         var ids = studentIds.Distinct().ToList();
-        var parents = await db.ParentLinks.Where(l => ids.Contains(l.StudentId) && l.IsVerified).Select(l => l.ParentId).ToListAsync(ct);
+        // A deleted student's family hears nothing more either.
+        var parents = await db.ParentLinks.Where(l => ids.Contains(l.StudentId) && l.IsVerified && l.Student!.Status != Domain.People.PersonStatus.Archived)
+            .Select(l => l.ParentId).ToListAsync(ct);
         return ids.Concat(parents).Distinct().ToList();
     }
 
