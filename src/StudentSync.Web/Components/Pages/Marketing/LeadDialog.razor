@@ -1,0 +1,107 @@
+@inherits AppComponent
+@* Add or edit an enquiry (lead). One dialog for the Leads list, the lead's page and the dashboard. Only what the front
+   desk needs to follow up is asked: who, a phone number, where the enquiry came from; the rest sits under "More". *@
+<Modal Open="Open" OpenChanged="OpenChanged" Title="@(Lead is null ? "Add lead" : "Edit lead")" Wide="true">
+    <div class="form-grid">
+        <div class="field"><label for="ld-n">Student's name *</label><input id="ld-n" class="input" maxlength="150" autocomplete="off" @bind="_name" /></div>
+        <div class="field"><label for="ld-p">Phone / WhatsApp *</label><input id="ld-p" class="input" type="tel" maxlength="30" placeholder="+91 98765 43210" @bind="_phone" /></div>
+        <div class="field"><label for="ld-g">Parent / guardian</label><input id="ld-g" class="input" maxlength="150" @bind="_guardian" /></div>
+        <div class="field"><label for="ld-c">Class</label><select id="ld-c" class="select" @bind="_grade"><option value="">—</option>@foreach (var g in Options.Grades) { <option value="@g.Id">@g.Name</option> }</select></div>
+    </div>
+    <Choice TValue="LeadSource" Label="Where did the enquiry come from? *" Options="Sources" @bind-Value="_source" />
+    <div class="form-grid">
+        <div class="field"><label for="ld-ca">Campaign</label><select id="ld-ca" class="select" @bind="_campaign"><option value="">None</option>@foreach (var c in Options.Campaigns) { <option value="@c.Id">@c.Name</option> }</select></div>
+        <div class="field"><label for="ld-i">Asked about</label><input id="ld-i" class="input" maxlength="300" placeholder="e.g. Maths and Physics, Class 10" @bind="_interest" /></div>
+        <div class="field"><label for="ld-st">Status</label><select id="ld-st" class="select" @bind="_status">@foreach (var s in Enum.GetValues<LeadStatus>()) { <option value="@s">@MarketingLabels.Status(s)</option> }</select></div>
+        @if (_status == LeadStatus.NotInterested)
+        {
+            <div class="field"><label for="ld-lr">Why not?</label><input id="ld-lr" class="input" maxlength="300" placeholder="e.g. fees, too far, joined elsewhere" @bind="_lost" /></div>
+        }
+        else if (MarketingRules.IsOpen(_status))
+        {
+            <div class="field"><label for="ld-f">Next follow-up</label><input id="ld-f" class="input" type="date" @bind="_followUp" /><span class="help">The day to contact them again.</span></div>
+        }
+        @if (_status == LeadStatus.TrialBooked)
+        {
+            <div class="field"><label for="ld-td">Trial class day</label><input id="ld-td" class="input" type="date" @bind="_trialDay" /></div>
+            <div class="field"><label for="ld-tt">Trial class time</label><input id="ld-tt" class="input" type="time" @bind="_trialTime" /></div>
+            <div class="field full"><label for="ld-tn">Trial with / subject</label><input id="ld-tn" class="input" maxlength="300" placeholder="e.g. Maths with Ms Anjali, at the centre" @bind="_trialNotes" />
+                <span class="help">The admin books the real class once the student is admitted.</span></div>
+        }
+        @if (_source == LeadSource.Referral)
+        {
+            <div class="field"><label for="ld-rb">Referred by</label><input id="ld-rb" class="input" maxlength="150" placeholder="Who sent them? e.g. a parent's name" @bind="_referredBy" /></div>
+        }
+        <div class="field"><label for="ld-a">Assigned to</label><select id="ld-a" class="select" @bind="_assignee"><option value="">Nobody yet</option>@foreach (var t in Options.Team) { <option value="@t.Id">@t.Name</option> }</select></div>
+    </div>
+    <details class="planner-optional" open="@(_school is not null || _email is not null || _notes is not null || _curriculum is not null)">
+        <summary>More details</summary>
+        <div class="form-grid">
+            <div class="field"><label for="ld-sy">Syllabus</label><select id="ld-sy" class="select" @bind="_curriculum"><option value="">—</option>@foreach (var c in Options.Curricula) { <option value="@c.Id">@c.Name</option> }</select></div>
+            <div class="field"><label for="ld-sc">School</label><input id="ld-sc" class="input" maxlength="200" @bind="_school" /></div>
+            <div class="field"><label for="ld-e">Email</label><input id="ld-e" class="input" type="email" maxlength="256" @bind="_email" /></div>
+            <div class="field"><label for="ld-d">Enquiry day</label><input id="ld-d" class="input" type="date" @bind="_enquired" /></div>
+            <div class="field full"><label for="ld-no">Notes</label><textarea id="ld-no" class="textarea" rows="2" maxlength="2000" @bind="_notes"></textarea></div>
+        </div>
+    </details>
+    <div class="form-actions">
+        <button class="btn btn-secondary" @onclick="() => OpenChanged.InvokeAsync(false)">Cancel</button>
+        <button class="btn btn-primary" @onclick="Save" disabled="@(Busy || string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_phone))">@(Lead is null ? "Add lead" : "Save lead")</button>
+    </div>
+</Modal>
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+    /// <summary>The lead being edited; empty adds a new one.</summary>
+    [Parameter] public LeadDto? Lead { get; set; }
+    [Parameter, EditorRequired] public MarketingOptionsDto Options { get; set; } = default!;
+    [Parameter] public EventCallback<Guid> OnSaved { get; set; }
+
+    private static readonly IReadOnlyList<Choice<LeadSource>.Option> Sources = Enum.GetValues<LeadSource>().Select(s => new Choice<LeadSource>.Option(s, MarketingLabels.Source(s))).ToList();
+    private bool _wasOpen;
+    private string _name = "", _phone = "", _key = "";
+    private string? _guardian, _email, _school, _interest, _lost, _notes;
+    private Guid? _grade, _curriculum, _campaign, _assignee;
+    private LeadSource _source = LeadSource.PhoneCall;
+    private LeadStatus _status = LeadStatus.New;
+    private DateOnly? _followUp, _enquired, _trialDay;
+    private TimeOnly? _trialTime;
+    private string? _referredBy, _trialNotes;
+
+    protected override void OnParametersSet()
+    {
+        if (Open && !_wasOpen) Reset();
+        _wasOpen = Open;
+    }
+
+    private void Reset()
+    {
+        var l = Lead;
+        (_name, _phone, _guardian, _email, _school, _interest, _lost, _notes) = (l?.StudentName ?? "", l?.Phone ?? "", l?.GuardianName, l?.Email, l?.SchoolName, l?.Interest, l?.LostReason, l?.Notes);
+        (_grade, _curriculum, _campaign) = (l?.GradeLevelId, l?.CurriculumId, l?.CampaignId);
+        // A new lead belongs to whoever types it in (when they are on the team list), so nothing is left unowned.
+        _assignee = l is null ? (Options.Team.Any(t => t.Id == Me.Id) ? Me.Id : null) : l.AssignedToUserId;
+        (_source, _status, _followUp, _enquired) = (l?.Source ?? LeadSource.PhoneCall, l?.Status ?? LeadStatus.New, l?.NextFollowUpOn, l?.EnquiredOn);
+        (_referredBy, _trialNotes) = (l?.ReferredBy, l?.TrialNotes);
+        var trial = l?.TrialAtUtc is { } t ? Time.ToLocal(t, Tz) : (DateTime?)null;
+        (_trialDay, _trialTime) = (trial is { } d ? DateOnly.FromDateTime(d) : null, trial is { } d2 ? TimeOnly.FromDateTime(d2) : null);
+        _key = Guid.NewGuid().ToString("N");
+    }
+
+    private async Task Save()
+    {
+        var request = new SaveLeadRequest(_name, _phone, _source, _guardian, _email, _grade, _curriculum, _school, _interest, _campaign, _status, _lost, _assignee,
+            MarketingRules.IsOpen(_status) ? _followUp : null, _notes, _enquired,
+            _source == LeadSource.Referral ? _referredBy : null,
+            _status == LeadStatus.TrialBooked && _trialDay is { } day ? StudentSync.Domain.Scheduling.ZonedTime.ToUtc(day, _trialTime ?? new TimeOnly(16, 0), Tz).Utc : null,
+            _status == LeadStatus.TrialBooked ? _trialNotes : null);
+        IdResponse? done = null;
+        var ok = await Run(async () => done = Lead is { } l
+            ? await Api.PutAsync<IdResponse>($"marketing/leads/{l.Id}", request)
+            : await Api.PostAsync<IdResponse>("marketing/leads", request, _key), Lead is null ? "Lead added." : "Lead saved.");
+        if (!ok) return;
+        await OpenChanged.InvokeAsync(false);
+        await OnSaved.InvokeAsync(done!.Id);
+    }
+}

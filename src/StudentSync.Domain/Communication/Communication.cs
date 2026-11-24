@@ -54,7 +54,9 @@ public enum NotificationType
     // Automations (2026-11-17)
     AttendanceMissing, AbsenceFlag, Timetable, ScheduleEnding, LowHours, FeeReminder, PaymentReceived,
     SalariesDue, DailySummary, MonthReport, ProgressReportReady, ProgressReport, AutomationFailed,
-    ClassChangeRequested, ClassChangeAnswered
+    ClassChangeRequested, ClassChangeAnswered,
+    // Marketing (2026-11-24)
+    LeadFollowUp, LeadFromWebsite
 }
 
 /// <summary>An in-app notification. (UserId, DedupeKey) is unique, so retried events never notify twice.</summary>

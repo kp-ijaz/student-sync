@@ -63,6 +63,8 @@ public static class DependencyInjection
         services.AddScoped<Fees.SalaryService>();
         services.AddScoped<Fees.FeePlanService>();
         services.AddScoped<Fees.FinanceService>();
+        services.AddScoped<Marketing.MarketingService>();
+        services.AddScoped<Marketing.PublicEnquiryService>();
         services.AddScoped<Fees.HoursBudgetService>();
         services.AddScoped<Fees.PaymentLinkService>();
         services.AddScoped<Fees.ReceiptService>();

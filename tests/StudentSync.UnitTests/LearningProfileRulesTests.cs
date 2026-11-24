@@ -10,7 +10,8 @@ public sealed class LearningProfileRulesTests
     public void Person_status_has_no_pending_approval_and_includes_suspended()
     {
         Assert.DoesNotContain("PendingApproval", Enum.GetNames<PersonStatus>());
-        Assert.Equal(["Active", "Inactive", "Archived", "Suspended"], Enum.GetNames<PersonStatus>());
+        // OnHold (owner request 2026-11-24) pauses a student; all states stay admin-controlled.
+        Assert.Equal(["Active", "Inactive", "Archived", "Suspended", "OnHold"], Enum.GetNames<PersonStatus>());
     }
 
     [Theory]

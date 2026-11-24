@@ -78,7 +78,19 @@ First verify compatibility with the existing repository and the master specifica
 
 - Student Sync is used by **one institute only** — not a white-label or multi-institution SaaS. Keep the existing
   tenant isolation in code (it is tested and harmless), but do not build new multi-institution or super-admin features.
-- Roles in use: institution admin, teacher, student. **Parents cannot sign in** (data/code retained for now).
+- Roles in use: institution admin, teacher, student, and **marketing** (owner decision 2026-11-24). **Parents cannot
+  sign in** (data/code retained for now).
+- **Marketing team portal (owner decision 2026-11-24):** marketing users are created by the admin only (Marketing ▸ Team,
+  one-time password) and hold exactly one permission, `marketing.manage`: leads (enquiries), their calls and follow-ups,
+  and campaigns. They must never see students, teachers, classes, fees, salaries, finance or settings — enforced
+  server-side and covered by `MarketingTests.The_marketing_team_sees_marketing_only`. A lead is not a student record;
+  linking an admitted lead to a student is an admin action. Admins use the same pages under the "Marketing" menu group.
+- **Public enquiry form (owner decision 2026-11-24):** `/enquire/{code}` is the one page that accepts data without
+  sign-in. It creates a lead only (never an account), is off until the admin switches it on, and must stay narrow:
+  a few fields, honeypot, rate limit, daily cap, nothing revealed but the centre's name and class list. This does not
+  change the rule that students never self-register.
+- **Student status "On hold" (owner decision 2026-11-24):** a paused student keeps their sign-in and stays on the fee
+  lists, but cannot be booked into new classes until set Active again.
 - The institute sells **prepaid learning-hour packages** usable across subjects (see addendum section A).
 - **Student accounts are admin-created only** (owner decision 2026-11-04, replaces the earlier self-registration
   decision). There is no student self-registration, public registration page, or student account approval queue.

@@ -1,0 +1,37 @@
+@typeparam TValue
+@* One choice from a short list. On tablets and desktops it is a row of pills (one tap); on phones (< 768 px) it is a
+   native dropdown list, which is quicker to use with a thumb and keeps dialogs short (owner request 2026-11-24).
+   Only one of the two is displayed at a time (the other is display:none, so it is also hidden from screen readers).
+   Usage: <Choice TValue="LeadSource" Label="Source *" Options="..." @bind-Value="_source" /> *@
+<fieldset class="field fee-method choice @Class">
+    <legend>@Label</legend>
+    <div class="pick-group choice-pills">
+        @foreach (var o in Options)
+        {
+            <button type="button" class="pick" aria-pressed="@Aria.Bool(Same(o.Value))" disabled="@Disabled" @onclick="() => ValueChanged.InvokeAsync(o.Value)">@o.Label</button>
+        }
+    </div>
+    <select class="select choice-select" aria-label="@Label" disabled="@Disabled" @onchange="Pick">
+        @if (!Options.Any(o => Same(o.Value))) { <option value="" selected>Choose…</option> }
+        @for (var i = 0; i < Options.Count; i++)
+        {
+            <option value="@i" selected="@Same(Options[i].Value)">@Options[i].Label</option>
+        }
+    </select>
+</fieldset>
+
+@code {
+    public sealed record Option(TValue Value, string Label);
+
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter, EditorRequired] public IReadOnlyList<Option> Options { get; set; } = [];
+    [Parameter] public TValue? Value { get; set; }
+    [Parameter] public EventCallback<TValue> ValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string? Class { get; set; }
+
+    private bool Same(TValue option) => EqualityComparer<TValue>.Default.Equals(option, Value);
+
+    private Task Pick(ChangeEventArgs e) =>
+        int.TryParse(e.Value?.ToString(), out var i) && i >= 0 && i < Options.Count ? ValueChanged.InvokeAsync(Options[i].Value) : Task.CompletedTask;
+}

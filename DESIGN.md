@@ -473,6 +473,43 @@ classes; it reminds, alerts and prepares, and people decide.
 - **People who left** (`FormerBalances`, on Fees and Finance): totals strip (students owe / owed to teachers / teachers owe),
   then rows like `FeesDueList` with the person's status badge. Fees' main list and the dashboard card show active students only.
 
+### Marketing (2026-11-24)
+
+- **Menu**: admins get a "Marketing" group (Overview, Leads, Follow-ups, Campaigns, Team); the marketing role's own menu
+  and four phone tabs are Dashboard/Home, Leads, Follow-ups, Campaigns. The Messages shortcut is hidden for that role.
+- **Overview** (`/marketing`): period card (Month | Year) → `MetricStrip` (Leads, Calls made + answer rate, Admitted +
+  conversion, Spent + cost per lead; each with the change from the period before) → "To do today" (follow-up counts and
+  the due list) beside "Pipeline" (status bars, each links to the list) → "Where leads come from" beside "Campaigns in
+  this period" → "Team" table → "Day by day" (`.mk-days`: blue = leads, orange = calls, with a text summary).
+- **Leads / Follow-ups** (`/marketing/leads`, `/marketing/follow-ups`): `.lead-tools` (search + status, source, campaign,
+  assignee, follow-up, sort), `table.stack-mobile`, per-row **Log call** and edit, `Pager`, Export CSV. Overdue days use
+  `.lead-overdue` (orange-deep + the word "overdue").
+- **Lead page**: "Where it stands" (status pills = one-tap move, follow-up day, assignee, admin-only link to the student),
+  "Calls and contacts" log, "About the enquiry" facts. Shared dialogs: `LeadDialog`, `ContactDialog`.
+- **Campaigns**: table with spent/budget, leads, admitted, cost per lead; add/edit dialog with channel pills.
+- **Team** (admin): accounts table, add (one-time password dialog), edit (name, can sign in), reset password, delete.
+- Status colours: `StatusStyles.For(LeadStatus)` and `For(CampaignStatus)`; labels from `MarketingLabels`.
+- **Additions (same day)**: campaign **Spend** dialog (amount, day, what for, `MethodPicker`, list with remove) — spend is
+  an expense, so the campaign form has no "spent" field; Leads **Import** dialog (paste rows → result with skipped lines);
+  lead form shows trial day/time/notes when the status is "Trial booked" and "Referred by" when the source is Referral;
+  overview adds a website-enquiries notice, "Trial classes coming up", "Who referred them" pills and "done of target" in
+  the Team table; Team page adds target fields and the **Website enquiry form** card (on/off + address).
+- **Public enquiry form** (`/enquire/{code}`, no sign-in): `AuthLayout`, a plain form post like sign-in, five fields, a
+  hidden honeypot (`.hp-field`), thank-you and error states. Shown only while switched on.
+- **Student status "On hold"** (amber badge): in the student status filter and edit form only (not offered for teachers).
+- `.table-wrap` is `position: relative` so `.sr-only` labels in row buttons cannot make the page scroll sideways.
+
+### Phone polish: dropdown lists instead of rows of buttons (owner request 2026-11-24)
+
+- **`Choice<TValue>`** (`Components/Shared`): one choice from a short list. Pills (`.pick-group`) from 768 px up; a native
+  dropdown list (`select.choice-select`) on phones. Only one is displayed. Used by `MethodPicker` (paid by), expense
+  category, lead source, campaign channel, contact kind and outcome, and the lead's "Move to" status. New single-choice
+  groups should use it rather than hand-written pills. Multi-select groups (teacher subjects, class days) stay pills.
+- **Page actions on phones**: the primary button takes a full-width row first; the other actions share the next row equally.
+- **Filters on phones**: search on its own row, dropdown lists two per row.
+- **Dialogs on phones**: stacked full-width actions with the main one first.
+- **Toasts** never take taps (only their close button does), so a message cannot block the button under it.
+
 ### Salaries and Finance, connected (2026-11-24, second pass)
 
 - **One salary dialog** (`SalaryPaymentDialog`) everywhere: Fees ▸ Salaries ("Add salary payment" and each row's **Pay**),

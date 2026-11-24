@@ -53,7 +53,10 @@
             <div class="grow"></div>
             @* App bar actions as on mobile: white circle bell with the unread count and the profile photo (opens Profile).
                Messages and Sign out are desktop-only here; on phones they live in the drawer and on Profile. *@
-            <a class="icon-btn circle desk-only" href="/messages" aria-label="Messages (@_unread.Messages unread)" title="Messages"><Icon Name="message" />@if (_unread.Messages > 0) { <span class="dot-count" aria-hidden="true">@_unread.Messages</span> }</a>
+            @if (_me?.Role != UserRole.Marketing)
+            {
+                <a class="icon-btn circle desk-only" href="/messages" aria-label="Messages (@_unread.Messages unread)" title="Messages"><Icon Name="message" />@if (_unread.Messages > 0) { <span class="dot-count" aria-hidden="true">@_unread.Messages</span> }</a>
+            }
             <a class="icon-btn circle" href="/notifications" aria-label="Notifications (@_unread.Notifications unread)" title="Notifications"><Icon Name="bell" />@if (_unread.Notifications > 0) { <span class="dot-count" aria-hidden="true">@(_unread.Notifications > 99 ? "99+" : _unread.Notifications)</span> }</a>
             <form method="post" action="/account/logout" data-enhance="false" class="desk-only">
                 <AntiforgeryToken />

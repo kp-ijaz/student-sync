@@ -137,10 +137,12 @@ public sealed class FeeService(IAppDbContext db, ICurrentUser user, AccessPolicy
     /// <param name="includeInactive">Also students who are not Active (archived, inactive, suspended) — for the admin's Fees due list only.</param>
     public async Task<(List<StudentBalance> Students, List<OpenPackage> Packages)> BalancesAsync(DateOnly today, bool includeInactive, CancellationToken ct)
     {
-        var active = db.StudentPackages.Where(p => p.Status == PackageStatus.Active && (includeInactive || p.Student!.Status == PersonStatus.Active));
+        // Students on hold are still the centre's students: their fees stay on the current list and reminders continue.
+        var active = db.StudentPackages.Where(p => p.Status == PackageStatus.Active
+            && (includeInactive || p.Student!.Status == PersonStatus.Active || p.Student!.Status == PersonStatus.OnHold));
         var packages = await active.Select(p => new
         {
-            StudentActive = p.Student!.Status == PersonStatus.Active,
+            StudentActive = p.Student!.Status == PersonStatus.Active || p.Student!.Status == PersonStatus.OnHold,
             p.Id,
             p.StudentId,
             p.Name,

@@ -1,0 +1,214 @@
+@page "/marketing"
+@attribute [Authorize(Roles = "InstitutionAdmin,Marketing")]
+@inherits AppPage
+
+@* Marketing overview (owner request 2026-11-24) — the admin's Marketing section and the marketing team's home. Top to
+   bottom: the period → leads, calls, admissions and spend with the change from the period before → what needs doing
+   today (follow-ups) and the pipeline → where leads come from and how each campaign did → who made the calls → leads and
+   calls day by day. Every figure states how it is counted; each links to the list behind it. *@
+<PageTitle>Marketing · Student Sync</PageTitle>
+<PageHeader Title="Marketing" Subtitle="Enquiries, calls and campaigns: how many leads came in, how they were followed up and what they cost.">
+    <Actions>
+        <a class="btn btn-secondary" href="/marketing/campaigns"><Icon Name="megaphone" /> Campaigns</a>
+        <a class="btn btn-primary" href="/marketing/leads?new=1"><Icon Name="plus" /> Add lead</a>
+    </Actions>
+</PageHeader>
+
+<div class="card finance-period">
+    <Segmented TValue="string" Options="PeriodOptions" Value="_period" ValueChanged="SetPeriod" Label="Period" />
+    <div class="finance-nav">
+        <button class="icon-btn" aria-label="@(_period == "year" ? "Previous year" : "Previous month")" @onclick="() => Move(-1)"><Icon Name="chevron-left" /></button>
+        <h2>@(_period == "year" ? _from.Year.ToString() : _from.ToString("MMMM yyyy"))</h2>
+        <button class="icon-btn" aria-label="@(_period == "year" ? "Next year" : "Next month")" @onclick="() => Move(1)" disabled="@(_from >= CurrentStart)"><Icon Name="chevron-right" /></button>
+    </div>
+</div>
+
+<DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_d is { } d)
+    {
+        <MetricStrip AriaLabel="Marketing at a glance" Items="@([
+            new("Leads", d.Leads.ToString(), $"enquiries in the period · {Change(d.Leads, d.PreviousLeads)}", "user-plus", $"/marketing/leads"),
+            new("Calls made", d.Calls.ToString(), (d.AnswerRatePercent is { } ar ? $"{d.CallsReached} reached ({ar:0.#}%)" : "none logged") + $" · {Change(d.Calls, d.PreviousCalls)}", "message"),
+            new("Admitted", d.Admitted.ToString(), (d.ConversionPercent is { } cv ? $"{cv:0.#}% of the leads" : "no leads yet") + $" · {Change(d.Admitted, d.PreviousAdmitted)}", "check-circle", "/marketing/leads?status=Admitted"),
+            new("Spent", Money.Format(d.Spend, d.CurrencyCode), d.CostPerLead is { } cpl ? $"{Money.Format(cpl, d.CurrencyCode)} per lead" + (d.CostPerAdmission is { } cpa ? $" · {Money.Format(cpa, d.CurrencyCode)} per admission" : "") : "on campaigns in the period", "wallet", "/marketing/campaigns"),
+        ])" />
+
+        <div class="grid grid-2 finance-grid">
+            <section class="card" aria-labelledby="mk-today">
+                <div class="card-head"><h2 id="mk-today">To do today</h2><a href="/marketing/follow-ups">All follow-ups</a></div>
+                @if (d.WebsiteFormNew > 0) { <p class="fee-warn" role="status"><Icon Name="globe" /> <a href="/marketing/leads?followUp=website">@d.WebsiteFormNew new enquir@(d.WebsiteFormNew == 1 ? "y" : "ies") from the website</a> — call them back.</p> }
+                <dl class="former-totals">
+                    <div><dt>Follow-ups today</dt><dd>@d.FollowUpsToday</dd></div>
+                    <div><dt>Overdue</dt><dd class="@(d.FollowUpsOverdue > 0 ? "due" : "")">@d.FollowUpsOverdue</dd></div>
+                    <div><dt>Open leads · unassigned</dt><dd>@d.OpenLeads · @d.Unassigned</dd></div>
+                </dl>
+                @if (d.DueFollowUps.Count == 0) { <InlineEmpty Icon="check-circle" Text="No follow-ups are due. Set a follow-up day when you log a call." /> }
+                else
+                {
+                    <ul class="fee-list">
+                        @foreach (var l in d.DueFollowUps)
+                        {
+                            <li><a href="/marketing/leads/@l.Id">
+                                <Avatar Name="@l.StudentName" Size="sm" Decorative="true" />
+                                <span class="fee-who"><strong>@l.StudentName</strong><span class="caption">@l.Phone@(l.AssignedToName is { } an ? $" · {an}" : " · unassigned")</span></span>
+                                <span class="fee-amount @(l.FollowUpOverdue ? "late" : "")">@(l.FollowUpOverdue ? $"since {l.NextFollowUpOn:d MMM}" : "today")</span>
+                                <Badge Style="StatusStyles.For(l.Status)" />
+                            </a></li>
+                        }
+                    </ul>
+                }
+                @if (d.UpcomingTrials.Count > 0)
+                {
+                    <h3 class="former-h3">Trial classes coming up</h3>
+                    <ul class="fee-list">
+                        @foreach (var l in d.UpcomingTrials)
+                        {
+                            <li><a href="/marketing/leads/@l.Id">
+                                <Avatar Name="@l.StudentName" Size="sm" Decorative="true" />
+                                <span class="fee-who"><strong>@l.StudentName</strong><span class="caption">@(l.TrialNotes ?? l.Phone)</span></span>
+                                <span class="fee-amount">@Time.Short(l.TrialAtUtc!.Value, Tz)</span>
+                            </a></li>
+                        }
+                    </ul>
+                }
+            </section>
+
+            <section class="card" aria-labelledby="mk-pipe">
+                <div class="card-head"><h2 id="mk-pipe">Pipeline</h2><span class="caption">leads of this period, by where they stand now</span></div>
+                @if (d.Leads == 0) { <InlineEmpty Icon="user-plus" Text="No leads in this period yet." /> }
+                else
+                {
+                    <div class="finance-bars">
+                        @foreach (var p in d.Pipeline)
+                        {
+                            <a class="finance-bar-btn" href="/marketing/leads?status=@p.Key">
+                                <div class="bar-row finance-bar"><span class="small">@MarketingLabels.Status(p.Key)</span>
+                                    <div class="progress-bar @(p.Key == LeadStatus.Admitted ? "green" : p.Key == LeadStatus.NotInterested ? "amber" : "")" role="img" aria-label="@($"{MarketingLabels.Status(p.Key)}: {p.Count} of {d.Leads}")"><span style="width:@Pct(p.Count, d.Leads)%"></span></div>
+                                    <span class="small num">@p.Count</span></div>
+                            </a>
+                        }
+                    </div>
+                    <p class="caption">Conversion = admitted ÷ leads@(d.ConversionPercent is { } c2 ? $" = {c2:0.#}%" : ""). @d.Lost not interested.</p>
+                }
+            </section>
+        </div>
+
+        <div class="grid grid-2 finance-grid">
+            <section class="card" aria-labelledby="mk-src">
+                <div class="card-head"><h2 id="mk-src">Where leads come from</h2></div>
+                @if (d.Sources.Count == 0) { <InlineEmpty Icon="megaphone" Text="No leads in this period yet." /> }
+                else
+                {
+                    <div class="table-wrap"><table class="table">
+                        <thead><tr><th>Source</th><th class="num">Leads</th><th class="num">Admitted</th><th class="num">Conversion</th></tr></thead>
+                        <tbody>@foreach (var s in d.Sources)
+                        {
+                            <tr><td><a href="/marketing/leads?source=@s.Source">@MarketingLabels.Source(s.Source)</a></td><td class="num">@s.Leads</td><td class="num">@s.Admitted</td>
+                                <td class="num">@(s.ConversionPercent is { } cp ? $"{cp:0.#}%" : "—")</td></tr>
+                        }</tbody>
+                    </table></div>
+                }
+                @if (d.Referrers.Count > 0)
+                {
+                    <h3 class="former-h3">Who referred them</h3>
+                    <div class="pill-list">@foreach (var r in d.Referrers) { <span class="badge blue">@r.Key · @r.Count</span> }</div>
+                }
+            </section>
+
+            <section class="card" aria-labelledby="mk-camp">
+                <div class="card-head"><h2 id="mk-camp">Campaigns in this period</h2><a href="/marketing/campaigns">Manage</a></div>
+                @if (d.Campaigns.Count == 0) { <InlineEmpty Icon="megaphone" Text="No campaign ran in this period. Add one under Campaigns." /> }
+                else
+                {
+                    <div class="table-wrap"><table class="table">
+                        <thead><tr><th>Campaign</th><th class="num">Spent</th><th class="num">Leads</th><th class="num">Per lead</th><th class="num">Admitted</th></tr></thead>
+                        <tbody>@foreach (var c in d.Campaigns)
+                        {
+                            <tr><td><a href="/marketing/leads?campaign=@c.Id">@c.Name</a><div class="caption">@MarketingLabels.Source(c.Channel)@(c.Location is { } loc ? $" · {loc}" : "")</div></td>
+                                <td class="num">@Money.Format(c.Spent, c.CurrencyCode)</td><td class="num">@c.Leads</td>
+                                <td class="num">@(c.CostPerLead is { } cpl2 ? Money.Format(cpl2, c.CurrencyCode) : "—")</td><td class="num">@c.Admitted</td></tr>
+                        }</tbody>
+                    </table></div>
+                    <p class="caption">Leads and admissions count only enquiries dated in this period.</p>
+                }
+            </section>
+        </div>
+
+        <section class="card" aria-labelledby="mk-team" style="margin-bottom:16px">
+            <div class="card-head"><h2 id="mk-team">Team</h2><span class="caption">calls and contacts logged in this period</span></div>
+            @if (d.Team.Count == 0) { <InlineEmpty Icon="users" Text="No calls logged in this period." /> }
+            else
+            {
+                <div class="table-wrap"><table class="table stack-mobile">
+                    <thead><tr><th>Name</th><th class="num">Calls</th><th class="num">Reached</th><th class="num">Other contacts</th><th class="num">Leads added</th><th class="num">Open leads</th><th class="num">Admitted</th></tr></thead>
+                    <tbody>@foreach (var t in d.Team)
+                    {
+                        <tr><td data-label="Name">@t.Name</td><td data-label="Calls" class="num">@Against(t.Calls, t.CallsTarget)</td>
+                            <td data-label="Reached" class="num">@t.CallsReached@(MarketingRules.Percent(t.CallsReached, t.Calls) is { } p ? $" ({p:0.#}%)" : "")</td>
+                            <td data-label="Other contacts" class="num">@t.OtherContacts</td><td data-label="Leads added" class="num">@Against(t.LeadsAdded, t.LeadsTarget)</td>
+                            <td data-label="Open leads" class="num">@t.LeadsAssignedOpen</td><td data-label="Admitted" class="num">@Against(t.Admitted, t.AdmissionsTarget)</td></tr>
+                    }</tbody>
+                </table></div>
+                @if (d.Team.Any(t => t.CallsTarget is not null || t.LeadsTarget is not null || t.AdmissionsTarget is not null))
+                {
+                    <p class="caption">"8 of 20" = done of the target for this period (call targets count Monday to Saturday, up to today). The admin sets targets under Marketing ▸ Team.</p>
+                }
+            }
+        </section>
+
+        @if (d.Days.Count > 0 && d.Days.Any(x => x.Leads + x.Calls > 0))
+        {
+            var max = Math.Max(1, d.Days.Max(x => Math.Max(x.Leads, x.Calls)));
+            <section class="card" aria-labelledby="mk-days">
+                <div class="card-head"><h2 id="mk-days">Day by day</h2>
+                    <span class="caption mk-legend"><span class="mk-dot leads"></span> Leads <span class="mk-dot calls"></span> Calls</span></div>
+                <div class="mk-days" role="img" aria-label="@($"Leads and calls per day. Busiest day: {d.Days.MaxBy(x => x.Leads + x.Calls)!.Day:d MMM}.")">
+                    @foreach (var x in d.Days)
+                    {
+                        <div class="mk-day" title="@($"{x.Day:d MMM}: {x.Leads} leads, {x.Calls} calls")">
+                            <div class="mk-bars"><span class="leads" style="height:@Pct(x.Leads, max)%"></span><span class="calls" style="height:@Pct(x.Calls, max)%"></span></div>
+                            <span class="mk-day-label">@(x.Day.Day == 1 || x.Day.Day % 5 == 0 ? x.Day.Day.ToString() : "")</span>
+                        </div>
+                    }
+                </div>
+                <p class="caption">Tallest bar = @max. Leads by the day they enquired; calls by the day they were made.</p>
+            </section>
+        }
+    }
+</DataView>
+
+@code {
+    private static readonly IReadOnlyList<Segmented<string>.Option> PeriodOptions = [new("month", "Month"), new("year", "Year")];
+    private MarketingOverviewDto? _d;
+    private ApiException? _error;
+    private string _period = "month";
+    private DateOnly _from = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+
+    private DateOnly CurrentStart => _period == "year" ? new(DateTime.Today.Year, 1, 1) : new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private DateOnly To => _period == "year" ? _from.AddYears(1).AddDays(-1) : _from.AddMonths(1).AddDays(-1);
+
+    protected override async Task LoadAsync() { _d = null; (_d, _error) = await Fetch(() => Api.GetAsync<MarketingOverviewDto>($"marketing/overview?from={_from:yyyy-MM-dd}&to={To:yyyy-MM-dd}")); }
+
+    private async Task SetPeriod(string p)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        _period = p;
+        _from = p == "year" ? new(_from.Year, 1, 1) : (_from.Year == today.Year ? new(today.Year, today.Month, 1) : new(_from.Year, 12, 1));
+        await LoadAsync();
+    }
+
+    private async Task Move(int step) { _from = _period == "year" ? _from.AddYears(step) : _from.AddMonths(step); await LoadAsync(); }
+
+    /// <summary>"8 of 20" when a target is set, otherwise just the number.</summary>
+    private static string Against(int done, int? target) => target is { } t ? $"{done} of {t}" : done.ToString();
+
+    private static string Pct(int part, int whole) => (whole <= 0 ? 0 : Math.Clamp(100.0 * part / whole, 0, 100)).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Change from the period before, in words (no percentage when there was nothing to compare with).</summary>
+    private static string Change(int now, int before) => (now, before) switch
+    {
+        _ when now == before => "same as before",
+        (_, 0) => "none the period before",
+        _ => $"{(now > before ? "▲" : "▼")} {Math.Abs(100.0 * (now - before) / before):0}% vs before",
+    };
+}

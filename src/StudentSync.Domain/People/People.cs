@@ -3,8 +3,12 @@ using StudentSync.Domain.Identity;
 
 namespace StudentSync.Domain.People;
 
-/// <summary>Admin-controlled states. Only Active people can sign in; Suspended marks access withdrawn by the institute (addendum B).</summary>
-public enum PersonStatus { Active, Inactive, Archived, Suspended }
+/// <summary>
+/// Admin-controlled states. Active people can sign in and be booked; Suspended marks access withdrawn by the institute
+/// (addendum B). OnHold (students, owner request 2026-11-24) pauses a student — fees unpaid, exams, travel: they keep
+/// their sign-in and their records and stay on the fee lists, but no new classes can be booked until they are Active again.
+/// </summary>
+public enum PersonStatus { Active, Inactive, Archived, Suspended, OnHold }
 
 /// <summary>Teacher profile. Shares its primary key with the <see cref="AppUser"/> account (1:1).</summary>
 public class Teacher : TenantEntity

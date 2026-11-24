@@ -294,7 +294,9 @@ fieldset.field { border: 0; padding: 0; margin: 0; } .field legend { padding: 0;
 .seg .tab-count { font-variant-numeric: tabular-nums; opacity: .85; }
 
 /* ---------- Tables ---------- */
-.table-wrap { overflow-x: auto; margin: 0 calc(-1 * var(--sp-5)); padding: 0 var(--sp-5); }
+/* position: relative keeps absolutely positioned children (.sr-only labels in row buttons) inside the scroll area;
+   without it they escape the clipping and make the whole page scroll sideways when a table is wider than its card. */
+.table-wrap { position: relative; overflow-x: auto; margin: 0 calc(-1 * var(--sp-5)); padding: 0 var(--sp-5); }
 table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .table th { text-align: start; font-size: 12px; font-weight: 600; color: var(--ss-text-2); text-transform: uppercase; letter-spacing: .04em; padding: 10px 12px; border-bottom: 1px solid var(--ss-border); white-space: nowrap; }
 .table td { padding: 12px; border-bottom: 1px solid var(--ss-fill); vertical-align: middle; }
@@ -453,6 +455,10 @@ a.teacher-card:hover { box-shadow: var(--shadow-2); }
 .toast.error { background: #8F1D21; }
 .toast.success { background: #0E6B45; }
 .toast button { background: none; border: none; color: inherit; cursor: pointer; margin-inline-start: auto; font-size: 18px; line-height: 1; }
+/* A message must never block the button underneath it (on phones it sits over a dialog's actions): taps pass through,
+   only its close button takes them. */
+.toasts, .toast { pointer-events: none; }
+.toast button { pointer-events: auto; }
 
 /* ---------- Content ---------- */
 .prose { line-height: 1.65; color: var(--ss-text); overflow-wrap: anywhere; }
@@ -1839,6 +1845,34 @@ a.metric-cell:hover { text-decoration:none; background:#F7F9FD; }
   .finance-period .seg { min-width: 0; flex: 1 1 100%; }
 }
 
+/* Marketing (leads, follow-ups, campaigns, overview). */
+.lead-tools { flex-wrap: wrap; }
+.lead-tools .input[type=search] { flex: 1 1 220px; }
+.lead-tools .select { flex: 0 1 170px; }
+.lead-flag { margin-inline-start: var(--sp-2); }
+/* Honeypot on the public enquiry form: off-screen for people, present for bots. */
+.hp-field { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+.lead-overdue { color: var(--ss-orange-deep); font-weight: 600; }
+.lead-actions { white-space: nowrap; text-align: end; }
+.lead-actions .btn, .lead-actions .icon-btn { vertical-align: middle; }
+.lead-detail { align-items: start; }
+.lead-log { list-style: none; margin: 0; padding: 0; }
+.lead-log > li { display: flex; align-items: flex-start; gap: var(--sp-3); padding: var(--sp-3) 0; border-top: 1px solid var(--ss-border); }
+.lead-log > li:first-child { border-top: 0; }
+.lead-note { margin: var(--sp-1) 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lead-facts dd { overflow-wrap: anywhere; }
+a.finance-bar-btn { text-decoration: none; }
+.mk-legend { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.mk-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.mk-dot.leads, .mk-bars .leads { background: var(--ss-blue); }
+.mk-dot.calls, .mk-bars .calls { background: var(--ss-orange); }
+.mk-days { display: flex; align-items: flex-end; gap: 2px; height: 160px; padding-top: var(--sp-2); overflow: hidden; }
+.mk-day { flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 2px; }
+.mk-bars { flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 1px; border-bottom: 1px solid var(--ss-border); }
+.mk-bars span { display: block; width: 45%; max-width: 12px; min-height: 0; border-radius: 3px 3px 0 0; }
+.mk-day-label { height: 14px; font-size: 10px; line-height: 14px; color: var(--ss-text-2); font-variant-numeric: tabular-nums; }
+@media (max-width: 767px) { .lead-tools .select { flex: 1 1 calc(50% - var(--sp-2)); } .lead-actions { text-align: start; } }
+
 /* Progress reports. */
 .pr-filter { margin-bottom: var(--sp-4); max-width: 420px; }
 .pr-list { display: grid; gap: var(--sp-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); }
@@ -1999,4 +2033,32 @@ a.metric-cell:hover { text-decoration:none; background:#F7F9FD; }
   .acad-subjects > li { flex-wrap: wrap; }
   .acad-subject-actions { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .acad-subject-actions .btn { padding-inline: 4px; }
+}
+
+/* ---------- Phone polish (2026-11-24): dropdown lists instead of rows of buttons, tidy actions and filters ---------- */
+/* Choice: pills from 768 px up, a native dropdown list on phones (only one is ever displayed). */
+.choice-select { display: none; }
+@media (max-width: 767px) {
+  .choice-pills { display: none; }
+  .choice-select { display: block; width: 100%; }
+  .choice { margin-bottom: var(--sp-3); }
+  .choice + .choice, .choice + .field, .choice + .form-grid { margin-top: var(--sp-3); }
+  /* Page actions: the main action on its own full-width row, the others share the next row equally. */
+  .page-header > .btn-group { gap: var(--sp-2); }
+  .page-header > .btn-group > .btn { flex: 1 1 0; min-width: 0; justify-content: center; padding-inline: var(--sp-3); white-space: nowrap; }
+  .page-header > .btn-group > .btn-primary { flex: 1 1 100%; order: -1; }
+  /* Filters: search on its own row, dropdown lists two per row. */
+  .list-tools .select, .lead-tools .select { flex: 1 1 calc(50% - var(--sp-2)); min-width: 0; }
+  .list-tools .check { flex: 1 1 100%; }
+  /* Dialogs: full-width stacked actions (existing rule), with the main one first under the form. */
+  .modal .form-actions > .btn { margin: 0 !important; }
+  .modal .form-actions > .btn-primary, .modal .form-actions > .btn-danger { order: -1; }
+  /* Money lines and logs: amount under the text, never squeezed beside it. */
+  .finance-ledger > li, .lead-log > li { row-gap: var(--sp-1); }
+  .finance-period { padding: var(--sp-3); }
+  .finance-nav { width: 100%; justify-content: space-between; }
+  .finance-custom .input { flex: 1 1 calc(50% - 20px); min-width: 0; }
+  .finance-custom .btn { flex: 1 1 100%; }
+  .salary-act { width: 100%; justify-content: flex-start; }
+  .salary-act .btn { flex: 1 1 0; }
 }

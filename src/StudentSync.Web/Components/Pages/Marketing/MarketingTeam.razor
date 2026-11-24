@@ -1,0 +1,141 @@
+@page "/marketing/team"
+@attribute [Authorize(Roles = "InstitutionAdmin")]
+@inherits AppPage
+
+@* Marketing ▸ Team (admin only): the marketing team's sign-in accounts. The admin creates each account and gives the
+   one-time password to the person; they must change it at first sign-in. A team member sees only the marketing pages —
+   never students, teachers, classes or fees. *@
+<PageTitle>Marketing team · Student Sync</PageTitle>
+<PageHeader Title="Marketing team" Subtitle="People who can sign in to the marketing portal. They see leads, follow-ups and campaigns only.">
+    <Actions><button class="btn btn-primary" @onclick="New"><Icon Name="plus" /> Add team member</button></Actions>
+</PageHeader>
+
+<div class="card">
+    <DataView Loading="_items is null && _error is null" Error="_error" OnRetry="LoadAsync" IsEmpty="_items?.Count == 0"
+              EmptyTitle="No team members yet" EmptyText="Add the people who take enquiry calls and run your campaigns. You give each one a sign-in." EmptyIcon="users">
+        <div class="table-wrap"><table class="table stack-mobile">
+            <thead><tr><th>Name</th><th>Status</th><th class="num">Open leads</th><th>Targets</th><th>Last sign-in</th><th></th></tr></thead>
+            <tbody>@foreach (var u in _items ?? [])
+            {
+                <tr>
+                    <td data-label="Name"><strong>@u.FullName</strong><div class="caption">@u.Email</div></td>
+                    <td data-label="Status"><span class="badge @(u.IsActive ? "green" : "slate")">@(u.IsActive ? "Active" : "Switched off")</span></td>
+                    <td data-label="Open leads" class="num"><a href="/marketing/leads?status=open">@u.OpenLeads</a></td>
+                    <td data-label="Targets" class="small">@Targets(u)</td>
+                    <td data-label="Last sign-in" class="small">@(u.LastLoginAtUtc is { } t ? Time.Short(t, Tz) : "Never")</td>
+                    <td class="lead-actions"><button class="btn btn-ghost btn-sm" @onclick="() => Edit(u)">Edit<span class="sr-only"> @u.FullName</span></button></td>
+                </tr>
+            }</tbody>
+        </table></div>
+    </DataView>
+</div>
+
+<section class="card" aria-labelledby="ef-h" style="margin-top:16px">
+    <div class="card-head"><div><h2 id="ef-h">Website enquiry form</h2><div class="caption">A public page where parents send their name, phone, class and what they need. Each one becomes a lead (source Website) and the team is notified.</div></div>
+        @if (_form is { } f) { <span class="badge @(f.Enabled ? "green" : "slate")">@(f.Enabled ? "On" : "Off")</span> }</div>
+    @if (_form is { } form)
+    {
+        <p class="small" style="overflow-wrap:anywhere">Address: <a href="/enquire/@form.Code" target="_blank" rel="noopener">@Nav.ToAbsoluteUri($"/enquire/{form.Code}")</a><br />Put this link on your website, Instagram bio, Google profile or a QR code on flyers.</p>
+        <button class="btn @(form.Enabled ? "btn-secondary" : "btn-primary") btn-sm" @onclick="ToggleForm" disabled="@Busy">@(form.Enabled ? "Switch off" : "Switch on")</button>
+    }
+</section>
+
+<Modal @bind-Open="_open" Title="@(_editId is null ? "Add team member" : "Edit team member")">
+    <div class="form-grid">
+        <div class="field full"><label for="mt-n">Full name *</label><input id="mt-n" class="input" maxlength="150" autocomplete="off" @bind="_name" /></div>
+        @if (_editId is null)
+        {
+            <div class="field full"><label for="mt-e">Email (for sign-in) *</label><input id="mt-e" class="input" type="email" autocomplete="off" @bind="_email" />
+                <span class="help">A one-time password is shown next. They choose their own at first sign-in.</span></div>
+        }
+        else
+        {
+            <div class="field full"><label class="check"><input type="checkbox" @bind="_active" /> Can sign in</label></div>
+            <div class="field"><label for="mt-c">Calls per day</label><input id="mt-c" class="input" type="number" min="0" max="500" inputmode="numeric" @bind="_callsPerDay" /></div>
+            <div class="field"><label for="mt-l">New leads per month</label><input id="mt-l" class="input" type="number" min="0" max="5000" inputmode="numeric" @bind="_leadsPerMonth" /></div>
+            <div class="field"><label for="mt-a">Admissions per month</label><input id="mt-a" class="input" type="number" min="0" max="5000" inputmode="numeric" @bind="_admissionsPerMonth" /></div>
+            <div class="field full"><span class="help">Targets are optional. The Marketing overview shows each person's calls, leads and admissions against them (calls: Monday to Saturday).</span></div>
+        }
+    </div>
+    <div class="form-actions">
+        @if (_editId is not null)
+        {
+            <button class="btn btn-ghost" @onclick="ResetPassword" disabled="@Busy"><Icon Name="key" /> Reset password</button>
+            <button class="btn btn-ghost danger-text" style="margin-right:auto" @onclick="() => (_open, _deleteOpen) = (false, true)" disabled="@Busy"><Icon Name="trash" /> Delete</button>
+        }
+        <button class="btn btn-secondary" @onclick="() => _open = false">Cancel</button>
+        <button class="btn btn-primary" @onclick="Save" disabled="@(Busy || string.IsNullOrWhiteSpace(_name) || (_editId is null && string.IsNullOrWhiteSpace(_email)))">@(_editId is null ? "Add team member" : "Save")</button>
+    </div>
+</Modal>
+
+<Modal @bind-Open="_deleteOpen" Title="@($"Delete {_name}?")">
+    <p style="margin-top:0">They can no longer sign in and their open leads become unassigned. If they logged calls, the account is switched off instead so their name stays on the call log.</p>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep</button><button class="btn btn-danger" @onclick="Delete" disabled="@Busy"><Icon Name="trash" /> Delete team member</button></div>
+</Modal>
+<TempPasswordDialog @bind-Password="_tempPassword" Title="@_tempTitle" />
+
+@code {
+    private List<MarketingUserDto>? _items;
+    private ApiException? _error;
+    private bool _open, _deleteOpen, _active = true;
+    private Guid? _editId;
+    private string _name = "", _email = "", _tempTitle = "Account created";
+    private string? _tempPassword;
+
+    private EnquiryFormDto? _form;
+    private int? _callsPerDay, _leadsPerMonth, _admissionsPerMonth;
+
+    protected override async Task LoadAsync()
+    {
+        (_items, _error) = await Fetch(() => Api.GetAsync<List<MarketingUserDto>>("marketing/team"));
+        _form ??= (await Fetch(() => Api.GetAsync<EnquiryFormDto>("marketing/enquiry-form"))).Value;
+    }
+
+    private static string Targets(MarketingUserDto u)
+    {
+        var parts = new[] { u.CallsPerDay is { } c ? $"{c} calls/day" : null, u.LeadsPerMonth is { } l ? $"{l} leads/month" : null, u.AdmissionsPerMonth is { } a ? $"{a} admissions/month" : null }.Where(x => x is not null);
+        return string.Join(" · ", parts) is { Length: > 0 } text ? text : "—";
+    }
+
+    private async Task ToggleForm()
+    {
+        if (_form is not { } f) return;
+        if (await Run(() => Api.PutAsync("marketing/enquiry-form", new SetEnquiryFormRequest(!f.Enabled)), f.Enabled ? "Enquiry form switched off." : "Enquiry form switched on.")) _form = f with { Enabled = !f.Enabled };
+    }
+
+    private void New() { (_editId, _name, _email, _active, _open) = (null, "", "", true, true); }
+    private void Edit(MarketingUserDto u)
+    {
+        (_editId, _name, _email, _active, _open) = (u.Id, u.FullName, u.Email, u.IsActive, true);
+        (_callsPerDay, _leadsPerMonth, _admissionsPerMonth) = (u.CallsPerDay, u.LeadsPerMonth, u.AdmissionsPerMonth);
+    }
+
+    private async Task Save()
+    {
+        var ok = await Run(async () =>
+        {
+            if (_editId is { } id) await Api.PutAsync($"marketing/team/{id}", new UpdateMarketingUserRequest(_name, _active, _callsPerDay, _leadsPerMonth, _admissionsPerMonth));
+            else
+            {
+                // The one-time password is shown once in the dialog and never stored on the client.
+                _tempTitle = "Account created";
+                _tempPassword = (await Api.PostAsync<CreatedPersonResponse>("marketing/team", new CreateMarketingUserRequest(_name, _email))).TemporaryPassword;
+            }
+        }, _editId is null ? null : "Saved.");
+        if (ok) { _open = false; await LoadAsync(); }
+    }
+
+    private async Task ResetPassword()
+    {
+        if (await Run(async () => { _tempTitle = "Temporary password issued"; _tempPassword = (await Api.PostAsync<TemporaryPasswordResponse>($"marketing/team/{_editId}/password-reset", null)).TemporaryPassword; })) _open = false;
+    }
+
+    private async Task Delete()
+    {
+        RemovePersonResponse? result = null;
+        if (!await Run(async () => result = await Api.DeleteAsync<RemovePersonResponse>($"marketing/team/{_editId}"))) return;
+        Toasts.Show(result!.Message);
+        _deleteOpen = false;
+        await LoadAsync();
+    }
+}

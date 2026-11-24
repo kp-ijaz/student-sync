@@ -44,6 +44,7 @@ public sealed class DailyAutomations(IAppDbContext db, ITenantContext tenant, IC
         var tasks = new List<(string Task, string Key)>();
         if (time >= s.MorningSummaryAt)
         {
+            tasks.Add(("lead-follow-ups", day)); // marketing: always on, sends nothing when no follow-up is due
             if (s.LowHoursAlert) tasks.Add(("low-hours", day));
             if (s.FeeReminders) tasks.Add(("fees", day));
             if (s.ScheduleRunningOut) tasks.Add(("schedule", day));
@@ -84,6 +85,7 @@ public sealed class DailyAutomations(IAppDbContext db, ITenantContext tenant, IC
     private Task<int> RunTaskAsync(string task, string key, AutomationSettings s, Centre c, DateOnly today, DateOnly month, CancellationToken ct) =>
         OnceAsync(task, key, () => task switch
         {
+            "lead-follow-ups" => LeadFollowUpsAsync(today, ct),
             "low-hours" => LowHoursAsync(s, c, today, ct),
             "fees" => FeeRemindersAsync(s, c, today, ct),
             "schedule" => ScheduleRunningOutAsync(c, today, ct),
@@ -95,6 +97,29 @@ public sealed class DailyAutomations(IAppDbContext db, ITenantContext tenant, IC
             "timetable" => TimetableAsync(c, today.AddDays(1), ct),
             _ => throw new ArgumentOutOfRangeException(nameof(task), task, null),
         }, ct);
+
+    /// <summary>
+    /// Each morning: tells every marketing team member (or admin) how many of their leads are due a follow-up today and how
+    /// many are overdue, and tells the admins about due leads nobody is assigned to. One notification per person per day;
+    /// it carries counts only, never a family's details.
+    /// </summary>
+    public async Task<int> LeadFollowUpsAsync(DateOnly today, CancellationToken ct)
+    {
+        var due = await db.Leads.Where(l => l.NextFollowUpOn <= today && l.Status != Domain.Marketing.LeadStatus.Admitted && l.Status != Domain.Marketing.LeadStatus.NotInterested)
+            .Select(l => new { l.AssignedToUserId, Overdue = l.NextFollowUpOn < today }).ToListAsync(ct);
+        if (due.Count == 0) return 0;
+        var active = await db.Users.Where(u => u.TenantId == tenant.TenantId && u.IsActive && (u.Role == UserRole.Marketing || u.Role == UserRole.InstitutionAdmin)).Select(u => u.Id).ToListAsync(ct);
+        static string Text(int n, int overdue) => $"{n} lead{(n == 1 ? "" : "s")} to follow up today" + (overdue > 0 ? $" ({overdue} overdue)" : "");
+        foreach (var g in due.Where(l => l.AssignedToUserId is { } id && active.Contains(id)).GroupBy(l => l.AssignedToUserId!.Value))
+            await notify.NotifyAsync([g.Key], NotificationType.LeadFollowUp, Text(g.Count(), g.Count(x => x.Overdue)), "Open Follow-ups, call them and set the next day.",
+                "/marketing/follow-ups", $"lead-fu:{Fmt.Key(today)}", ct);
+        var unowned = due.Where(l => l.AssignedToUserId is not { } id || !active.Contains(id)).ToList();
+        if (unowned.Count > 0)
+            await notify.NotifyAsync(await AdminsAsync(ct), NotificationType.LeadFollowUp, $"{unowned.Count} lead{(unowned.Count == 1 ? "" : "s")} due a follow-up with nobody assigned",
+                "Give them to someone on the marketing team.", "/marketing/follow-ups", $"lead-fu-unowned:{Fmt.Key(today)}", ct);
+        await db.SaveChangesAsync(ct);
+        return due.Count;
+    }
 
     /// <summary>Every 10 minutes: classes that ended a while ago and still have no attendance → remind the teacher once.</summary>
     public async Task<int> AttendanceNudgeAsync(CancellationToken ct)

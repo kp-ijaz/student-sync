@@ -95,6 +95,7 @@ public sealed class PeopleService(
     {
         access.Require(Permissions.UsersManage);
         var t = await db.Teachers.Include(x => x.User).FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Teacher");
+        if (r.Status == PersonStatus.OnHold) throw RequestValidationException.For("status", "On hold is for students. Use Inactive for a teacher.");
         if (r.Status == PersonStatus.Active && t.Status != PersonStatus.Active) await EnsureCapacityAsync(UserRole.Teacher, ct);
         t.User!.FullName = Text.Required(r.FullName, "fullName", 150);
         t.User.TimeZoneId = TimeZoneOr(r.TimeZoneId, t.User.TimeZoneId);
@@ -282,7 +283,7 @@ public sealed class PeopleService(
         if (!string.Equals(code, s.StudentCode, StringComparison.OrdinalIgnoreCase) && await db.Students.AnyAsync(x => x.StudentCode.ToLower() == code.ToLowerInvariant() && x.Id != s.Id, ct)) throw RequestValidationException.For("studentCode", "This student code is already in use.");
         if (r.GradeLevelId is { } g && !await db.GradeLevels.AnyAsync(x => x.Id == g, ct)) throw RequestValidationException.For("gradeLevelId", "Grade not found.");
         await EnsureAcademicRefsAsync(r.CurriculumId, r.AcademicYearId, ct);
-        if (r.Status == PersonStatus.Active && s.Status != PersonStatus.Active) await EnsureCapacityAsync(UserRole.Student, ct);
+        if (r.Status == PersonStatus.Active && s.Status is not (PersonStatus.Active or PersonStatus.OnHold)) await EnsureCapacityAsync(UserRole.Student, ct);
         s.User!.FullName = Text.Required(r.FullName, "fullName", 150);
         s.User.TimeZoneId = TimeZoneOr(r.TimeZoneId, s.User.TimeZoneId);
         s.StudentCode = code;
@@ -294,7 +295,8 @@ public sealed class PeopleService(
         if (s.Status != r.Status)
         {
             s.Status = r.Status;
-            await accounts.SetActiveAsync(s.Id, r.Status == PersonStatus.Active, ct);
+            // A student on hold keeps their sign-in (notes, results, fees); only booking new classes is paused.
+            await accounts.SetActiveAsync(s.Id, r.Status is PersonStatus.Active or PersonStatus.OnHold, ct);
             audit.Record("student.status", "Student", s.Id, r.Status.ToString());
         }
         await db.SaveChangesAsync(ct);

@@ -54,7 +54,7 @@
     };
 
     // People who left are listed apart, in "People who left" below (owner request 2026-11-24).
-    private List<FeeDueItemDto> Shown => (_d?.Items ?? []).Where(i => i.Status == PersonStatus.Active && Matches(i, _filter)).ToList();
+    private List<FeeDueItemDto> Shown => (_d?.Items ?? []).Where(i => i.Status is PersonStatus.Active or PersonStatus.OnHold && Matches(i, _filter)).ToList();
 
     private static string Plural(int n, string word) => n == 1 ? $"1 {word}" : $"{n} {word}s";
 

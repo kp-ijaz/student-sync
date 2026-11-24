@@ -53,6 +53,10 @@ public sealed class AppDbContext(
     public DbSet<StudentPackage> StudentPackages => Set<StudentPackage>();
     public DbSet<FeePlan> FeePlans => Set<FeePlan>();
     public DbSet<Expense> Expenses => Set<Expense>();
+    public DbSet<StudentSync.Domain.Marketing.Lead> Leads => Set<StudentSync.Domain.Marketing.Lead>();
+    public DbSet<StudentSync.Domain.Marketing.LeadActivity> LeadActivities => Set<StudentSync.Domain.Marketing.LeadActivity>();
+    public DbSet<StudentSync.Domain.Marketing.Campaign> Campaigns => Set<StudentSync.Domain.Marketing.Campaign>();
+    public DbSet<StudentSync.Domain.Marketing.MarketingTarget> MarketingTargets => Set<StudentSync.Domain.Marketing.MarketingTarget>();
     public DbSet<FeePayment> FeePayments => Set<FeePayment>();
     public DbSet<TeacherPayRate> TeacherPayRates => Set<TeacherPayRate>();
     public DbSet<TeacherPayment> TeacherPayments => Set<TeacherPayment>();

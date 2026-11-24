@@ -46,7 +46,8 @@
                     @if (_sProvider == SmsProvider.Twilio)
                     {
                         <div class="field"><label for="sa">Account SID</label><input id="sa" class="input" autocomplete="off" placeholder="AC…" @bind="_sAccount" /></div>
-                        <div class="field"><label for="ss">Send from</label><input id="ss" class="input" autocomplete="off" placeholder="+1… number or MG… service SID" @bind="_sSender" /></div>
+                        <div class="field"><label for="ss">Send from</label><input id="ss" class="input" autocomplete="off" placeholder="+1… number or MG… service SID" @bind="_sSender" />
+                            <span class="help">To send by WhatsApp instead of SMS, enter your Twilio WhatsApp sender as <strong>whatsapp:+1…</strong> (needs a WhatsApp sender and approved message templates in Twilio).</span></div>
                         <div class="field"><label for="sk">Auth Token</label><PasswordInput Id="sk" What="token" Placeholder="@(_d.Sms.HasSecret && _d.Sms.Provider == _sProvider ? "Saved — leave blank to keep" : "")" @bind-Value="_sSecret" /></div>
                     }
                     else

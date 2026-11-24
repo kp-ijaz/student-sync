@@ -242,9 +242,61 @@ internal static class ModelConfiguration
                 t.HasCheckConstraint("CK_FeePlans_Price", "\"Price\" >= 0");
             });
         });
+        // ---------- Marketing: enquiries (leads), contact log, campaigns ----------
+        b.Entity<StudentSync.Domain.Marketing.Campaign>(e =>
+        {
+            e.HasIndex(x => new { x.Status, x.StartsOn });
+            e.Property(x => x.Name).HasMaxLength(150);
+            e.Property(x => x.Location).HasMaxLength(200);
+            e.Property(x => x.Notes).HasMaxLength(1000);
+            e.Property(x => x.CurrencyCode).HasMaxLength(3);
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_Campaigns_Money", "\"Budget\" >= 0");
+                t.HasCheckConstraint("CK_Campaigns_Dates", "\"EndsOn\" IS NULL OR \"EndsOn\" >= \"StartsOn\"");
+            });
+        });
+        b.Entity<StudentSync.Domain.Marketing.Lead>(e =>
+        {
+            e.HasIndex(x => new { x.Status, x.NextFollowUpOn });
+            e.HasIndex(x => x.EnquiredOn);
+            e.HasIndex(x => x.Phone);
+            e.HasOne(x => x.Campaign).WithMany().HasForeignKey(x => x.CampaignId).OnDelete(R);
+            e.HasOne<GradeLevel>().WithMany().HasForeignKey(x => x.GradeLevelId).OnDelete(R);
+            e.HasOne<Curriculum>().WithMany().HasForeignKey(x => x.CurriculumId).OnDelete(R);
+            e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.AssignedToUserId).OnDelete(R);
+            e.HasOne<Student>().WithMany().HasForeignKey(x => x.ConvertedStudentId).OnDelete(DeleteBehavior.SetNull);
+            e.HasMany(x => x.Activities).WithOne().HasForeignKey(x => x.LeadId).OnDelete(DeleteBehavior.Cascade);
+            e.Property(x => x.StudentName).HasMaxLength(150);
+            e.Property(x => x.GuardianName).HasMaxLength(150);
+            e.Property(x => x.Phone).HasMaxLength(30);
+            e.Property(x => x.Email).HasMaxLength(256);
+            e.Property(x => x.SchoolName).HasMaxLength(200);
+            e.Property(x => x.Interest).HasMaxLength(300);
+            e.Property(x => x.LostReason).HasMaxLength(300);
+            e.Property(x => x.ReferredBy).HasMaxLength(150);
+            e.Property(x => x.TrialNotes).HasMaxLength(300);
+            e.HasIndex(x => x.TrialAtUtc);
+            e.Property(x => x.Notes).HasMaxLength(2000);
+            e.Ignore(x => x.IsOpen);
+        });
+        b.Entity<StudentSync.Domain.Marketing.LeadActivity>(e =>
+        {
+            e.HasIndex(x => new { x.LeadId, x.OccurredAtUtc });
+            e.HasIndex(x => x.OccurredAtUtc);
+            e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.ByUserId).OnDelete(R);
+            e.Property(x => x.Notes).HasMaxLength(1000);
+        });
+        b.Entity<StudentSync.Domain.Marketing.MarketingTarget>(e =>
+        {
+            e.HasIndex(x => x.UserId).IsUnique();
+            e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
         b.Entity<Expense>(e =>
         {
             e.HasIndex(x => x.SpentOn);
+            e.HasIndex(x => x.CampaignId);
+            e.HasOne<StudentSync.Domain.Marketing.Campaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.SetNull);
             e.Property(x => x.CurrencyCode).HasMaxLength(3);
             e.Property(x => x.Description).HasMaxLength(300);
             e.Property(x => x.PaidTo).HasMaxLength(150);

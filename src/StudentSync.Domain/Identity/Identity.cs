@@ -8,7 +8,9 @@ public enum UserRole
     InstitutionAdmin,
     Teacher,
     Student,
-    Parent
+    Parent,
+    /// <summary>Marketing team (owner decision 2026-11-24): works only with enquiries (leads), calls and campaigns.</summary>
+    Marketing
 }
 
 /// <summary>
@@ -100,6 +102,8 @@ public static class Permissions
     /// <summary>A student reporting or withdrawing their own weak subjects.</summary>
     public const string LearningNeedsSelf = "learning_needs.self";
     public const string ChildrenView = "children.view";
+    /// <summary>Leads, their calls/follow-ups and campaigns (admins and the marketing team). Gives no access to students, fees or classes.</summary>
+    public const string MarketingManage = "marketing.manage";
 }
 
 public static class RolePermissions
@@ -119,7 +123,7 @@ public static class RolePermissions
             Permissions.ContentManage, Permissions.ContentView, Permissions.RecordingsManage, Permissions.ConsentGive,
             Permissions.AssignmentsManage, Permissions.ExamsManage, Permissions.DoubtsAnswer,
             Permissions.MessagesSend, Permissions.AnnouncementsPublish, Permissions.AiReview, Permissions.AiConfigure,
-            Permissions.LearningNeedsManage,
+            Permissions.LearningNeedsManage, Permissions.MarketingManage,
         ],
         [UserRole.Teacher] =
         [
@@ -139,6 +143,8 @@ public static class RolePermissions
         [
             Permissions.SessionsView, Permissions.ConsentGive, Permissions.MessagesSend, Permissions.ChildrenView,
         ],
+        // Least privilege: the marketing team sees enquiries only — no students, teachers, classes, fees or messages.
+        [UserRole.Marketing] = [Permissions.MarketingManage],
     };
 
     public static IReadOnlySet<string> For(UserRole role) => Matrix[role];

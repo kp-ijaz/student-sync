@@ -124,7 +124,9 @@ public sealed class IntegrationClients(IHttpClientFactory http, ILogger<Integrat
         HttpRequestMessage request;
         if (s.Provider == SmsProvider.Twilio)
         {
-            var fields = new Dictionary<string, string> { ["To"] = toE164, ["Body"] = text };
+            // A sender written as "whatsapp:+…" sends the same message by WhatsApp (Twilio's WhatsApp channel) instead of SMS.
+            var whatsApp = s.Sender?.StartsWith("whatsapp:", StringComparison.OrdinalIgnoreCase) == true;
+            var fields = new Dictionary<string, string> { ["To"] = whatsApp ? "whatsapp:" + toE164 : toE164, ["Body"] = text };
             if (s.Sender?.StartsWith("MG", StringComparison.Ordinal) == true) fields["MessagingServiceSid"] = s.Sender; else fields["From"] = s.Sender ?? "";
             request = new HttpRequestMessage(HttpMethod.Post, $"https://api.twilio.com/2010-04-01/Accounts/{Uri.EscapeDataString(s.AccountId ?? "")}/Messages.json")
             { Content = new FormUrlEncodedContent(fields) };

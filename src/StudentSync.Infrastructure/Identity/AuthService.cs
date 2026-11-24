@@ -59,7 +59,7 @@ public sealed class AuthService(AppDbContext db, UserManager<AppUser> users, IOp
         if (await users.IsLockedOutAsync(user)) throw new AuthException("Too many failed attempts. Try again in 15 minutes.", "locked_out", 423);
         if (!await users.CheckPasswordAsync(user, r.Password))
         {
-            await users.AccessFailedAsync(user);
+            await RecordFailedAttemptAsync(user, ct);
             await AuditAsync(user, "auth.login_failed", ip, ct);
             throw new AuthException(invalid, "invalid_credentials");
         }
@@ -79,6 +79,23 @@ public sealed class AuthService(AppDbContext db, UserManager<AppUser> users, IOp
         var response = await IssueAsync(user, Guid.NewGuid(), ip, r.ClientName, ct);
         await AuditAsync(user, "auth.login", ip, ct);
         return response;
+    }
+
+    /// <summary>
+    /// Counts a wrong password and locks the account at the configured limit — as Identity's AccessFailedAsync does, but
+    /// as direct column updates. AccessFailedAsync saves the whole user row, so a failed attempt racing another change to
+    /// the account (a new photo, a renamed profile) could silently undo that change.
+    /// </summary>
+    private async Task RecordFailedAttemptAsync(AppUser user, CancellationToken ct)
+    {
+        var lockout = users.Options.Lockout;
+        await db.Users.Where(u => u.Id == user.Id).ExecuteUpdateAsync(s => s.SetProperty(u => u.AccessFailedCount, u => u.AccessFailedCount + 1), ct);
+        var count = await db.Users.Where(u => u.Id == user.Id).Select(u => u.AccessFailedCount).FirstAsync(ct);
+        if (count >= lockout.MaxFailedAccessAttempts)
+        {
+            DateTimeOffset? until = new DateTimeOffset(DateTime.SpecifyKind(clock.UtcNow, DateTimeKind.Utc)).Add(lockout.DefaultLockoutTimeSpan);
+            await db.Users.Where(u => u.Id == user.Id).ExecuteUpdateAsync(s => s.SetProperty(u => u.LockoutEnd, until).SetProperty(u => u.AccessFailedCount, 0), ct);
+        }
     }
 
     public async Task<AuthResponse> RefreshAsync(RefreshRequest r, string? ip, CancellationToken ct)

@@ -344,6 +344,7 @@ public sealed class SchedulingService(
             throw RequestValidationException.For("batchId", "This batch has no active students yet.");
         var students = await db.Students.Include(s => s.User).Where(s => studentIds.Contains(s.Id)).ToListAsync(ct);
         if (students.Count != studentIds.Count) throw RequestValidationException.For("studentIds", "One or more selected students were not found.");
+        if (students.Any(s => s.Status == PersonStatus.OnHold)) throw RequestValidationException.For("studentIds", "This student is on hold. Set them Active again (People ▸ Students ▸ Edit) to book classes.");
         if (students.Any(s => s.Status != PersonStatus.Active)) throw RequestValidationException.For("studentIds", "Inactive students cannot be scheduled.");
 
         LearningSession.ValidateShape(r.SessionType, batch?.Id, students.Count);
@@ -616,6 +617,7 @@ public sealed class SchedulingService(
         var s = await access.GetManageableSessionAsync(id, ct, includeParticipants: true);
         if (s.Status is SessionStatus.Cancelled or SessionStatus.Completed) throw new DomainException("Participants cannot be changed after a session ends or is cancelled.", "invalid_session_state");
         var student = await db.Students.Include(x => x.User).FirstOrDefaultAsync(x => x.Id == r.StudentId, ct) ?? throw RequestValidationException.For("studentId", "Student not found.");
+        if (student.Status == PersonStatus.OnHold) throw RequestValidationException.For("studentId", "This student is on hold. Set them Active again to add them to classes.");
         if (student.Status != PersonStatus.Active) throw RequestValidationException.For("studentId", "This student is not active.");
         var existing = s.Participants.FirstOrDefault(p => p.StudentId == student.Id);
         if (existing?.Status == ParticipantStatus.Active) throw new ConflictException("The student is already a participant.", "duplicate_participant");

@@ -90,6 +90,9 @@ builder.Services.AddRateLimiter(o =>
     // Gateway webhooks: their own bucket, so sign-in traffic never throttles payment confirmations (and vice versa).
     o.AddPolicy("webhooks", http => RateLimitPartition.GetFixedWindowLimiter(http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1) }));
+    // The public enquiry form is posted by the web server on the visitor's behalf, so the limit is for the whole form.
+    o.AddPolicy("enquiry", _ => RateLimitPartition.GetFixedWindowLimiter("enquiry",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = builder.Configuration.GetValue("RateLimits:EnquiryPerMinute", 30), Window = TimeSpan.FromMinutes(1) }));
     o.AddPolicy("ai", http => RateLimitPartition.GetFixedWindowLimiter(http.User.FindFirst("sub")?.Value ?? "anon",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1) }));
 });
@@ -158,6 +161,7 @@ api.MapCommunication();
 api.MapAi();
 api.MapReporting();
 api.MapAutomations();
+api.MapMarketing();
 
 app.Run();
 

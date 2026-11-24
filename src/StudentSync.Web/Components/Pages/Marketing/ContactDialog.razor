@@ -1,0 +1,75 @@
+@inherits AppComponent
+@* Log a call or another contact with a lead, and in the same step say what happens next (status and follow-up day).
+   One dialog for the Leads list ("Log call") and the lead's page (log, edit). *@
+<Modal Open="Open" OpenChanged="OpenChanged" Title="@(Activity is null ? $"Log contact · {LeadName}" : "Edit entry")">
+    <Choice TValue="LeadActivityKind" Label="What was it? *" Options="Kinds" @bind-Value="_kind" />
+    @if (_kind != LeadActivityKind.Note)
+    {
+        <Choice TValue="LeadActivityOutcome" Label="How did it go?" Options="Outcomes" @bind-Value="_outcome" />
+    }
+    <div class="form-grid">
+        <div class="field full"><label for="ct-n">Notes</label><textarea id="ct-n" class="textarea" rows="2" maxlength="1000" placeholder="What was said, what they want to know" @bind="_notes"></textarea></div>
+        @if (_kind == LeadActivityKind.Call) { <div class="field"><label for="ct-m">Minutes</label><input id="ct-m" class="input" type="number" min="0" max="600" inputmode="numeric" @bind="_minutes" /></div> }
+        @if (Activity is null)
+        {
+            <div class="field"><label for="ct-s">Lead is now</label><select id="ct-s" class="select" @bind="_statusText"><option value="">Keep as it is</option>@foreach (var s in Enum.GetValues<LeadStatus>()) { <option value="@s">@MarketingLabels.Status(s)</option> }</select></div>
+            @if (!Closing)
+            {
+                <div class="field"><label for="ct-f">Next follow-up</label><input id="ct-f" class="input" type="date" @bind="_followUp" /><span class="help">Leave empty to keep the current day.</span></div>
+            }
+        }
+    </div>
+    <div class="form-actions">
+        <button class="btn btn-secondary" @onclick="() => OpenChanged.InvokeAsync(false)">Cancel</button>
+        <button class="btn btn-primary" @onclick="Save" disabled="@Busy">@(Activity is null ? "Save" : "Save changes")</button>
+    </div>
+</Modal>
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+    [Parameter, EditorRequired] public Guid LeadId { get; set; }
+    [Parameter] public string LeadName { get; set; } = "";
+    /// <summary>An entry to correct; empty logs a new one.</summary>
+    [Parameter] public LeadActivityDto? Activity { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    private static readonly IReadOnlyList<Choice<LeadActivityKind>.Option> Kinds = Enum.GetValues<LeadActivityKind>().Select(k => new Choice<LeadActivityKind>.Option(k, k == LeadActivityKind.Visit ? "Visit to centre" : k.ToString())).ToList();
+    private static readonly IReadOnlyList<Choice<LeadActivityOutcome>.Option> Outcomes = Enum.GetValues<LeadActivityOutcome>().Where(o => o != LeadActivityOutcome.None).Select(o => new Choice<LeadActivityOutcome>.Option(o, MarketingLabels.Outcome(o))).ToList();
+
+    private bool _wasOpen;
+    private LeadActivityKind _kind = LeadActivityKind.Call;
+    private LeadActivityOutcome _outcome = LeadActivityOutcome.Answered;
+    private string? _notes;
+    private string _statusText = "", _key = "";
+    private int? _minutes;
+    private DateOnly? _followUp;
+    private LeadStatus? NewStatus => Enum.TryParse<LeadStatus>(_statusText, out var s) ? s : null;
+    private bool Closing => NewStatus is { } s && !MarketingRules.IsOpen(s);
+
+    protected override void OnParametersSet()
+    {
+        if (Open && !_wasOpen)
+        {
+            var a = Activity;
+            (_kind, _outcome, _notes, _minutes) = (a?.Kind ?? LeadActivityKind.Call, a is null || a.Outcome == LeadActivityOutcome.None ? LeadActivityOutcome.Answered : a.Outcome, a?.Notes, a?.DurationMinutes);
+            (_statusText, _followUp, _key) = ("", null, Guid.NewGuid().ToString("N"));
+        }
+        _wasOpen = Open;
+    }
+
+    private async Task Save()
+    {
+        var outcome = _kind == LeadActivityKind.Note ? LeadActivityOutcome.None : _outcome;
+        var request = new SaveLeadActivityRequest(_kind, outcome, Activity?.OccurredAtUtc, _kind == LeadActivityKind.Call ? _minutes : null, _notes,
+            Activity is null ? NewStatus : null, Activity is null && !Closing ? _followUp : null);
+        var ok = await Run(async () =>
+        {
+            if (Activity is { } a) await Api.PutAsync<IdResponse>($"marketing/leads/{LeadId}/activities/{a.Id}", request);
+            else await Api.PostAsync<IdResponse>($"marketing/leads/{LeadId}/activities", request, _key);
+        }, Activity is null ? "Saved." : "Entry saved.");
+        if (!ok) return;
+        await OpenChanged.InvokeAsync(false);
+        await OnSaved.InvokeAsync();
+    }
+}

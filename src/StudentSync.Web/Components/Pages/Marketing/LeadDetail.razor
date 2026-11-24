@@ -1,0 +1,169 @@
+@page "/marketing/leads/{Id:guid}"
+@attribute [Authorize(Roles = "InstitutionAdmin,Marketing")]
+@inherits AppPage
+
+@* One enquiry: who asked and what about, where it stands (status, follow-up day, who has it), and the log of every
+   call, message and visit. Log a contact, change the status in one tap, edit or delete. Admins can link an admitted
+   lead to the student record (the marketing team has no access to students). *@
+<DataView Loading="_d is null && _error is null" Error="_error" OnRetry="LoadAsync">
+    @if (_d is { } d)
+    {
+        var l = d.Lead;
+        <PageTitle>@l.StudentName · Student Sync</PageTitle>
+        <PageHeader Title="@l.StudentName" Subtitle="@string.Join(" · ", new[] { l.GradeLevelName, l.CurriculumName, MarketingLabels.Source(l.Source), l.CampaignName }.Where(x => !string.IsNullOrWhiteSpace(x)))">
+            <Breadcrumb><a href="/marketing/leads">Leads</a> /</Breadcrumb>
+            <Actions>
+                <button class="btn btn-ghost danger-text" @onclick="() => _deleteOpen = true" disabled="@Busy"><Icon Name="trash" /> Delete</button>
+                <button class="btn btn-secondary" @onclick="() => _editOpen = true" disabled="@(_options is null)"><Icon Name="pencil" /> Edit</button>
+                <button class="btn btn-primary" @onclick="() => OpenContact(null)"><Icon Name="plus" /> Log contact</button>
+            </Actions>
+        </PageHeader>
+
+        <div class="grid grid-main lead-detail">
+            <div class="stack">
+                <section class="card" aria-labelledby="ld-next">
+                    <div class="card-head"><h2 id="ld-next">Where it stands</h2><Badge Style="StatusStyles.For(l.Status)" /></div>
+                    <Choice TValue="LeadStatus" Label="Move to" Options="Statuses" Value="l.Status" ValueChanged="SetStatus" Disabled="Busy" />
+                    <dl class="kv">
+                        <dt>Next follow-up</dt>
+                        <dd>@if (l.NextFollowUpOn is { } f) { <span class="@(l.FollowUpOverdue ? "lead-overdue" : "")">@f.ToString("dddd d MMM yyyy")@(l.FollowUpOverdue ? " · overdue" : "")</span> } else { <span class="muted">@(MarketingRules.IsOpen(l.Status) ? "Not planned — set a day when you log the next contact." : "Closed")</span> }</dd>
+                        <dt>Assigned to</dt><dd>@(l.AssignedToName ?? "Nobody yet")</dd>
+                        @if (l.TrialAtUtc is { } trial) { <dt>Trial class</dt><dd>@Time.ToLocal(trial, Tz).ToString("dddd d MMM yyyy, h:mm tt")@(l.TrialNotes is { } tn ? $" · {tn}" : "")</dd> }
+                        @if (l.LostReason is { } lr) { <dt>Why not</dt><dd>@lr</dd> }
+                        @if (l.Status == LeadStatus.Admitted)
+                        {
+                            <dt>Student record</dt>
+                            <dd>
+                                @if (l.ConvertedStudentId is { } sid) { @if (IsAdmin) { <a href="/students/@sid">Open the student</a> } else { <span>Linked by the admin</span> } }
+                                else if (IsAdmin) { <button class="btn btn-secondary btn-sm" @onclick="OpenLink">Link to the admitted student</button> }
+                                else { <span class="muted">The admin admits the student and links them here.</span> }
+                            </dd>
+                        }
+                    </dl>
+                </section>
+
+                <section class="card" aria-labelledby="ld-log">
+                    <div class="card-head"><h2 id="ld-log">Calls and contacts</h2><span class="count-pill">@d.Activities.Count</span></div>
+                    @if (d.Activities.Count == 0) { <InlineEmpty Icon="message" Text="Nothing logged yet. Log the first call." /> }
+                    else
+                    {
+                        <ul class="lead-log">
+                            @foreach (var a in d.Activities)
+                            {
+                                <li>
+                                    <span class="finance-kind @(a.Kind == LeadActivityKind.Call ? "salary" : "income")"><Icon Name="@KindIcon(a.Kind)" /></span>
+                                    <div class="grow">
+                                        <strong>@(a.Kind == LeadActivityKind.Visit ? "Visit" : a.Kind.ToString())@(a.Outcome != LeadActivityOutcome.None ? $" · {MarketingLabels.Outcome(a.Outcome)}" : "")</strong>
+                                        <div class="caption"><LocalTime Utc="a.OccurredAtUtc" Tz="@d.TimeZoneId" Format="d MMM yyyy, h:mm tt" /> · @a.ByName@(a.DurationMinutes is { } m ? $" · {m} min" : "")</div>
+                                        @if (a.Notes is { } n) { <p class="lead-note">@n</p> }
+                                    </div>
+                                    @if (a.CanEdit)
+                                    {
+                                        <span class="finance-act">
+                                            <button type="button" class="icon-btn icon-btn-sm" title="Edit" aria-label="@($"Edit the {a.Kind} entry")" @onclick="() => OpenContact(a)"><Icon Name="pencil" /></button>
+                                            <button type="button" class="icon-btn icon-btn-sm" title="Delete" aria-label="@($"Delete the {a.Kind} entry")" @onclick="() => (_deletingActivity, _deleteActivityOpen) = (a, true)"><Icon Name="trash" /></button>
+                                        </span>
+                                    }
+                                </li>
+                            }
+                        </ul>
+                    }
+                </section>
+            </div>
+
+            <section class="card" aria-labelledby="ld-about">
+                <h2 id="ld-about" style="margin-bottom:12px">About the enquiry</h2>
+                <dl class="kv lead-facts">
+                    <dt>Phone</dt><dd><a href="tel:@l.Phone">@l.Phone</a></dd>
+                    <dt>Parent / guardian</dt><dd>@(l.GuardianName ?? "—")</dd>
+                    <dt>Class</dt><dd>@(l.GradeLevelName ?? "—")</dd>
+                    <dt>Syllabus</dt><dd>@(l.CurriculumName ?? "—")</dd>
+                    <dt>School</dt><dd>@(l.SchoolName ?? "—")</dd>
+                    <dt>Asked about</dt><dd>@(l.Interest ?? "—")</dd>
+                    <dt>Email</dt><dd>@(l.Email ?? "—")</dd>
+                    <dt>Source</dt><dd>@MarketingLabels.Source(l.Source)@(l.CampaignName is { } cn ? $" · {cn}" : "")@(l.FromWebsiteForm ? " · sent through the website form" : "")</dd>
+                    @if (l.ReferredBy is { } rb) { <dt>Referred by</dt><dd>@rb</dd> }
+                    <dt>Enquired on</dt><dd>@l.EnquiredOn.ToString("d MMM yyyy")</dd>
+                    <dt>Notes</dt><dd style="white-space:pre-wrap;overflow-wrap:anywhere">@(l.Notes ?? "—")</dd>
+                </dl>
+            </section>
+        </div>
+
+        @if (Me is not null)
+        {
+            @if (_options is not null) { <LeadDialog Me="Me" @bind-Open="_editOpen" Lead="l" Options="_options" OnSaved="_ => LoadAsync()" /> }
+            <ContactDialog Me="Me" @bind-Open="_contactOpen" LeadId="Id" LeadName="@l.StudentName" Activity="_editingActivity" OnSaved="LoadAsync" />
+        }
+    }
+</DataView>
+
+<Modal @bind-Open="_deleteOpen" Title="Delete this lead?">
+    <p style="margin-top:0">The enquiry and its call log are removed for good. To keep the history, mark it "Not interested" instead.</p>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep it</button><button class="btn btn-danger" @onclick="Delete" disabled="@Busy"><Icon Name="trash" /> Delete lead</button></div>
+</Modal>
+
+<Modal @bind-Open="_deleteActivityOpen" Title="Delete this entry?">
+    <p style="margin-top:0">It is removed from the log and from the call counts.</p>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteActivityOpen = false">Keep it</button><button class="btn btn-danger" @onclick="DeleteActivity" disabled="@Busy"><Icon Name="trash" /> Delete entry</button></div>
+</Modal>
+
+<Modal @bind-Open="_linkOpen" Title="Link to the admitted student">
+    <p class="small" style="margin-top:0">Admit the student first (People ▸ Students ▸ Admit student), then choose them here.</p>
+    <div class="field"><label for="lk-s">Student</label>
+        <select id="lk-s" class="select" @bind="_linkStudent"><option value="">Choose…</option>@foreach (var s in _students) { <option value="@s.Id">@s.Name (@s.Detail)</option> }</select></div>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _linkOpen = false">Cancel</button><button class="btn btn-primary" @onclick="Link" disabled="@(Busy || _linkStudent is null)">Link student</button></div>
+</Modal>
+
+@code {
+    private static readonly IReadOnlyList<Choice<LeadStatus>.Option> Statuses = Enum.GetValues<LeadStatus>().Select(s => new Choice<LeadStatus>.Option(s, MarketingLabels.Status(s))).ToList();
+    [Parameter] public Guid Id { get; set; }
+    private LeadDetailDto? _d;
+    private ApiException? _error;
+    private MarketingOptionsDto? _options;
+    private bool _editOpen, _contactOpen, _deleteOpen, _deleteActivityOpen, _linkOpen;
+    private LeadActivityDto? _editingActivity, _deletingActivity;
+    private List<LookupItem> _students = [];
+    private Guid? _linkStudent;
+
+    protected override async Task LoadAsync()
+    {
+        (_d, _error) = await Fetch(() => Api.GetAsync<LeadDetailDto>($"marketing/leads/{Id}"));
+        _options ??= (await Fetch(() => Api.GetAsync<MarketingOptionsDto>("marketing/options"))).Value;
+    }
+
+    private static string KindIcon(LeadActivityKind k) => k switch { LeadActivityKind.Call => "message", LeadActivityKind.Email => "mail", LeadActivityKind.Visit => "map-pin", LeadActivityKind.Note => "notebook", _ => "send" };
+
+    private void OpenContact(LeadActivityDto? a) => (_editingActivity, _contactOpen) = (a, true);
+
+    // One tap on a status pill: the lead keeps every other detail.
+    private async Task SetStatus(LeadStatus status)
+    {
+        if (_d?.Lead is not { } l || l.Status == status) return;
+        var request = new SaveLeadRequest(l.StudentName, l.Phone, l.Source, l.GuardianName, l.Email, l.GradeLevelId, l.CurriculumId, l.SchoolName, l.Interest, l.CampaignId, status,
+            l.LostReason, l.AssignedToUserId, l.NextFollowUpOn, l.Notes, l.EnquiredOn, l.ReferredBy, l.TrialAtUtc, l.TrialNotes);
+        if (await Run(() => Api.PutAsync<IdResponse>($"marketing/leads/{Id}", request), $"Marked {MarketingLabels.Status(status).ToLowerInvariant()}.")) await LoadAsync();
+    }
+
+    private async Task Delete()
+    {
+        if (await Run(() => Api.DeleteAsync($"marketing/leads/{Id}"), "Lead deleted.")) { _deleteOpen = false; Nav.NavigateTo("/marketing/leads"); }
+    }
+
+    private async Task DeleteActivity()
+    {
+        if (_deletingActivity is not { } a) return;
+        if (await Run(() => Api.DeleteAsync($"marketing/leads/{Id}/activities/{a.Id}"), "Entry deleted.")) { _deleteActivityOpen = false; await LoadAsync(); }
+    }
+
+    private async Task OpenLink()
+    {
+        _students = (await Fetch(() => Api.GetAsync<List<LookupItem>>("students/lookup"))).Value ?? [];
+        (_linkStudent, _linkOpen) = (null, true);
+    }
+
+    private async Task Link()
+    {
+        if (_linkStudent is not { } sid) return;
+        if (await Run(() => Api.PostAsync($"marketing/leads/{Id}/student", new LinkLeadStudentRequest(sid)), "Linked to the student.")) { _linkOpen = false; await LoadAsync(); }
+    }
+}

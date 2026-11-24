@@ -1,0 +1,172 @@
+@page "/marketing/leads"
+@page "/marketing/follow-ups"
+@attribute [Authorize(Roles = "InstitutionAdmin,Marketing")]
+@inherits AppPage
+@inject IJSRuntime JS
+
+@* Marketing ▸ Leads and ▸ Follow-ups (owner request 2026-11-24): every enquiry, with search, filters, sorting, pages and
+   a CSV export. "Follow-ups" is the same list opened on what is due (today or overdue), earliest first. One page for
+   admins and the marketing team; the API scopes and authorises everything. *@
+<PageTitle>@Title · Student Sync</PageTitle>
+<PageHeader Title="@Title" Subtitle="@(FollowUpsPage ? "Leads to contact today, and the ones that are overdue. Log the call and set the next day." : "Every enquiry: who asked, where they came from and what happens next.")">
+    <Actions>
+        <button class="btn btn-secondary" @onclick="ExportCsv" disabled="@Busy"><Icon Name="download" /> Export</button>
+        <button class="btn btn-secondary" @onclick="OpenImport" disabled="@(_options is null)"><Icon Name="upload" /> Import</button>
+        <button class="btn btn-primary" @onclick="() => OpenLead(null)" disabled="@(_options is null)"><Icon Name="plus" /> Add lead</button>
+    </Actions>
+</PageHeader>
+
+<div class="card">
+    <div class="list-tools lead-tools">
+        <input class="input" type="search" placeholder="Search name, phone, school…" aria-label="Search leads" @bind="_search" @bind:after="() => Load(1)" />
+        <select class="select" aria-label="Status" @bind="_status" @bind:after="() => Load(1)">
+            <option value="">Any status</option><option value="open">Open (still to win)</option>
+            @foreach (var s in Enum.GetValues<LeadStatus>()) { <option value="@s">@MarketingLabels.Status(s)</option> }
+        </select>
+        <select class="select" aria-label="Source" @bind="_source" @bind:after="() => Load(1)">
+            <option value="">Any source</option>@foreach (var s in Enum.GetValues<LeadSource>()) { <option value="@s">@MarketingLabels.Source(s)</option> }
+        </select>
+        <select class="select" aria-label="Campaign" @bind="_campaign" @bind:after="() => Load(1)">
+            <option value="">Any campaign</option>@foreach (var c in _options?.Campaigns ?? []) { <option value="@c.Id">@c.Name</option> }
+        </select>
+        <select class="select" aria-label="Assigned to" @bind="_assignee" @bind:after="() => Load(1)">
+            <option value="">Anyone</option><option value="@Guid.Empty">Nobody yet</option><option value="@Me?.Id">Me</option>
+            @foreach (var t in (_options?.Team ?? []).Where(t => t.Id != Me?.Id)) { <option value="@t.Id">@t.Name</option> }
+        </select>
+        <select class="select" aria-label="Follow-up" @bind="_followUp" @bind:after="() => Load(1)">
+            <option value="">Any follow-up</option><option value="due">Due (today + overdue)</option><option value="today">Today</option><option value="overdue">Overdue</option><option value="week">Next 7 days</option>
+            <option value="trial">Trial class coming up</option><option value="website">New from the website</option>
+        </select>
+        <select class="select" aria-label="Sort" @bind="_sort" @bind:after="() => Load(1)">
+            <option value="@LeadSort.Newest">Newest first</option><option value="@LeadSort.Oldest">Oldest first</option>
+            <option value="@LeadSort.FollowUp">Follow-up day</option><option value="@LeadSort.Name">Name (A–Z)</option>
+        </select>
+    </div>
+    <DataView Loading="_page is null && _error is null" Error="_error" OnRetry="() => Load(1)" IsEmpty="_page?.Items.Count == 0"
+              EmptyTitle="@(Filtered ? "No leads match" : "No leads yet")" EmptyText="@(Filtered ? "Try other filters." : "Add the first enquiry: a name, a phone number and where it came from.")" EmptyIcon="user-plus">
+        <div class="table-wrap"><table class="table stack-mobile lead-table">
+            <thead><tr><th>Lead</th><th>Class</th><th>Source</th><th>Status</th><th>Follow-up</th><th>Assigned</th><th></th></tr></thead>
+            <tbody>@foreach (var l in _page?.Items ?? [])
+            {
+                <tr>
+                    <td data-label="Lead"><a href="/marketing/leads/@l.Id"><strong>@l.StudentName</strong></a>@if (l.FromWebsiteForm && l.Status == LeadStatus.New) { <span class="badge blue lead-flag">Website</span> }
+                        <div class="caption"><a href="tel:@l.Phone">@l.Phone</a>@(l.GuardianName is { } g ? $" · {g}" : "")</div></td>
+                    <td data-label="Class">@(l.GradeLevelName ?? "—")</td>
+                    <td data-label="Source">@MarketingLabels.Source(l.Source)@if (l.CampaignName is { } cn) { <div class="caption">@cn</div> }</td>
+                    <td data-label="Status"><Badge Style="StatusStyles.For(l.Status)" />@if (l.TrialAtUtc is { } tr && MarketingRules.IsOpen(l.Status)) { <div class="caption">Trial @Time.Short(tr, Tz)</div> }</td>
+                    <td data-label="Follow-up">@if (l.NextFollowUpOn is { } f) { <span class="@(l.FollowUpOverdue ? "lead-overdue" : "")">@f.ToString("ddd d MMM")@(l.FollowUpOverdue ? " · overdue" : "")</span> } else { <span class="muted">—</span> }
+                        <div class="caption">@l.Calls call@(l.Calls == 1 ? "" : "s")@(l.LastContactUtc is { } lc ? $" · last {Time.Date(lc, Tz)}" : "")</div></td>
+                    <td data-label="Assigned">@(l.AssignedToName ?? "—")</td>
+                    <td class="lead-actions">
+                        <button class="btn btn-secondary btn-sm" @onclick="() => OpenContact(l)"><Icon Name="plus" /> Log call<span class="sr-only"> with @l.StudentName</span></button>
+                        <button type="button" class="icon-btn icon-btn-sm" title="Edit" aria-label="@($"Edit {l.StudentName}")" @onclick="() => OpenLead(l)"><Icon Name="pencil" /></button>
+                    </td>
+                </tr>
+            }</tbody>
+        </table></div>
+        @if (_page is not null) { <Pager Page="_page.Page" TotalPages="_page.TotalPages" Total="_page.TotalCount" OnPage="Load" /> }
+    </DataView>
+</div>
+
+@if (Me is not null && _options is not null)
+{
+    <LeadDialog Me="Me" @bind-Open="_leadOpen" Lead="_editing" Options="_options" OnSaved="Saved" />
+    <ContactDialog Me="Me" @bind-Open="_contactOpen" LeadId="@(_contactFor?.Id ?? Guid.Empty)" LeadName="@(_contactFor?.StudentName ?? "")" OnSaved="() => Load(_page?.Page ?? 1)" />
+}
+
+<Modal @bind-Open="_importOpen" Title="Import leads" Wide="true">
+    @if (_importResult is { } res)
+    {
+        <p role="status"><strong>@res.Added added</strong>@(res.Skipped > 0 ? $", {res.Skipped} skipped." : ".")</p>
+        @if (res.Problems.Count > 0) { <ul class="small">@foreach (var p in res.Problems) { <li>@p</li> }</ul> }
+        <div class="form-actions"><button class="btn btn-primary" @onclick="() => _importOpen = false">Done</button></div>
+    }
+    else
+    {
+        <p class="small" style="margin-top:0">Copy rows from a spreadsheet (for example a download from Facebook or Google ads) and paste them here. One person per line, in this order: <strong>name, phone, parent, class, asked about</strong>. Only name and phone are needed.</p>
+        <div class="field"><label for="im-r">Rows *</label><textarea id="im-r" class="textarea" rows="7" placeholder="Anu Thomas, 9876543210, Thomas, Class 10, Maths" @bind="_importRows"></textarea></div>
+        <div class="form-grid">
+            <div class="field"><label for="im-s">Where did they come from? *</label><select id="im-s" class="select" @bind="_importSource">@foreach (var s in Enum.GetValues<LeadSource>()) { <option value="@s">@MarketingLabels.Source(s)</option> }</select></div>
+            <div class="field"><label for="im-c">Campaign</label><select id="im-c" class="select" @bind="_importCampaign"><option value="">None</option>@foreach (var c in _options?.Campaigns ?? []) { <option value="@c.Id">@c.Name</option> }</select></div>
+        </div>
+        <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _importOpen = false">Cancel</button><button class="btn btn-primary" @onclick="Import" disabled="@(Busy || string.IsNullOrWhiteSpace(_importRows))">Import</button></div>
+    }
+</Modal>
+
+@code {
+    [SupplyParameterFromQuery(Name = "new")] public string? NewParam { get; set; }
+    [SupplyParameterFromQuery(Name = "status")] public string? StatusParam { get; set; }
+    [SupplyParameterFromQuery(Name = "source")] public string? SourceParam { get; set; }
+    [SupplyParameterFromQuery(Name = "campaign")] public string? CampaignParam { get; set; }
+    [SupplyParameterFromQuery(Name = "followUp")] public string? FollowUpParam { get; set; }
+
+    private PagedResult<LeadDto>? _page;
+    private ApiException? _error;
+    private MarketingOptionsDto? _options;
+    private string _search = "", _status = "", _source = "", _campaign = "", _assignee = "", _followUp = "";
+    private LeadSort _sort = LeadSort.Newest;
+    private bool _leadOpen, _contactOpen;
+    private LeadDto? _editing, _contactFor;
+    private string? _route;
+
+    private bool FollowUpsPage => Nav.ToAbsoluteUri(Nav.Uri).AbsolutePath.EndsWith("/follow-ups", StringComparison.OrdinalIgnoreCase);
+    private string Title => FollowUpsPage ? "Follow-ups" : "Leads";
+    private bool Filtered => _search != "" || _status != "" || _source != "" || _campaign != "" || _assignee != "" || _followUp != "";
+
+    protected override async Task LoadAsync()
+    {
+        _options = (await Fetch(() => Api.GetAsync<MarketingOptionsDto>("marketing/options"))).Value;
+        await ApplyRoute();
+        if (NewParam == "1" && _options is not null) OpenLead(null);
+    }
+
+    // Leads and Follow-ups share this component: moving between them (or following a dashboard link) resets the filters.
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Me is not null && _route is not null && _route != RouteKey) await ApplyRoute();
+    }
+
+    private string RouteKey => $"{FollowUpsPage}|{StatusParam}|{SourceParam}|{CampaignParam}|{FollowUpParam}";
+
+    private async Task ApplyRoute()
+    {
+        _route = RouteKey;
+        (_search, _assignee) = ("", "");
+        (_status, _source, _campaign) = (StatusParam ?? "", SourceParam ?? "", CampaignParam ?? "");
+        (_followUp, _sort) = FollowUpsPage ? ("due", LeadSort.FollowUp) : (FollowUpParam ?? "", FollowUpParam == "trial" ? LeadSort.FollowUp : LeadSort.Newest);
+        await Load(1);
+    }
+
+    private string Query(int page) =>
+        $"page={page}&pageSize=25&sort={_sort}"
+        + (_search.Trim() == "" ? "" : $"&search={Uri.EscapeDataString(_search.Trim())}")
+        + (_status == "open" ? "&open=true" : _status == "" ? "" : $"&status={_status}")
+        + (_source == "" ? "" : $"&source={_source}") + (_campaign == "" ? "" : $"&campaignId={_campaign}")
+        + (_assignee == "" ? "" : $"&assignedToUserId={_assignee}")
+        + (_followUp switch { "" => "", "trial" => "&trial=upcoming", "website" => "&websiteNew=true", var f => $"&followUp={f}" });
+
+    private async Task Load(int page) => (_page, _error) = await Fetch(() => Api.GetAsync<PagedResult<LeadDto>>($"marketing/leads?{Query(page)}"));
+
+    private void OpenLead(LeadDto? lead) => (_editing, _leadOpen) = (lead, true);
+    private void OpenContact(LeadDto lead) => (_contactFor, _contactOpen) = (lead, true);
+
+    private async Task Saved(Guid id)
+    {
+        // A new campaign-less lead does not change the options; reload the page the admin was on.
+        await Load(_editing is null ? 1 : _page?.Page ?? 1);
+    }
+
+    // ---- Import from a spreadsheet ----
+    private bool _importOpen;
+    private string _importRows = "", _importCampaign = "";
+    private LeadSource _importSource = LeadSource.Other;
+    private ImportLeadsResult? _importResult;
+    private void OpenImport() => (_importRows, _importCampaign, _importSource, _importResult, _importOpen) = ("", "", LeadSource.Other, null, true);
+    private async Task Import()
+    {
+        var request = new ImportLeadsRequest(_importRows, _importSource, Guid.TryParse(_importCampaign, out var c) ? c : null);
+        if (await Run(async () => _importResult = await Api.PostAsync<ImportLeadsResult>("marketing/leads/import", request))) await Load(1);
+    }
+
+    private Task ExportCsv() => Run(async () => await JS.InvokeVoidAsync("ss.download", "leads.csv", await Api.GetStringAsync($"marketing/leads.csv?{Query(1)}"), "text/csv"), "Export ready.");
+}

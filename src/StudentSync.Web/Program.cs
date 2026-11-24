@@ -91,6 +91,24 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapHealthChecks("/health/live");
 
+// ---------- Public enquiry form (no sign-in): a plain form post, forwarded to the API ----------
+app.MapPost("/enquire/{code}/send", async (string code, [FromForm] string? studentName, [FromForm] string? phone, [FromForm] string? guardianName,
+    [FromForm] string? gradeLevelId, [FromForm] string? interest, [FromForm] string? website, IHttpClientFactory factory) =>
+{
+    var safeCode = Uri.EscapeDataString(code);
+    var request = new PublicEnquiryRequest(studentName ?? "", phone ?? "", guardianName, Guid.TryParse(gradeLevelId, out var g) ? g : null, interest, website);
+    try
+    {
+        var response = await factory.CreateClient("api-anon").PostAsJsonAsync($"api/v1/public/enquiry/{safeCode}", request, ApiClient.Json);
+        if (response.IsSuccessStatusCode) return Results.Redirect($"/enquire/{safeCode}?sent=1");
+        var error = await ApiClient.ToExceptionAsync(response);
+        // Only a short code travels in the address; the page turns it into words.
+        var reason = error.Status switch { 400 => error.Errors?.Keys.FirstOrDefault() ?? "invalid", 429 or 422 => "busy", 404 => "closed", _ => "failed" };
+        return Results.Redirect($"/enquire/{safeCode}?error={Uri.EscapeDataString(reason)}");
+    }
+    catch (HttpRequestException) { return Results.Redirect($"/enquire/{safeCode}?error=failed"); }
+}).AllowAnonymous();
+
 // ---------- Sign-in / sign-out (plain form posts so the session cookie can be set) ----------
 app.MapPost("/account/login", async ([FromForm] string email, [FromForm] string password, [FromForm] string? institutionCode, [FromForm] string? returnUrl,
     [FromForm] string? remember, HttpContext http, IHttpClientFactory factory, SessionStore store) =>

@@ -1,0 +1,204 @@
+@page "/marketing/campaigns"
+@attribute [Authorize(Roles = "InstitutionAdmin,Marketing")]
+@inherits AppPage
+@using StudentSync.Web.Components.Pages.Admin
+
+@* Marketing ▸ Campaigns (owner request 2026-11-24): where the centre is advertising, when, the budget and what was spent,
+   set against the leads and admissions each one brought. Cost per lead = spent ÷ leads; conversion = admitted ÷ leads. *@
+<PageTitle>Campaigns · Student Sync</PageTitle>
+<PageHeader Title="Campaigns" Subtitle="Where you are advertising, what it costs, and the leads and admissions each one brought.">
+    <Actions><button class="btn btn-primary" @onclick="New"><Icon Name="plus" /> Add campaign</button></Actions>
+</PageHeader>
+
+<div class="card">
+    <div class="list-tools">
+        <input class="input" type="search" placeholder="Search campaigns" aria-label="Search campaigns" @bind="_search" @bind:event="oninput" />
+        <select class="select" aria-label="Status" @bind="_status"><option value="">Any status</option>@foreach (var s in Enum.GetValues<CampaignStatus>()) { <option value="@s">@s</option> }</select>
+        <select class="select" aria-label="Sort" @bind="_sort">
+            <option value="newest">Newest first</option><option value="leads">Most leads</option><option value="spent">Most spent</option><option value="cpl">Lowest cost per lead</option><option value="name">Name (A–Z)</option>
+        </select>
+    </div>
+    <DataView Loading="_items is null && _error is null" Error="_error" OnRetry="LoadAsync" IsEmpty="_items?.Count == 0"
+              EmptyTitle="No campaigns yet" EmptyText="Add what you are running: an Instagram ad, flyers near a school, a newspaper notice. Then choose it on each lead." EmptyIcon="megaphone">
+        @if (Shown.Count == 0) { <InlineEmpty Icon="search" Text="No campaign matches." /> }
+        else
+        {
+            <div class="table-wrap"><table class="table stack-mobile">
+                <thead><tr><th>Campaign</th><th>When</th><th>Status</th><th class="num">Spent / budget</th><th class="num">Leads</th><th class="num">Admitted</th><th class="num">Cost per lead</th><th></th></tr></thead>
+                <tbody>@foreach (var c in Shown)
+                {
+                    <tr>
+                        <td data-label="Campaign"><a href="/marketing/leads?campaign=@c.Id"><strong>@c.Name</strong></a><div class="caption">@MarketingLabels.Source(c.Channel)@(c.Location is { } loc ? $" · {loc}" : "")</div></td>
+                        <td data-label="When" class="small">@c.StartsOn.ToString("d MMM yyyy")@(c.EndsOn is { } e ? $" – {e:d MMM yyyy}" : " – open")</td>
+                        <td data-label="Status"><Badge Style="StatusStyles.For(c.Status)" /></td>
+                        <td data-label="Spent / budget" class="num">@Money.Format(c.Spent, c.CurrencyCode)<div class="caption">of @Money.Format(c.Budget, c.CurrencyCode)</div></td>
+                        <td data-label="Leads" class="num">@c.Leads</td>
+                        <td data-label="Admitted" class="num">@c.Admitted@(c.ConversionPercent is { } cp ? $" ({cp:0.#}%)" : "")</td>
+                        <td data-label="Cost per lead" class="num">@(c.CostPerLead is { } cpl ? Money.Format(cpl, c.CurrencyCode) : "—")</td>
+                        <td class="lead-actions">
+                            <button class="btn btn-secondary btn-sm" @onclick="() => OpenSpend(c)"><Icon Name="plus" /> Spend<span class="sr-only"> on @c.Name</span></button>
+                            <button type="button" class="icon-btn icon-btn-sm" title="Edit" aria-label="@($"Edit {c.Name}")" @onclick="() => Edit(c)"><Icon Name="pencil" /></button>
+                            <button type="button" class="icon-btn icon-btn-sm" title="Delete" aria-label="@($"Delete {c.Name}")" @onclick="() => (_deleting, _deleteOpen) = (c, true)"><Icon Name="trash" /></button>
+                        </td>
+                    </tr>
+                }</tbody>
+            </table></div>
+        }
+    </DataView>
+</div>
+
+<Modal @bind-Open="_open" Title="@(_editId is null ? "Add campaign" : "Edit campaign")" Wide="true">
+    <div class="form-grid">
+        <div class="field full"><label for="cp-n">Name *</label><input id="cp-n" class="input" maxlength="150" placeholder="e.g. Instagram – Class 10 exam batch" @bind="_name" /></div>
+    </div>
+    <Choice TValue="LeadSource" Label="Channel *" Options="Channels" @bind-Value="_channel" />
+    <div class="form-grid">
+        <div class="field"><label for="cp-l">Where it runs</label><input id="cp-l" class="input" maxlength="200" placeholder="Area, school or page name" @bind="_location" /></div>
+        <div class="field"><label for="cp-st">Status</label><select id="cp-st" class="select" @bind="_cstatus">@foreach (var s in Enum.GetValues<CampaignStatus>()) { <option value="@s">@s</option> }</select></div>
+        <div class="field"><label for="cp-s">Starts *</label><input id="cp-s" class="input" type="date" @bind="_starts" /></div>
+        <div class="field"><label for="cp-e">Ends</label><input id="cp-e" class="input" type="date" @bind="_ends" /><span class="help">Leave empty while it is open-ended.</span></div>
+        <div class="field"><label for="cp-b">Budget (@_currency)</label><input id="cp-b" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_budget" />
+            <span class="help">What is actually paid is added with "Spend" on the campaign's row.</span></div>
+        <div class="field full"><label for="cp-no">Notes</label><input id="cp-no" class="input" maxlength="1000" @bind="_notes" /></div>
+    </div>
+    <div class="form-actions">
+        <button class="btn btn-secondary" @onclick="() => _open = false">Cancel</button>
+        <button class="btn btn-primary" @onclick="Save" disabled="@(Busy || string.IsNullOrWhiteSpace(_name) || _starts is null)">@(_editId is null ? "Add campaign" : "Save campaign")</button>
+    </div>
+</Modal>
+
+<Modal @bind-Open="_deleteOpen" Title="@($"Delete {_deleting?.Name}?")">
+    <p style="margin-top:0">The campaign is removed. Its @(_deleting?.Leads ?? 0) lead(s) stay, without a campaign, and money already recorded stays in Finance.</p>
+    <div class="form-actions"><button class="btn btn-secondary" @onclick="() => _deleteOpen = false">Keep it</button><button class="btn btn-danger" @onclick="Delete" disabled="@Busy"><Icon Name="trash" /> Delete campaign</button></div>
+</Modal>
+
+<Modal @bind-Open="_spendOpen" Title="@($"Spend · {_spendFor?.Name}")" Wide="true">
+    <p class="small" style="margin-top:0">Each amount paid for this campaign. It is also counted under Expenses ▸ Marketing in Finance, so it is never entered twice.</p>
+    <div class="form-grid">
+        <div class="field"><label for="sp-a">Amount (@_currency) *</label><input id="sp-a" class="input" type="number" min="0" step="0.01" inputmode="decimal" @bind="_spendAmount" /></div>
+        <div class="field"><label for="sp-d">Paid on *</label><input id="sp-d" class="input" type="date" @bind="_spendOn" /></div>
+        <div class="field full"><label for="sp-n">What for</label><input id="sp-n" class="input" maxlength="300" placeholder="e.g. Instagram ad, 1,000 flyers printed" @bind="_spendNote" /></div>
+    </div>
+    <MethodPicker @bind-Method="_spendMethod" @bind-Reference="_spendRef" />
+    <div class="form-actions"><button class="btn btn-primary" @onclick="AddSpend" disabled="@(Busy || _spendAmount is not > 0 || _spendOn is null)"><Icon Name="plus" /> Add spend</button></div>
+    <h3 class="former-h3">Recorded so far</h3>
+    @if (_spend is null) { <div class="sk sk-line w60" aria-hidden="true"></div> }
+    else if (_spend.Count == 0) { <InlineEmpty Icon="wallet" Text="Nothing recorded yet." /> }
+    else
+    {
+        <ul class="finance-ledger">
+            @foreach (var x in _spend)
+            {
+                <li><span class="finance-date">@x.SpentOn.ToString("d MMM")<span class="caption">@x.SpentOn.Year</span></span>
+                    <span class="grow"><strong>@x.Description</strong><span class="caption">@FinanceLabels.Method(x.Method)@(x.Reference is { } rf ? $" · {rf}" : "")@(x.RecordedBy is { } by ? $" · {by}" : "")</span></span>
+                    <span class="finance-amount out">@Money.Format(x.Amount, _currency)</span>
+                    <span class="finance-act"><button type="button" class="icon-btn icon-btn-sm" title="Remove" aria-label="@($"Remove the spend of {Money.Format(x.Amount, _currency)} on {x.SpentOn:d MMM}")" @onclick="() => RemoveSpend(x)" disabled="@Busy"><Icon Name="trash" /></button></span></li>
+            }
+        </ul>
+    }
+</Modal>
+
+@code {
+    private static readonly IReadOnlyList<Choice<LeadSource>.Option> Channels = Enum.GetValues<LeadSource>().Select(s => new Choice<LeadSource>.Option(s, MarketingLabels.Source(s))).ToList();
+    private bool _spendOpen;
+    private CampaignDto? _spendFor;
+    private List<CampaignSpendDto>? _spend;
+    private decimal? _spendAmount;
+    private DateOnly? _spendOn;
+    private string? _spendNote, _spendRef;
+    private PaymentMethod _spendMethod = PaymentMethod.Cash;
+    private string _spendKey = "";
+
+    private async Task OpenSpend(CampaignDto c)
+    {
+        (_spendFor, _spend, _spendAmount, _spendOn, _spendNote, _spendRef, _spendMethod, _spendOpen) = (c, null, null, DateOnly.FromDateTime(DateTime.Today), null, null, PaymentMethod.Cash, true);
+        _spendKey = Guid.NewGuid().ToString("N");
+        _spend = (await Fetch(() => Api.GetAsync<List<CampaignSpendDto>>($"marketing/campaigns/{c.Id}/spend"))).Value ?? [];
+    }
+
+    private async Task AddSpend()
+    {
+        if (_spendFor is not { } c) return;
+        var request = new AddCampaignSpendRequest(_spendAmount ?? 0, _spendOn, _spendNote, _spendMethod, _spendRef);
+        if (!await Run(() => Api.PostAsync($"marketing/campaigns/{c.Id}/spend", request, _spendKey), "Spend added.")) return;
+        (_spendAmount, _spendNote, _spendRef, _spendKey) = (null, null, null, Guid.NewGuid().ToString("N"));
+        _spend = (await Fetch(() => Api.GetAsync<List<CampaignSpendDto>>($"marketing/campaigns/{c.Id}/spend"))).Value ?? [];
+        await LoadAsync();
+    }
+
+    private async Task RemoveSpend(CampaignSpendDto x)
+    {
+        if (_spendFor is not { } c) return;
+        if (!await Run(() => Api.DeleteAsync($"marketing/campaigns/{c.Id}/spend/{x.Id}"), "Spend removed.")) return;
+        _spend = (await Fetch(() => Api.GetAsync<List<CampaignSpendDto>>($"marketing/campaigns/{c.Id}/spend"))).Value ?? [];
+        await LoadAsync();
+    }
+
+    private List<CampaignDto>? _items;
+    private ApiException? _error;
+    private string _search = "", _status = "", _sort = "newest", _currency = "";
+    private bool _open, _deleteOpen;
+    private Guid? _editId;
+    private string _name = "";
+    private string? _location, _notes;
+    private LeadSource _channel = LeadSource.Instagram;
+    private CampaignStatus _cstatus = CampaignStatus.Running;
+    private DateOnly? _starts, _ends;
+    private decimal? _budget;
+    private CampaignDto? _deleting;
+
+    private List<CampaignDto> Shown
+    {
+        get
+        {
+            IEnumerable<CampaignDto> rows = _items ?? [];
+            if (_search.Trim() != "") rows = rows.Where(c => c.Name.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase) || (c.Location?.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase) ?? false));
+            if (Enum.TryParse<CampaignStatus>(_status, out var st)) rows = rows.Where(c => c.Status == st);
+            return (_sort switch
+            {
+                "leads" => rows.OrderByDescending(c => c.Leads),
+                "spent" => rows.OrderByDescending(c => c.Spent),
+                "cpl" => rows.OrderBy(c => c.CostPerLead ?? decimal.MaxValue),
+                "name" => rows.OrderBy(c => c.Name),
+                _ => rows.OrderByDescending(c => c.StartsOn),
+            }).ToList();
+        }
+    }
+
+    protected override async Task LoadAsync()
+    {
+        (_items, _error) = await Fetch(() => Api.GetAsync<List<CampaignDto>>("marketing/campaigns"));
+        if (_currency == "") _currency = (await Fetch(() => Api.GetAsync<MarketingOptionsDto>("marketing/options"))).Value?.CurrencyCode ?? "";
+    }
+
+    private void New()
+    {
+        (_editId, _name, _location, _notes, _channel, _cstatus) = (null, "", null, null, LeadSource.Instagram, CampaignStatus.Running);
+        (_starts, _ends, _budget) = (DateOnly.FromDateTime(DateTime.Today), null, null);
+        _open = true;
+    }
+
+    private void Edit(CampaignDto c)
+    {
+        (_editId, _name, _location, _notes, _channel, _cstatus) = (c.Id, c.Name, c.Location, c.Notes, c.Channel, c.Status);
+        (_starts, _ends, _budget) = (c.StartsOn, c.EndsOn, c.Budget);
+        _open = true;
+    }
+
+    private async Task Save()
+    {
+        var request = new SaveCampaignRequest(_name, _channel, _starts ?? DateOnly.FromDateTime(DateTime.Today), _ends, _budget ?? 0, _cstatus, _location, _notes);
+        var ok = await Run(async () =>
+        {
+            if (_editId is { } id) await Api.PutAsync<IdResponse>($"marketing/campaigns/{id}", request);
+            else await Api.PostAsync<IdResponse>("marketing/campaigns", request);
+        }, _editId is null ? "Campaign added." : "Campaign saved.");
+        if (ok) { _open = false; await LoadAsync(); }
+    }
+
+    private async Task Delete()
+    {
+        if (_deleting is not { } c) return;
+        if (await Run(() => Api.DeleteAsync($"marketing/campaigns/{c.Id}"), $"{c.Name} deleted.")) { _deleteOpen = false; await LoadAsync(); }
+    }
+}

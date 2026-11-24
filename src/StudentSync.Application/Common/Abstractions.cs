@@ -50,6 +50,10 @@ public interface IAppDbContext
     DbSet<StudentPackage> StudentPackages { get; }
     DbSet<FeePlan> FeePlans { get; }
     DbSet<Expense> Expenses { get; }
+    DbSet<StudentSync.Domain.Marketing.Lead> Leads { get; }
+    DbSet<StudentSync.Domain.Marketing.LeadActivity> LeadActivities { get; }
+    DbSet<StudentSync.Domain.Marketing.Campaign> Campaigns { get; }
+    DbSet<StudentSync.Domain.Marketing.MarketingTarget> MarketingTargets { get; }
     DbSet<FeePayment> FeePayments { get; }
     DbSet<TeacherPayRate> TeacherPayRates { get; }
     DbSet<TeacherPayment> TeacherPayments { get; }

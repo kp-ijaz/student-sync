@@ -1,0 +1,68 @@
+@page "/enquire/{Code}"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout StudentSync.Web.Components.Layout.AuthLayout
+@inject IHttpClientFactory Clients
+@* The public enquiry form (owner request 2026-11-24): a parent or student sends a name, a phone number, the class and
+   what they need; it becomes a lead for the marketing team. No sign-in. A plain form post (works without scripts); the
+   hidden "website" field is left empty by people and filled by spam bots, whose posts are dropped by the API. Shown
+   only while the admin has the form switched on (Marketing ▸ Team). *@
+<PageTitle>Enquiry · @(_info?.InstituteName ?? "Student Sync")</PageTitle>
+@if (_info is null)
+{
+    <StateView Page="true" Illustration="@Illustrations.NotFound" Title="This enquiry form is not available" Message="Please contact the centre directly." />
+}
+else if (Sent == "1")
+{
+    <StateView Page="true" Illustration="@Illustrations.AllDone" Title="Thank you — we have your enquiry" Message="@($"{_info.InstituteName} will call you back soon.")">
+        <a class="btn btn-secondary btn-pill" href="/enquire/@Code">Send another enquiry</a>
+    </StateView>
+}
+else
+{
+    <form method="post" action="/enquire/@Code/send" data-enhance="false">
+        <AntiforgeryToken />
+        <div class="stack">
+        <div>
+            <h1>@_info.InstituteName</h1>
+            <p class="muted" style="margin:4px 0 0">Tell us who needs tuition and how to reach you. We will call you back.</p>
+        </div>
+        @if (Error is not null) { <div class="error-panel" role="alert">@ErrorText</div> }
+        <div class="field"><label for="eq-n">Student's name *</label><input id="eq-n" name="studentName" class="input" maxlength="150" required autocomplete="name" /></div>
+        <div class="field"><label for="eq-p">Phone / WhatsApp number *</label><input id="eq-p" name="phone" class="input" type="tel" maxlength="30" required autocomplete="tel" inputmode="tel" /></div>
+        <div class="field"><label for="eq-g">Parent / guardian's name</label><input id="eq-g" name="guardianName" class="input" maxlength="150" /></div>
+        <div class="field"><label for="eq-c">Class</label>
+            <select id="eq-c" name="gradeLevelId" class="select"><option value="">Choose…</option>@foreach (var g in _info.Grades) { <option value="@g.Id">@g.Name</option> }</select></div>
+        <div class="field"><label for="eq-i">Which subjects or help do you need?</label><input id="eq-i" name="interest" class="input" maxlength="300" placeholder="e.g. Maths and Physics" /></div>
+        <div class="hp-field" aria-hidden="true"><label for="eq-w">Leave this empty</label><input id="eq-w" name="website" tabindex="-1" autocomplete="off" /></div>
+        <button type="submit" class="btn btn-primary btn-pill btn-block">Send enquiry</button>
+        <p class="caption" style="margin:0">We use these details only to contact you about tuition.</p>
+        </div>
+    </form>
+}
+
+@code {
+    [Parameter] public string Code { get; set; } = "";
+    [SupplyParameterFromQuery] public string? Sent { get; set; }
+    [SupplyParameterFromQuery] public string? Error { get; set; }
+    private PublicEnquiryInfoDto? _info;
+
+    private string ErrorText => Error switch
+    {
+        "studentName" => "Please enter the student's name.",
+        "phone" => "Please enter a phone number we can call you on.",
+        "busy" => "We could not take your enquiry online just now. Please try again in a minute, or call the centre.",
+        "closed" => "This enquiry form is not available. Please contact the centre directly.",
+        _ => "Something went wrong. Please check the details and try again.",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var response = await Clients.CreateClient("api-anon").GetAsync($"api/v1/public/enquiry/{Uri.EscapeDataString(Code)}");
+            if (response.IsSuccessStatusCode) _info = await response.Content.ReadFromJsonAsync<PublicEnquiryInfoDto>(ApiClient.Json);
+        }
+        catch (HttpRequestException) { /* shown as "not available" */ }
+    }
+}

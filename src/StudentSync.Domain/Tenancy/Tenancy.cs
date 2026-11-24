@@ -27,6 +27,8 @@ public class Tenant : AuditableEntity
     public int RecordingRetentionDays { get; set; } = 365;
     public bool StudentsCanMessageTeachers { get; set; } = true;
     public bool ParentsCanMessageTeachers { get; set; } = true;
+    /// <summary>Whether the public enquiry form (/enquire/{code}) accepts enquiries. Off until the admin switches it on.</summary>
+    public bool PublicEnquiryEnabled { get; set; }
 }
 
 public class InstitutionHoliday : TenantEntity

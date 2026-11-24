@@ -21,6 +21,8 @@ public class Expense : TenantEntity
     public PaymentMethod Method { get; set; }
     public string? Reference { get; set; }
     public Guid RecordedByUserId { get; set; }
+    /// <summary>Set when this is money spent on a marketing campaign (category Marketing); the campaign's "spent" is the sum of these.</summary>
+    public Guid? CampaignId { get; set; }
 
     public static void Validate(decimal amount)
     {

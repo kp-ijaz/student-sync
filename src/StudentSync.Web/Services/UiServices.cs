@@ -54,6 +54,7 @@ public static class StatusStyles
     {
         PersonStatus.Active => new("Active", "green"),
         PersonStatus.Suspended => new("Suspended", "red"),
+        PersonStatus.OnHold => new("On hold", "amber"),
         PersonStatus.Archived => new("Archived", "slate"),
         _ => new("Inactive", "slate"),
     };
@@ -139,12 +140,29 @@ public static class StatusStyles
         AiPipelineStatus.TranscriptionPending => new("Transcript needed", "slate"),
         _ => new("No recording yet", "slate"),
     };
+    public static StatusStyle For(StudentSync.Domain.Marketing.LeadStatus s) => s switch
+    {
+        StudentSync.Domain.Marketing.LeadStatus.New => new("New", "blue"),
+        StudentSync.Domain.Marketing.LeadStatus.Contacted => new("Contacted", "slate"),
+        StudentSync.Domain.Marketing.LeadStatus.Interested => new("Interested", "violet"),
+        StudentSync.Domain.Marketing.LeadStatus.TrialBooked => new("Trial booked", "amber"),
+        StudentSync.Domain.Marketing.LeadStatus.Admitted => new("Admitted", "green"),
+        _ => new("Not interested", "red"),
+    };
+    public static StatusStyle For(StudentSync.Domain.Marketing.CampaignStatus s) => s switch
+    {
+        StudentSync.Domain.Marketing.CampaignStatus.Running => new("Running", "green"),
+        StudentSync.Domain.Marketing.CampaignStatus.Paused => new("Paused", "amber"),
+        StudentSync.Domain.Marketing.CampaignStatus.Ended => new("Ended", "slate"),
+        _ => new("Planned", "blue"),
+    };
     public static string RoleLabel(UserRole r) => r switch
     {
         UserRole.SuperAdmin => "Platform admin",
         UserRole.InstitutionAdmin => "Administrator",
         UserRole.Teacher => "Teacher",
         UserRole.Student => "Student",
+        UserRole.Marketing => "Marketing",
         _ => "Parent",
     };
 }
@@ -383,10 +401,22 @@ public static class Navigation
             NavItem.Group("Fees", "wallet",
                 new("Fees due", "/admin/fees", "wallet"), new("Fee plans", "/admin/fee-plans", "layers"), new("Salaries", "/admin/salaries", "clipboard-check"),
                 new("Finance", "/admin/finance", "trending-up")),
+            NavItem.Group("Marketing", "megaphone",
+                new("Overview", "/marketing", "bar-chart", true), new("Leads", "/marketing/leads", "user-plus"),
+                new("Follow-ups", "/marketing/follow-ups", "calendar-clock"), new("Campaigns", "/marketing/campaigns", "megaphone"),
+                new("Team", "/marketing/team", "users")),
             NavItem.Group("Reports", "bar-chart",
                 new("Reports", "/admin/reports", "bar-chart"), new("Students by class", "/admin/student-numbers", "users"),
                 new("Progress reports", "/progress-reports", "chart-line")),
             new("Settings", "/admin/settings", "settings"),
+        ],
+        // The marketing team's own portal (owner decision 2026-11-24): enquiries, follow-ups and campaigns only.
+        UserRole.Marketing =>
+        [
+            new("Dashboard", "/marketing", "grid", true),
+            new("Leads", "/marketing/leads", "user-plus"),
+            new("Follow-ups", "/marketing/follow-ups", "calendar-clock"),
+            new("Campaigns", "/marketing/campaigns", "megaphone"),
         ],
         UserRole.Teacher =>
         [
@@ -454,6 +484,13 @@ public static class Navigation
             new("Classes", "/sessions", "calendar", Children: [new("Videos", "/videos", "video")]),
             new("Reports", "/admin/reports", "bar-chart"),
         ],
+        UserRole.Marketing =>
+        [
+            new("Home", "/marketing", "grid", true),
+            new("Leads", "/marketing/leads", "user-plus"),
+            new("Follow-ups", "/marketing/follow-ups", "calendar-clock"),
+            new("Campaigns", "/marketing/campaigns", "megaphone"),
+        ],
         _ => [],
     };
 
@@ -490,6 +527,7 @@ public static class Navigation
         UserRole.InstitutionAdmin => "/admin",
         UserRole.Teacher => "/teacher",
         UserRole.Student => "/student",
+        UserRole.Marketing => "/marketing",
         _ => "/parent",
     };
 }

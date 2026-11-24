@@ -1,19 +1,12 @@
 @* How a fee was paid (cash, card, bank transfer, UPI, cheque, other) and an optional receipt or transaction number. *@
-<fieldset class="field fee-method">
-    <legend>Paid by</legend>
-    <div class="pick-group">
-        @foreach (var m in Enum.GetValues<PaymentMethod>().Where(m => m != PaymentMethod.Online))
-        {
-            <button type="button" class="pick" aria-pressed="@Aria.Bool(Method == m)" @onclick="() => MethodChanged.InvokeAsync(m)">@StudentFeesPanel.MethodName(m)</button>
-        }
-    </div>
-</fieldset>
+<Choice TValue="PaymentMethod" Label="Paid by" Options="Methods" Value="Method" ValueChanged="MethodChanged" />
 <div class="field">
     <label for="@_refId">Receipt or transaction no.</label>
     <input id="@_refId" class="input" maxlength="100" value="@Reference" @onchange="e => ReferenceChanged.InvokeAsync(e.Value?.ToString())" />
 </div>
 
 @code {
+    private static readonly IReadOnlyList<Choice<PaymentMethod>.Option> Methods = Enum.GetValues<PaymentMethod>().Where(m => m != PaymentMethod.Online).Select(m => new Choice<PaymentMethod>.Option(m, FinanceLabels.Method(m))).ToList();
     private readonly string _refId = "ref-" + Guid.NewGuid().ToString("N")[..8];
     [Parameter] public PaymentMethod Method { get; set; }
     [Parameter] public EventCallback<PaymentMethod> MethodChanged { get; set; }
